@@ -27,6 +27,34 @@ Validation: all 82 tests pass; production compilation and typechecking pass.
 ESLint reports only the two existing navigation warnings. UI lifecycle behavior
 has unit coverage for state/stream logic, but no browser end-to-end run was performed.
 
+## Runner resource bounds (separate follow-up branch)
+
+Branch: perf/runner-resource-bounds, based on security/audit-hardening at 0c46f71.
+This is separate from Antigravity's fix/review-security-and-bugs and feat/mcp-server.
+
+- [x] M1: Web runs persist per-result events without retaining a duplicate complete
+      results array. Summary counters are accumulated incrementally.
+- [x] M1: Cap each progress subscriber's event queue at 1 MiB. Disconnect stalled
+      subscribers while allowing the run to continue persisting results.
+- [x] Publish the done event only after final persistence succeeds.
+- [x] Remove parent cancellation listeners on success and failure; honor signals
+      already aborted before starting a persisted run.
+- [x] Preserve default full-summary behavior for existing core/service callers.
+
+The optional retainResults flag is additive. MCP callers can keep using startRun
+unchanged; setting retainResults: false returns counters and an empty results array,
+with full results available via getRunSummary. No MCP endpoint, desktop code,
+HTTP policy, sandbox, OAuth cache, cookie persistence, or request parameter logic
+is changed in this follow-up.
+
+Remaining M1 work: browser result virtualization/pagination, paginated history
+retrieval and exports, database retention, and run admission limits. Per-request
+response buffering and script host-call bounds are separate outstanding work.
+
+Follow-up validation: 94 tests pass across 12 files; typechecking and production
+build pass. Lint retains the same two existing navigation warnings. No browser
+end-to-end or Docker validation was performed for this follow-up.
+
 ## Implemented in the first review batch
 
 - [x] H1: Reject out-of-range literal IPv4/IPv6 destinations under IP allowlists.
@@ -51,7 +79,8 @@ decompression is an immediate mitigation, not a streaming implementation.
 4. H6: Full request/auth/body schemas, guest message validation, and input byte limits.
 5. H1/H2: Validate host-policy configuration and define handling for custom auth
    headers and HTTPS downgrade redirects.
-6. M1: Bound runner queues, result retention, concurrency, and browser result rendering.
+6. M1: Add run admission limits, database retention, and paginated/virtualized browser
+   results; server progress queues and web-run duplicate retention are bounded above.
 7. M2/M3: Persist cookie deltas and enforce workspace relationships transactionally.
 8. M5: Improve draft persistence, upload storage, and credential handling. M4's main
    save/load/send races are addressed above; browser end-to-end coverage remains.

@@ -28,6 +28,8 @@ export interface StartRunInput {
   source?: "manual" | "schedule" | "mcp" | "api";
   onEvent?: (e: RunEvent & { runId: string }) => void;
   signal?: AbortSignal;
+  /** Default true for existing callers. False returns counters with an empty results array. */
+  retainResults?: boolean;
 }
 
 export async function startRun(input: StartRunInput): Promise<{ runId: string; summary: RunSummary }> {
@@ -42,8 +44,6 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
   const db = getDb();
   const runId = newId();
   const ctrl = new AbortController();
-  input.signal?.addEventListener("abort", () => ctrl.abort(), { once: true });
-  active.set(runId, ctrl);
 
   db.insert(runs)
     .values({
@@ -59,6 +59,11 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
       startedAt: Date.now(),
     })
     .run();
+
+  const onAbort = () => ctrl.abort();
+  input.signal?.addEventListener("abort", onAbort, { once: true });
+  if (input.signal?.aborted) ctrl.abort();
+  active.set(runId, ctrl);
 
   const saveResult = (r: RunResult) =>
     db
@@ -100,7 +105,10 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
       policy: getPolicy(),
       secrets: ctx.secrets,
       signal: ctrl.signal,
+      retainResults: input.retainResults,
       onEvent: (e) => {
+        // Completion is published only after the final persistence below succeeds.
+        if (e.type === "done") return;
         if (e.type === "result") saveResult(e.result);
         input.onEvent?.({ ...e, runId });
       },
@@ -121,6 +129,8 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
       })
       .where(eq(runs.id, runId))
       .run();
+    const { results: _results, ...done } = summary;
+    input.onEvent?.({ type: "done", summary: done, runId });
     return { runId, summary };
   } catch (err) {
     db.update(runs)
@@ -129,6 +139,7 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
       .run();
     throw err;
   } finally {
+    input.signal?.removeEventListener("abort", onAbort);
     active.delete(runId);
   }
 }

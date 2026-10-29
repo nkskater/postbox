@@ -88,6 +88,8 @@ export interface RunCollectionInput {
   onEvent?: (e: RunEvent) => void;
   /** Max bytes of response body kept per result (default 16 KB). */
   keepBodyBytes?: number;
+  /** Keep results in the returned summary (default true). Disable when persisting via onEvent. */
+  retainResults?: boolean;
 }
 
 /** Depth-first flattening of a folder tree in sort order. */
@@ -168,6 +170,11 @@ export async function runCollection(
   const emit = input.onEvent ?? (() => undefined);
   const keep = input.keepBodyBytes ?? 16 * 1024;
   const results: RunResult[] = [];
+  let totalRequests = 0;
+  let failedRequests = 0;
+  let totalTests = 0;
+  let passedTests = 0;
+  let failedTests = 0;
   let scopes: VariableScopes = structuredClone(input.scopes);
   let status: RunSummary["status"] = "passed";
   let sequence = 0;
@@ -223,7 +230,15 @@ export async function runCollection(
       scopes = r.scopes;
       if (r.logs.length) emit({ type: "log", entries: r.logs });
       const result = toResult(iteration, sequence++, item, r, keep);
-      results.push(result);
+      if (input.retainResults !== false) results.push(result);
+      totalRequests++;
+      if (!result.passed) failedRequests++;
+      for (const test of result.tests) {
+        if (test.skipped) continue;
+        totalTests++;
+        if (test.passed) passedTests++;
+        else failedTests++;
+      }
       emit({ type: "result", result });
 
       if (!result.passed) {
@@ -257,16 +272,15 @@ export async function runCollection(
   }
 
   const finishedAt = Date.now();
-  const allTests = results.flatMap((r) => r.tests.filter((t) => !t.skipped));
   const summary: RunSummary = {
     name: input.root.name,
     status,
     iterations,
-    totalRequests: results.length,
-    failedRequests: results.filter((r) => !r.passed).length,
-    totalTests: allTests.length,
-    passedTests: allTests.filter((t) => t.passed).length,
-    failedTests: allTests.filter((t) => !t.passed).length,
+    totalRequests,
+    failedRequests,
+    totalTests,
+    passedTests,
+    failedTests,
     durationMs: finishedAt - startedAt,
     startedAt,
     finishedAt,

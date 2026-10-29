@@ -6,6 +6,7 @@
 import { z } from "zod";
 import { startRun, listRuns } from "@/server/runs";
 import { json, parseBody, requireParam, route } from "@/server/http";
+import { createEventStream } from "@/server/event-stream";
 
 export const dynamic = "force-dynamic";
 
@@ -34,41 +35,21 @@ export const GET = route((req: Request) => {
 
 export const POST = route(async (req: Request) => {
   const input = await parseBody(req, schema);
-  const encoder = new TextEncoder();
-  let closed = false;
-  const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      const send = (obj: unknown) => {
-        if (closed) return;
-        try {
-          controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
-        } catch {
-          closed = true;
-        }
-      };
-      // The run keeps going even if the browser disconnects; it can be cancelled explicitly.
-      startRun({
-        workspaceId: input.workspaceId,
-        folderId: input.folderId,
-        environmentId: input.environmentId ?? null,
-        options: input.options,
-        data: input.data,
-        selectedRequestIds: input.selectedRequestIds,
-        onEvent: send,
-      })
-        .catch((err) => send({ type: "error", error: (err as Error).message }))
-        .finally(() => {
-          if (!closed) {
-            closed = true;
-            controller.close();
-          }
-        });
-    },
-    cancel() {
-      closed = true;
-    },
-  });
-  return new Response(stream, {
+  const events = createEventStream();
+  // Runs persist results even if the subscriber disconnects or falls behind.
+  void startRun({
+    workspaceId: input.workspaceId,
+    folderId: input.folderId,
+    environmentId: input.environmentId ?? null,
+    options: input.options,
+    data: input.data,
+    selectedRequestIds: input.selectedRequestIds,
+    retainResults: false,
+    onEvent: events.send,
+  })
+    .catch((err) => events.send({ type: "error", error: (err as Error).message }))
+    .finally(events.close);
+  return new Response(events.stream, {
     headers: {
       "Content-Type": "application/x-ndjson; charset=utf-8",
       "Cache-Control": "no-store",

@@ -66,6 +66,10 @@ npm run db:generate  # after changing src/server/db/schema.ts
 
 Postbox is a single HTTP service. Collection runs stream progress as NDJSON, so turn off response buffering.
 
+Runs continue saving results if the browser disconnects. A progress subscriber whose
+queued events exceed 1 MiB is disconnected so a slow connection cannot accumulate
+unbounded server memory. Reopen the run from history to inspect its persisted results.
+
 **Caddy**
 ```
 postbox.example.com {

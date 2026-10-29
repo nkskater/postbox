@@ -52,6 +52,44 @@ const folder = (name: string, children: FolderNode["children"], p: Partial<Folde
 const scopes = () => ({ ...emptyScopes(), environment: { base: server.url } });
 
 describe("collection runner", () => {
+  it("can emit all results without retaining them, while keeping accurate counters", async () => {
+    const root = folder("Counters", [
+      req("pass", { testScript: 'pm.test("pass", () => {}); pm.test.skip("skip", () => {});' }),
+      req("fail", { testScript: 'pm.test("fail", () => pm.expect(1).to.equal(2));' }),
+      req("skip", { preRequestScript: "pm.execution.skipRequest();" }),
+      req("error", { url: "http://127.0.0.1:1/" }),
+    ]);
+    const events: RunEvent[] = [];
+    const { summary } = await runCollection({
+      root,
+      scopes: scopes(),
+      options: { ...DEFAULT_RUN_OPTIONS, iterations: 3 },
+      retainResults: false,
+      onEvent: (event) => events.push(event),
+    });
+    expect(summary).toMatchObject({
+      status: "failed",
+      totalRequests: 12,
+      failedRequests: 6,
+      totalTests: 6,
+      passedTests: 3,
+      failedTests: 3,
+      results: [],
+    });
+    expect(events.filter((event) => event.type === "result")).toHaveLength(12);
+    expect(events.at(-1)).toMatchObject({ type: "done", summary: { totalRequests: 12, failedRequests: 6 } });
+  });
+
+  it("counts results correctly with retention disabled and stop-on-failure", async () => {
+    const { summary } = await runCollection({
+      root: folder("Stop", [req("error", { url: "http://127.0.0.1:1/" }), req("unreached")]),
+      scopes: scopes(),
+      options: { ...DEFAULT_RUN_OPTIONS, iterations: 5, stopOnFailure: true },
+      retainResults: false,
+    });
+    expect(summary).toMatchObject({ status: "failed", totalRequests: 1, failedRequests: 1, results: [] });
+  });
+
   it("removes delay cancellation listeners after successful iterations", async () => {
     const controller = new AbortController();
     await runCollection({
