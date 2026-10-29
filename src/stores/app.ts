@@ -75,6 +75,16 @@ export function snapshot(d: RequestDraft): string {
 const abortControllers = new Map<string, AbortController>();
 /** In-flight openRequest calls, so rapid clicks don't open duplicate tabs. */
 const opening = new Map<string, Promise<void>>();
+const saving = new Set<string>();
+let workspaceGeneration = 0;
+let treeGeneration = 0;
+let environmentGeneration = 0;
+let variableGeneration = 0;
+
+function abortTab(id: string) {
+  abortControllers.get(id)?.abort();
+  abortControllers.delete(id);
+}
 
 interface AppState {
   workspaces: Workspace[];
@@ -148,8 +158,24 @@ export const useApp = create<AppState>()(
 
       async setWorkspace(id) {
         const switching = get().workspaceId !== id;
-        set({ workspaceId: id, ...(switching ? { tabs: [], activeTabId: null, environmentId: null } : {}) });
+        const generation = switching ? ++workspaceGeneration : workspaceGeneration;
+        if (switching) for (const tabId of abortControllers.keys()) abortTab(tabId);
+        set({
+          workspaceId: id,
+          ...(switching
+            ? {
+                tabs: [],
+                activeTabId: null,
+                environmentId: null,
+                folders: [],
+                requests: [],
+                environments: [],
+                variables: {},
+              }
+            : {}),
+        });
         await Promise.all([get().refreshTree(), get().refreshEnvironments()]);
+        if (generation !== workspaceGeneration) return;
         const envs = get().environments;
         if (get().environmentId && !envs.some((e) => e.id === get().environmentId))
           set({ environmentId: null });
@@ -167,16 +193,23 @@ export const useApp = create<AppState>()(
       },
 
       async refreshTree() {
+        const generation = ++treeGeneration;
+        const workspace = workspaceGeneration;
         const id = get().workspaceId;
         if (!id) return;
         const tree = await api.workspaces.tree(id);
+        if (generation !== treeGeneration || workspace !== workspaceGeneration) return;
         set({ folders: tree.folders, requests: tree.requests });
       },
 
       async refreshEnvironments() {
+        const generation = ++environmentGeneration;
+        const workspace = workspaceGeneration;
         const id = get().workspaceId;
         if (!id) return;
-        set({ environments: await api.environments.list(id) });
+        const environments = await api.environments.list(id);
+        if (generation !== environmentGeneration || workspace !== workspaceGeneration) return;
+        set({ environments });
       },
 
       setEnvironment(id) {
@@ -185,6 +218,8 @@ export const useApp = create<AppState>()(
       },
 
       async refreshVariables() {
+        const generation = ++variableGeneration;
+        const workspace = workspaceGeneration;
         const { workspaceId, environmentId } = get();
         if (!workspaceId) return;
         const tab = get().tabs.find((t) => t.id === get().activeTabId);
@@ -210,6 +245,7 @@ export const useApp = create<AppState>()(
             ? api.variables.list(workspaceId, "collection", collectionId)
             : Promise.resolve([] as Variable[]),
         ]);
+        if (generation !== variableGeneration || workspace !== workspaceGeneration) return;
         const vars: Record<string, KnownVariable> = {};
         const add = (list: Variable[], scope: KnownVariable["scope"]) =>
           list
@@ -222,6 +258,7 @@ export const useApp = create<AppState>()(
       },
 
       async openRequest(id, opts) {
+        const workspace = workspaceGeneration;
         const existing = get().tabs.find((t) => t.type === "request" && t.requestId === id);
         if (existing) {
           set((s) => ({
@@ -237,6 +274,7 @@ export const useApp = create<AppState>()(
         }
         if (opening.has(id)) {
           await opening.get(id);
+          if (workspace !== workspaceGeneration) return;
           if (!opts?.preview) await get().openRequest(id, opts);
           return;
         }
@@ -249,6 +287,7 @@ export const useApp = create<AppState>()(
           opening.delete(id);
           done();
         }
+        if (workspace !== workspaceGeneration) return;
         const draft: RequestDraft = { ...r, folderId: r.folderId };
         const tab: Tab = {
           id: uid(),
@@ -282,6 +321,7 @@ export const useApp = create<AppState>()(
           result: result ?? null,
         };
         set((s) => ({ tabs: [...s.tabs, tab], activeTabId: tab.id }));
+        void get().refreshVariables();
       },
 
       openTab(tab) {
@@ -302,7 +342,7 @@ export const useApp = create<AppState>()(
       },
 
       closeTab(id) {
-        abortControllers.get(id)?.abort();
+        abortTab(id);
         set((s) => {
           const idx = s.tabs.findIndex((t) => t.id === id);
           const tabs = s.tabs.filter((t) => t.id !== id);
@@ -310,10 +350,13 @@ export const useApp = create<AppState>()(
           if (activeTabId === id) activeTabId = tabs[Math.min(idx, tabs.length - 1)]?.id ?? null;
           return { tabs, activeTabId };
         });
+        void get().refreshVariables();
       },
 
       closeOtherTabs(id) {
+        for (const tab of get().tabs) if (tab.id !== id) abortTab(tab.id);
         set((s) => ({ tabs: s.tabs.filter((t) => t.id === id), activeTabId: id }));
+        void get().refreshVariables();
       },
 
       setActiveTab(id) {
@@ -336,6 +379,9 @@ export const useApp = create<AppState>()(
         if (!tab || tab.type !== "request") return false;
         const { workspaceId } = get();
         if (!workspaceId) return false;
+        if (saving.has(tabId)) return false;
+        saving.add(tabId);
+        const workspace = workspaceGeneration;
         const { id: _id, folderId: _f, ...def } = tab.draft;
         try {
           if (tab.requestId) {
@@ -343,7 +389,9 @@ export const useApp = create<AppState>()(
             const draft: RequestDraft = { ...saved, folderId: saved.folderId };
             set((s) => ({
               tabs: s.tabs.map((t) =>
-                t.id === tabId && t.type === "request" ? { ...t, draft, saved: snapshot(draft) } : t,
+                t.id === tabId && t.type === "request" && workspace === workspaceGeneration
+                  ? { ...t, draft: t.draft === tab.draft ? draft : t.draft, saved: snapshot(draft) }
+                  : t,
               ),
             }));
           } else {
@@ -355,18 +403,34 @@ export const useApp = create<AppState>()(
             const draft: RequestDraft = { ...saved, folderId: saved.folderId };
             set((s) => ({
               tabs: s.tabs.map((t) =>
-                t.id === tabId && t.type === "request"
-                  ? { ...t, requestId: saved.id, draft, saved: snapshot(draft) }
+                t.id === tabId && t.type === "request" && workspace === workspaceGeneration
+                  ? {
+                      ...t,
+                      requestId: saved.id,
+                      draft:
+                        t.draft === tab.draft
+                          ? draft
+                          : {
+                              ...t.draft,
+                              id: saved.id,
+                              folderId: saved.folderId,
+                              name: t.draft.name === tab.draft.name ? saved.name : t.draft.name,
+                            },
+                      saved: snapshot(draft),
+                    }
                   : t,
               ),
             }));
           }
+          if (workspace !== workspaceGeneration) return true;
           await get().refreshTree();
           toast.success("Saved");
           return true;
         } catch (err) {
           toast.error(`Save failed: ${(err as Error).message}`);
           return false;
+        } finally {
+          saving.delete(tabId);
         }
       },
 
@@ -380,10 +444,14 @@ export const useApp = create<AppState>()(
         }
         abortControllers.get(tabId)?.abort();
         const ctrl = new AbortController();
+        const workspace = workspaceGeneration;
         abortControllers.set(tabId, ctrl);
+        const isCurrent = () => abortControllers.get(tabId) === ctrl && workspace === workspaceGeneration;
         const patchTab = (p: Partial<Extract<Tab, { type: "request" }>>) =>
           set((s) => ({
-            tabs: s.tabs.map((t) => (t.id === tabId && t.type === "request" ? { ...t, ...p } : t)),
+            tabs: s.tabs.map((t) =>
+              isCurrent() && t.id === tabId && t.type === "request" ? { ...t, ...p } : t,
+            ),
           }));
         patchTab({ sending: true });
         try {
@@ -398,6 +466,11 @@ export const useApp = create<AppState>()(
             },
             ctrl.signal,
           );
+          if (!isCurrent()) return;
+          if (ctrl.signal.aborted) {
+            patchTab({ sending: false });
+            return;
+          }
           patchTab({ sending: false, result });
           get().log(result.logs);
           result.scriptErrors.forEach((e) =>
@@ -407,6 +480,7 @@ export const useApp = create<AppState>()(
           set((s) => ({ historyVersion: s.historyVersion + 1 }));
           void get().refreshVariables();
         } catch (err) {
+          if (!isCurrent()) return;
           if ((err as Error).name === "AbortError") {
             patchTab({ sending: false });
             return;
@@ -434,6 +508,9 @@ export const useApp = create<AppState>()(
       },
 
       onEntityDeleted(kind, id) {
+        for (const tab of get().tabs) {
+          if (tab.type === "request" && kind === "request" && tab.requestId === id) abortTab(tab.id);
+        }
         set((s) => {
           const tabs = s.tabs.filter((t) => {
             if (kind === "request") return !(t.type === "request" && t.requestId === id);
