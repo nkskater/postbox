@@ -80,20 +80,24 @@ export function TabBar() {
               >
                 <TabTitle tab={t} />
                 <button
-                  className="ml-auto flex size-4 shrink-0 items-center justify-center rounded hover:bg-accent"
+                  className={cn(
+                    "ml-auto flex size-5 shrink-0 items-center justify-center rounded hover:bg-accent hover:text-foreground",
+                    activeTabId === t.id ? "text-foreground/80" : "text-muted-foreground",
+                  )}
+                  aria-label="Close tab"
                   onClick={(e) => {
                     e.stopPropagation();
                     closeTab(t.id);
                   }}
-                  title="Close (Ctrl+W)"
+                  title="Close tab (Alt+W)"
                 >
                   {dirty ? (
                     <>
                       <span className="size-2 rounded-full bg-primary group-hover:hidden" />
-                      <X className="hidden size-3 group-hover:block" />
+                      <X className="hidden size-3.5 group-hover:block" />
                     </>
                   ) : (
-                    <X className="size-3 opacity-0 group-hover:opacity-100" />
+                    <X className="size-3.5" />
                   )}
                 </button>
               </div>
