@@ -109,9 +109,14 @@ export function flattenTree(root: FolderNode, ancestors: FolderDef[] = []): RunI
 
 const sleep = (ms: number, signal?: AbortSignal) =>
   new Promise<void>((resolve) => {
-    if (ms <= 0) return resolve();
-    const t = setTimeout(resolve, ms);
-    signal?.addEventListener("abort", () => (clearTimeout(t), resolve()), { once: true });
+    if (ms <= 0 || signal?.aborted) return resolve();
+    const finish = () => {
+      clearTimeout(t);
+      signal?.removeEventListener("abort", finish);
+      resolve();
+    };
+    const t = setTimeout(finish, ms);
+    signal?.addEventListener("abort", finish, { once: true });
   });
 
 function toResult(

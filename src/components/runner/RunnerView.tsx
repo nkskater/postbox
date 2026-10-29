@@ -3,10 +3,11 @@
  * Collection runner tab: choose requests, options and iteration data, run with
  * live progress, inspect per-request results and export reports.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import { ChevronDown, ChevronRight, Database, FileUp, Loader2, Play, Square, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { useShallow } from "zustand/react/shallow";
 import type { DataTable } from "@/core/types";
 import type { RunEvent, RunResult } from "@/core/runner/runner";
 import { filterRows } from "@/core/runner/data";
@@ -20,6 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { TestResultsList } from "@/components/response/ResponseViewer";
 import { formatBytes, formatMs, methodColor, relativeTime, statusColor } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { readNdjson } from "@/lib/ndjson";
 import { DataGrid } from "./DataGrid";
 
 interface RunState {
@@ -55,7 +57,17 @@ export function RunnerView({ folderId }: { folderId: string }) {
     workspaceId,
     log,
     refreshVariables,
-  } = useApp();
+  } = useApp(
+    useShallow((s) => ({
+      folders: s.folders,
+      requests: s.requests,
+      environments: s.environments,
+      environmentId: s.environmentId,
+      workspaceId: s.workspaceId,
+      log: s.log,
+      refreshVariables: s.refreshVariables,
+    })),
+  );
   const folder = folders.find((f) => f.id === folderId);
 
   // Requests below this folder in tree order.
@@ -92,6 +104,14 @@ export function RunnerView({ folderId }: { folderId: string }) {
   const [view, setView] = useState<"all" | "passed" | "failed">("all");
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [past, setPast] = useState<PastRun[]>([]);
+  const streamController = useRef<AbortController | null>(null);
+  useEffect(
+    () => () => {
+      streamController.current?.abort();
+      streamController.current = null;
+    },
+    [],
+  );
 
   const filtered = useMemo(() => (data ? filterRows(data, filter) : null), [data, filter]);
   const iterations = autoIterations && filtered ? Math.max(1, filtered.rows.length) : iterationsInput;
@@ -125,10 +145,14 @@ export function RunnerView({ folderId }: { folderId: string }) {
     if (!workspaceId) return;
     const selected = ordered.filter((r) => !excluded.has(r.id)).map((r) => r.id);
     if (!selected.length) return toast.error("Select at least one request");
+    streamController.current?.abort();
+    const controller = new AbortController();
+    streamController.current = controller;
     setRun({ ...emptyRun, running: true });
     setExpanded(new Set());
     try {
       const res = await fetch("/api/runs", {
+        signal: controller.signal,
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -141,44 +165,42 @@ export function RunnerView({ folderId }: { folderId: string }) {
         }),
       });
       if (!res.ok || !res.body) throw new Error((await res.json().catch(() => ({}))).error ?? res.statusText);
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          const e = JSON.parse(line) as (RunEvent & { runId: string }) | { type: "error"; error: string };
-          setRun((s) => {
-            switch (e.type) {
-              case "start":
-                return { ...s, runId: e.runId, total: e.total, iterations: e.iterations };
-              case "request":
-                return { ...s, current: `${e.name} (iteration ${e.iteration + 1})` };
-              case "result":
-                return { ...s, results: [...s.results, e.result] };
-              case "done":
-                return { ...s, done: e.summary, running: false, current: undefined };
-              case "error":
-                return { ...s, error: e.error, running: false };
-              default:
-                return s;
-            }
-          });
-          if (e.type === "log") log(e.entries);
-        }
+      let terminal = false;
+      for await (const event of readNdjson(res.body)) {
+        if (streamController.current !== controller) return;
+        const e = event as (RunEvent & { runId: string }) | { type: "error"; error: string };
+        if (e.type === "done" || e.type === "error") terminal = true;
+        setRun((s) => {
+          switch (e.type) {
+            case "start":
+              return { ...s, runId: e.runId, total: e.total, iterations: e.iterations };
+            case "request":
+              return { ...s, current: `${e.name} (iteration ${e.iteration + 1})` };
+            case "result":
+              return { ...s, results: [...s.results, e.result] };
+            case "done":
+              return { ...s, done: e.summary, running: false, current: undefined };
+            case "error":
+              return { ...s, error: e.error, running: false };
+            default:
+              return s;
+          }
+        });
+        if (e.type === "log") log(e.entries);
       }
+      if (!terminal)
+        throw new Error("Run progress disconnected. Open the run from history to check its status.");
     } catch (err) {
+      if (streamController.current !== controller || controller.signal.aborted) return;
       toast.error((err as Error).message);
       setRun((s) => ({ ...s, error: (err as Error).message }));
     } finally {
-      setRun((s) => ({ ...s, running: false }));
-      void refreshVariables();
-      loadPast();
+      if (streamController.current === controller) {
+        streamController.current = null;
+        setRun((s) => ({ ...s, running: false }));
+        void refreshVariables();
+        loadPast();
+      }
     }
   };
 

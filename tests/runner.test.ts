@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { getEventListeners } from "node:events";
 import { flattenTree, runCollection, type RunEvent } from "@/core/runner/runner";
 import { toHtmlReport, toJUnitReport } from "@/core/runner/reporters";
 import {
@@ -51,6 +52,32 @@ const folder = (name: string, children: FolderNode["children"], p: Partial<Folde
 const scopes = () => ({ ...emptyScopes(), environment: { base: server.url } });
 
 describe("collection runner", () => {
+  it("removes delay cancellation listeners after successful iterations", async () => {
+    const controller = new AbortController();
+    await runCollection({
+      root: folder("Delays", [req("first"), req("second")]),
+      scopes: scopes(),
+      options: { ...DEFAULT_RUN_OPTIONS, iterations: 8, delayMs: 1 },
+      signal: controller.signal,
+    });
+    expect(getEventListeners(controller.signal, "abort")).toHaveLength(0);
+  });
+
+  it("escapes XML delimiters in assertion and request error text", async () => {
+    const { summary } = await runCollection({
+      root: folder("XML", [
+        req("bad", { testScript: 'pm.test("delimiters", () => { throw new Error("]]> <tag> &"); });' }),
+      ]),
+      scopes: scopes(),
+      options: DEFAULT_RUN_OPTIONS,
+    });
+    summary.results[0].error = "]]> <network> &";
+    const xml = toJUnitReport(summary);
+    expect(xml).not.toContain("<![CDATA[");
+    expect(xml).toContain("]]&gt; &lt;tag&gt; &amp;");
+    expect(xml).toContain("]]&gt; &lt;network&gt; &amp;");
+  });
+
   it("flattens nested folders depth-first with ancestor chains", () => {
     const tree = folder("Col", [req("a"), folder("Sub", [req("b"), folder("Deep", [req("c")])]), req("d")]);
     const items = flattenTree(tree);

@@ -27,17 +27,17 @@ export function toJUnitReport(summary: RunSummary): string {
       const head = `    <testcase name="${xmlEscape(t.name)}" classname="${xmlEscape(name)}" time="${time}">`;
       if (t.skipped) return `${head}<skipped/></testcase>`;
       if (t.passed) return `${head}</testcase>`;
-      return `${head}\n      <failure type="AssertionFailure" message="${xmlEscape(t.error ?? "failed")}"><![CDATA[${t.error ?? ""}]]></failure>\n    </testcase>`;
+      return `${head}\n      <failure type="AssertionFailure" message="${xmlEscape(t.error ?? "failed")}">${xmlEscape(t.error ?? "")}</failure>\n    </testcase>`;
     });
     const errors = [r.error, ...r.scriptErrors.map((e) => `${e.source}: ${e.message}`)].filter(
       Boolean,
     ) as string[];
     if (errors.length) {
       cases.push(
-        `    <testcase name="${xmlEscape(r.error ? "Request" : "Scripts")}" classname="${xmlEscape(name)}" time="${time}">\n      <error message="${xmlEscape(errors[0])}"><![CDATA[${errors.join("\n")}]]></error>\n    </testcase>`,
+        `    <testcase name="${xmlEscape(r.error ? "Request" : "Scripts")}" classname="${xmlEscape(name)}" time="${time}">\n      <error message="${xmlEscape(errors[0])}">${xmlEscape(errors.join("\n"))}</error>\n    </testcase>`,
       );
     }
-    const failures = r.tests.filter((t) => !t.passed).length;
+    const failures = r.tests.filter((t) => !t.passed && !t.skipped).length;
     const skipped = r.tests.filter((t) => t.skipped).length;
     return `  <testsuite name="${xmlEscape(name)}" tests="${cases.length}" failures="${failures}" errors="${errors.length ? 1 : 0}" skipped="${skipped}" time="${time}" timestamp="${new Date(summary.startedAt).toISOString()}">\n${cases.join("\n")}\n  </testsuite>`;
   });

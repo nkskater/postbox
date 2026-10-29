@@ -1,7 +1,31 @@
-# Security audit implementation
+# Project audit implementation
 
 This branch starts the audit remediation. It is intended for review before any
 merge to main. It does not make Postbox safe for untrusted network exposure.
+
+## Implemented in the reliability and performance batch
+
+- [x] M4: Preserve draft edits made while saving and prevent duplicate create saves.
+- [x] M4: Ignore stale workspace, environment, variable, and request-load responses,
+      including switching away from and back to the same workspace.
+- [x] M4: Keep old request cancellation from changing a newer send's state; abort
+      sends on tab closure or workspace changes.
+- [x] M7: Group folders and requests once during tree construction instead of
+      scanning workspace arrays for every folder; detect corrupt tree cycles.
+- [x] M7: Add workspace/sort indexes for requests and environments through migration
+      0002_query_indexes, with EXPLAIN QUERY PLAN regression checks.
+- [x] L2: Release runner delay abort listeners when timers complete normally.
+- [x] Extract and test a bounded NDJSON reader: fragmented UTF-8, CRLF, final events
+      without newlines, early exit, malformed events, and reader cleanup.
+- [x] Release progress streams when leaving the runner tab and report unexpected
+      end-of-stream; server runs still continue and remain accessible in history.
+- [x] Narrow runner store subscriptions to avoid unrelated state updates.
+- [x] Escape JUnit error text without unsafe CDATA delimiters and exclude skipped
+      assertions from per-suite failure counts.
+
+Validation: all 82 tests pass; production compilation and typechecking pass.
+ESLint reports only the two existing navigation warnings. UI lifecycle behavior
+has unit coverage for state/stream logic, but no browser end-to-end run was performed.
 
 ## Implemented in the first review batch
 
@@ -29,13 +53,14 @@ decompression is an immediate mitigation, not a streaming implementation.
    headers and HTTPS downgrade redirects.
 6. M1: Bound runner queues, result retention, concurrency, and browser result rendering.
 7. M2/M3: Persist cookie deltas and enforce workspace relationships transactionally.
-8. M4/M5: Protect asynchronous store operations with revisions/generations and improve
-   draft persistence, upload storage, and credential handling.
+8. M5: Improve draft persistence, upload storage, and credential handling. M4's main
+   save/load/send races are addressed above; browser end-to-end coverage remains.
 9. M6: Surface truncation, preserve appropriate repeated headers, define redirect
    method semantics, and implement bounded streaming/download paths.
-10. M7: Optimize tree construction and validate indexes with query plans.
+10. M7: Further optimize subtree payload loading and nextSort scans; tree grouping
+    and workspace query indexes are implemented above.
 11. M8: Quote generated cURL methods and protect PowerShell body delimiters.
-12. L2-L6: Remove delay listeners, establish secret retention rules, constrain preview
+12. L3-L6: Establish secret retention rules, constrain preview
     resources, sanitize unexpected API errors, and harden container resources.
 13. Maintainability: Extract large UI components, narrow store subscriptions,
     escape JUnit CDATA, fix navigation lint warnings, and align documentation.
