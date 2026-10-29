@@ -1,3 +1,5 @@
+# Settings come from a git-ignored .env file next to this one (copy .env.example to .env).
+# Never put credentials directly in this file: it is tracked in git.
 services:
   postbox:
     build: .
@@ -5,19 +7,21 @@ services:
     container_name: postbox
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "${POSTBOX_PORT:-3000}:3000"
     volumes:
       - postbox-data:/data
     environment:
       DATABASE_PATH: /data/postbox.db
-      # Authentication (recommended, see README):
-      # POSTBOX_PASSWORD: "change-me"
-      # POSTBOX_TOKEN: "long-random-token-for-mcp-and-scripts"
-      # Optional hardening:
-      # PROXY_ALLOW_HOSTS: "*.internal.example.com,10.0.0.0/8"
-      # PROXY_DENY_HOSTS: "169.254.169.254"
-      # SCRIPT_TIMEOUT_MS: "5000"
-      # SCRIPT_MEMORY_MB: "32"
+      # Authentication (recommended). Empty values leave Postbox open.
+      POSTBOX_PASSWORD: ${POSTBOX_PASSWORD:-}
+      POSTBOX_TOKEN: ${POSTBOX_TOKEN:-}
+      POSTBOX_SESSION_DAYS: ${POSTBOX_SESSION_DAYS:-30}
+      # Outgoing request policy and limits (see README).
+      PROXY_ALLOW_HOSTS: ${PROXY_ALLOW_HOSTS:-}
+      PROXY_DENY_HOSTS: ${PROXY_DENY_HOSTS:-}
+      MCP_ALLOWED_ORIGINS: ${MCP_ALLOWED_ORIGINS:-}
+      SCRIPT_TIMEOUT_MS: ${SCRIPT_TIMEOUT_MS:-5000}
+      SCRIPT_MEMORY_MB: ${SCRIPT_MEMORY_MB:-32}
 
 volumes:
   postbox-data:

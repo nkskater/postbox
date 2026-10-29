@@ -9,3 +9,6 @@ CLAUDE.md
 AGENTS.md
 *.db
 *.log
+.env
+.env.*
+!.env.example

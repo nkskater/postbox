@@ -30,6 +30,7 @@ secrets stay on the server.
 ```bash
 git clone https://github.com/nkskater/postbox.git
 cd postbox
+cp .env.example .env && chmod 600 .env   # set POSTBOX_PASSWORD / POSTBOX_TOKEN here
 docker compose up -d --build
 # open http://<server-ip>:3000
 ```
@@ -73,7 +74,8 @@ Set either or both of these to require authentication for the UI and every API r
 - `POSTBOX_PASSWORD`: enables the `/login` page, which issues a signed, HTTP-only session cookie (default 30 days).
 - `POSTBOX_TOKEN`: accepted as `Authorization: Bearer <token>` for scripts and MCP clients (and on the login form).
 
-Changing either value signs everyone out. With neither set, Postbox is open. Only run it that way on a trusted network.
+Put them in the git-ignored `.env` file (see `.env.example`), not in `docker-compose.yml`, which is tracked in git.
+Anyone with Docker access on the host can still read them with `docker inspect`. Changing either value signs everyone out. With neither set, Postbox is open. Only run it that way on a trusted network.
 
 ## Running behind a reverse proxy
 
