@@ -13,6 +13,7 @@ import type {
   Variable,
 } from "@/core/types";
 import { DEFAULT_SETTINGS } from "@/core/types";
+import { paramsFromUrl } from "@/lib/url-params";
 import { getDb, schema } from "./db";
 import type { FolderRow, RequestRow } from "./db/schema";
 import { defaultFolder, defaultRequest, newId } from "./defaults";
@@ -279,6 +280,7 @@ export function getRequest(id: string) {
 
 export function createRequest(workspaceId: string, folderId: string, partial: Partial<RequestDef> = {}) {
   const def = defaultRequest(partial);
+  if (!def.params.length) def.params = paramsFromUrl(def.url);
   getDb()
     .insert(requests)
     .values({
@@ -307,6 +309,11 @@ export function createRequest(workspaceId: string, folderId: string, partial: Pa
 
 export function updateRequest(id: string, patch: Partial<RequestDef>) {
   const { id: _id, ...rest } = patch;
+  if (rest.url !== undefined && rest.params === undefined) {
+    rest.params = paramsFromUrl(rest.url, getRequest(id)?.params);
+  } else if (rest.params?.length === 0) {
+    rest.params = paramsFromUrl(rest.url ?? getRequest(id)?.url ?? "");
+  }
   getDb()
     .update(requests)
     .set({ ...rest, updatedAt: now() })
