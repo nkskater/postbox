@@ -1,0 +1,55 @@
+# Security audit implementation
+
+This branch starts the audit remediation. It is intended for review before any
+merge to main. It does not make Postbox safe for untrusted network exposure.
+
+## Implemented in the first review batch
+
+- [x] H1: Reject out-of-range literal IPv4/IPv6 destinations under IP allowlists.
+- [x] H2: Do not resurrect explicit cookies after crossing redirect origins.
+- [x] H2: Disable Digest challenge responses after crossing an origin boundary.
+- [x] H3: Bound every decompression stage and propagate size-limit failures.
+- [x] H3: Use asynchronous decompression to avoid synchronous event-loop blocking.
+- [x] M6: Reject already-aborted HTTP operations, including cancellation during jar access.
+- [x] Add local regression coverage for these boundaries and successful normal cases.
+
+Encoded bodies still use the existing truncation behavior. Oversized decoded
+bodies now fail with ERESPONSETOOLARGE. Bodies remain buffered; asynchronous
+decompression is an immediate mitigation, not a streaming implementation.
+
+## Remaining priorities
+
+1. C1: Authentication enforcement, browser-origin protection, and safer default
+   network exposure. POSTBOX_PASSWORD/POSTBOX_TOKEN do not enforce authentication.
+2. H4/L1: Script host-call quotas, concurrency limits, cancellation, worker isolation,
+   explicit handle ownership, and cleanup/soak tests.
+3. H5: OAuth cache credential/workspace isolation, bounded expiry, and eviction.
+4. H6: Full request/auth/body schemas, guest message validation, and input byte limits.
+5. H1/H2: Validate host-policy configuration and define handling for custom auth
+   headers and HTTPS downgrade redirects.
+6. M1: Bound runner queues, result retention, concurrency, and browser result rendering.
+7. M2/M3: Persist cookie deltas and enforce workspace relationships transactionally.
+8. M4/M5: Protect asynchronous store operations with revisions/generations and improve
+   draft persistence, upload storage, and credential handling.
+9. M6: Surface truncation, preserve appropriate repeated headers, define redirect
+   method semantics, and implement bounded streaming/download paths.
+10. M7: Optimize tree construction and validate indexes with query plans.
+11. M8: Quote generated cURL methods and protect PowerShell body delimiters.
+12. L2-L6: Remove delay listeners, establish secret retention rules, constrain preview
+    resources, sanitize unexpected API errors, and harden container resources.
+13. Maintainability: Extract large UI components, narrow store subscriptions,
+    escape JUnit CDATA, fix navigation lint warnings, and align documentation.
+
+## Review focus
+
+- Hostnames with IP allow rules still defer until DNS resolution, while literal
+  addresses are checked immediately. Deny rules retain precedence.
+- Same-origin cookies and Digest behavior remain supported. Once an origin boundary
+  is crossed, this request chain cannot reuse Digest credentials.
+- gzip, wrapped/raw deflate, Brotli, and stacked encodings enforce decoded limits.
+  Optional Zstandard support uses Node's asynchronous decoder when available.
+- Malformed compression retains the existing raw-payload fallback. Limit errors
+  must never fall through to that fallback.
+- Arbitrary custom authentication headers are not stripped by this batch.
+
+Run npm test, npm run typecheck, npm run lint, and npm run build before review.

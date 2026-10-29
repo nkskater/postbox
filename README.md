@@ -56,7 +56,7 @@ npm run db:generate  # after changing src/server/db/schema.ts
 | `PROXY_DENY_HOSTS` | _(none)_ | Comma list that is always blocked (wins over allow) |
 | `SCRIPT_TIMEOUT_MS` | `5000` | Per-script time limit |
 | `SCRIPT_MEMORY_MB` | `32` | Per-script memory limit |
-| `RESPONSE_MAX_BYTES` | `52428800` | Response bodies larger than this are truncated |
+| `RESPONSE_MAX_BYTES` | `52428800` | Encoded response bytes are truncated at this limit; decompression exceeding the limit at any stage is rejected |
 | `HISTORY_LIMIT` | `500` | History entries kept per workspace |
 
 > **Security:** Built-in authentication is **not implemented yet** (see roadmap). Until it is, only expose Postbox on a

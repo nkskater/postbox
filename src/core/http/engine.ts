@@ -13,6 +13,7 @@ import https from "node:https";
 import dns from "node:dns";
 import net from "node:net";
 import zlib from "node:zlib";
+import { promisify } from "node:util";
 import type { CookieInfo, HttpResponse, PreparedRequest, RedirectHop, Timings } from "../types";
 import type { CookieJarStore } from "./cookies";
 import { parseSetCookies } from "./cookies";
@@ -23,7 +24,7 @@ export interface EngineOptions {
   cookieJar?: CookieJarStore;
   policy?: HostPolicy;
   signal?: AbortSignal;
-  /** Maximum decoded body size; larger bodies are truncated. Default 50 MB. */
+  /** Encoded body cap (truncates) and per-stage decoded cap (rejects). Default 50 MB. */
   maxBodyBytes?: number;
 }
 
@@ -69,7 +70,22 @@ function looksBinary(buf: Buffer): boolean {
   return false;
 }
 
-function decompress(buf: Buffer, encoding: string | undefined): Buffer {
+const gunzip = promisify(zlib.gunzip);
+const inflate = promisify(zlib.inflate);
+const inflateRaw = promisify(zlib.inflateRaw);
+const brotliDecompress = promisify(zlib.brotliDecompress);
+
+function rethrowBodyLimit(err: unknown): void {
+  if ((err as NodeJS.ErrnoException)?.code === "ERR_BUFFER_TOO_LARGE") {
+    throw new RequestError("Decoded response exceeds the response size limit", "ERESPONSETOOLARGE");
+  }
+}
+
+async function decompress(
+  buf: Buffer,
+  encoding: string | undefined,
+  maxOutputLength: number,
+): Promise<Buffer> {
   if (!encoding || buf.length === 0) return buf;
   const encodings = encoding
     .toLowerCase()
@@ -80,17 +96,22 @@ function decompress(buf: Buffer, encoding: string | undefined): Buffer {
   for (const enc of encodings) {
     try {
       if (enc === "gzip" || enc === "x-gzip")
-        out = zlib.gunzipSync(out, { finishFlush: zlib.constants.Z_SYNC_FLUSH });
+        out = await gunzip(out, { maxOutputLength, finishFlush: zlib.constants.Z_SYNC_FLUSH });
       else if (enc === "deflate") {
         try {
-          out = zlib.inflateSync(out);
-        } catch {
-          out = zlib.inflateRawSync(out);
+          out = await inflate(out, { maxOutputLength });
+        } catch (err) {
+          rethrowBodyLimit(err);
+          out = await inflateRaw(out, { maxOutputLength });
         }
-      } else if (enc === "br") out = zlib.brotliDecompressSync(out);
-      else if (enc === "zstd" && "zstdDecompressSync" in zlib)
-        out = (zlib as unknown as { zstdDecompressSync(b: Buffer): Buffer }).zstdDecompressSync(out);
-    } catch {
+      } else if (enc === "br") out = await brotliDecompress(out, { maxOutputLength });
+      else if (enc === "zstd" && "zstdDecompress" in zlib) {
+        const decode = promisify(zlib.zstdDecompress as typeof zlib.brotliDecompress);
+        out = await decode(out, { maxOutputLength });
+      }
+    } catch (err) {
+      if (err instanceof RequestError) throw err;
+      rethrowBodyLimit(err);
       return buf; // leave the payload as-is if it cannot be decoded
     }
   }
@@ -230,6 +251,11 @@ function sendOnce(
       req.destroy();
     };
     opts.signal?.addEventListener("abort", onAbort, { once: true });
+    // Cancellation can arrive while the caller awaits cookie-jar access.
+    if (opts.signal?.aborted) {
+      onAbort();
+      return;
+    }
 
     function cleanup() {
       clearTimeout(timer);
@@ -282,6 +308,9 @@ export async function sendRequest(
   const policy = options.policy ?? OPEN_POLICY;
   const settings = prepared.settings;
   const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY;
+  if (!Number.isSafeInteger(maxBodyBytes) || maxBodyBytes <= 0) {
+    throw new RequestError("Response size limit must be a positive integer", "EINVALIDLIMIT");
+  }
   const overallStart = performance.now();
   const redirects: RedirectHop[] = [];
   const responseCookies: CookieInfo[] = [];
@@ -296,9 +325,10 @@ export async function sendRequest(
   let headers = prepared.headers.slice();
   let body = prepared.body;
   let digestTried = false;
-  const userCookieHeader = headers.find(([k]) => k.toLowerCase() === "cookie")?.[1];
+  let digestAllowed = true;
 
   for (let hop = 0; ; hop++) {
+    if (options.signal?.aborted) throw new RequestError("Request was cancelled", "ECANCELLED");
     if (url.protocol !== "http:" && url.protocol !== "https:") {
       throw new RequestError(`Unsupported protocol "${url.protocol}"`, "EPROTOCOL");
     }
@@ -309,6 +339,7 @@ export async function sendRequest(
     if (options.cookieJar && settings.useCookieJar) {
       const jarCookies = await options.cookieJar.getCookieHeader(url.toString());
       if (jarCookies) {
+        const userCookieHeader = headers.find(([k]) => k.toLowerCase() === "cookie")?.[1];
         hopHeaders = withoutHeader(headers, "cookie");
         hopHeaders.push(["Cookie", userCookieHeader ? `${userCookieHeader}; ${jarCookies}` : jarCookies]);
       }
@@ -335,7 +366,7 @@ export async function sendRequest(
     const header = (name: string) => res.rawHeaders.find(([k]) => k.toLowerCase() === name)?.[1];
 
     // Digest challenge/response: retry once with credentials.
-    if (res.status === 401 && prepared.digest && !digestTried) {
+    if (res.status === 401 && prepared.digest && digestAllowed && !digestTried) {
       const challenge = parseDigestChallenge(
         res.rawHeaders
           .filter(([k]) => k.toLowerCase() === "www-authenticate")
@@ -375,13 +406,16 @@ export async function sendRequest(
         headers = withoutHeader(headers, "content-type", "content-length");
       }
       // Never forward credentials to a different origin.
-      if (next.origin !== url.origin) headers = withoutHeader(headers, "authorization", "cookie");
+      if (next.origin !== url.origin) {
+        headers = withoutHeader(headers, "authorization", "cookie");
+        digestAllowed = false;
+      }
       headers = withoutHeader(headers, "host");
       url = next;
       continue;
     }
 
-    const decoded = decompress(res.body, header("content-encoding"));
+    const decoded = await decompress(res.body, header("content-encoding"), maxBodyBytes);
     const contentType = header("content-type") ?? "";
     const isBinary = !isTextContentType(contentType) || looksBinary(decoded);
     const headersSize = res.rawHeaders.reduce((n, [k, v]) => n + k.length + v.length + 4, 0);

@@ -95,6 +95,9 @@ export class HostPolicy {
 
   /** Returns null when allowed, or a reason string when blocked. */
   check(host: string, ip?: string): string | null {
+    // Literal addresses bypass Node's lookup callback, so they must be final here.
+    host = host.toLowerCase().replace(/^\[|\]$/g, "");
+    ip ??= net.isIP(host) ? host : undefined;
     if (matches(this.deny, host, ip))
       return `Host "${host}"${ip ? ` (${ip})` : ""} is blocked by PROXY_DENY_HOSTS`;
     if (!this.allow.empty && !matches(this.allow, host, ip)) {
