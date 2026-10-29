@@ -157,6 +157,7 @@ export async function applyAuth(
   req: PreparedRequest,
   auth: AuthConfig,
   engine?: EngineOptions,
+  offline = false,
 ): Promise<{ oauth2Token?: OAuth2Token }> {
   const hasAuthHeader = req.headers.some(([k]) => k.toLowerCase() === "authorization");
   switch (auth.type) {
@@ -176,9 +177,10 @@ export async function applyAuth(
       const { key, value } = auth.apikey;
       if (!key) return {};
       if (auth.apikey.in === "query") {
-        const u = new URL(req.url);
-        u.searchParams.append(key, value);
-        req.url = u.toString();
+        // String-based so it also works on not-yet-valid URLs (code generation with unresolved variables).
+        const [base, hash] = req.url.split("#");
+        const pair = `${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
+        req.url = `${base}${base.includes("?") ? "&" : "?"}${pair}${hash !== undefined ? `#${hash}` : ""}`;
       } else setHeader(req, key, value);
       return {};
     }
@@ -187,6 +189,11 @@ export async function applyAuth(
       return {};
     case "oauth2": {
       if (hasAuthHeader) return {};
+      if (offline) {
+        const t = auth.oauth2.accessToken || "<access-token>";
+        setHeader(req, "Authorization", auth.oauth2.headerPrefix ? `${auth.oauth2.headerPrefix} ${t}` : t);
+        return {};
+      }
       const token = await getOAuth2Token(auth.oauth2, engine);
       if (token) {
         const prefix = auth.oauth2.headerPrefix ?? "Bearer";

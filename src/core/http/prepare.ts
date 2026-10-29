@@ -16,6 +16,8 @@ export interface PrepareResult {
   unresolved: string[];
   oauth2Token?: OAuth2Token;
   effectiveAuth: AuthConfig;
+  /** Body config after variable substitution (used by code generation). */
+  resolvedBody: BodyConfig;
 }
 
 /** Ensure the URL has a scheme; Postman defaults to http:// as well. */
@@ -23,6 +25,8 @@ export function normalizeUrl(url: string): string {
   const trimmed = url.trim();
   if (!trimmed) return trimmed;
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) return trimmed;
+  // Leave unresolved templates such as "{{baseUrl}}/x" untouched.
+  if (trimmed.startsWith("{{")) return trimmed;
   return `http://${trimmed}`;
 }
 
@@ -78,6 +82,8 @@ export async function prepareRequest(
   ancestors: FolderDef[],
   resolver: Resolver,
   engine?: EngineOptions,
+  /** Offline mode never fetches OAuth2 tokens (code generation). */
+  opts: { offline?: boolean } = {},
 ): Promise<PrepareResult> {
   const settings = { ...DEFAULT_SETTINGS, ...request.settings };
   const method = (resolver.resolve(request.method) || "GET").toUpperCase();
@@ -86,7 +92,8 @@ export async function prepareRequest(
   const headers = mergeHeaders([...ancestors.map((a) => a.headers), request.headers], resolver);
   const has = (n: string) => headers.some(([k]) => k.toLowerCase() === n);
 
-  const encoded = encodeBody(resolveBody(request.body ?? { mode: "none" }, resolver), method);
+  const resolvedBody = resolveBody(request.body ?? { mode: "none" }, resolver);
+  const encoded = encodeBody(resolvedBody, method);
   if (encoded.contentType && !has("content-type")) headers.push(["Content-Type", encoded.contentType]);
   if (!has("user-agent")) headers.push(["User-Agent", USER_AGENT]);
   if (!has("accept")) headers.push(["Accept", "*/*"]);
@@ -98,7 +105,7 @@ export async function prepareRequest(
     resolveEffectiveAuth([...ancestors.map((a) => a.auth), request.auth]),
     resolver,
   );
-  const { oauth2Token } = await applyAuth(prepared, effectiveAuth, engine);
+  const { oauth2Token } = await applyAuth(prepared, effectiveAuth, engine, opts.offline);
 
-  return { prepared, unresolved: [...resolver.unresolved], oauth2Token, effectiveAuth };
+  return { prepared, unresolved: [...resolver.unresolved], oauth2Token, effectiveAuth, resolvedBody };
 }

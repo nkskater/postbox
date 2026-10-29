@@ -1,0 +1,276 @@
+import { describe, expect, it } from "vitest";
+import { parseCurl, tokenize } from "@/core/convert/curl";
+import {
+  exportPostmanCollection,
+  importPostmanCollection,
+  importPostmanEnvironment,
+  exportPostmanEnvironment,
+  type PostmanCollection,
+} from "@/core/convert/postman";
+import { importOpenApi } from "@/core/convert/openapi";
+import { generateSnippet } from "@/core/convert/codegen";
+import type { FolderNode, RequestNode } from "@/core/types";
+
+describe("cURL import", () => {
+  it("tokenizes quotes, escapes and line continuations", () => {
+    expect(tokenize(`curl 'a b' "c \\"d\\"" e\\ f \\\n -H $'x\\ny'`)).toEqual([
+      "curl",
+      "a b",
+      'c "d"',
+      "e f",
+      "-H",
+      "x\ny",
+    ]);
+  });
+
+  it("parses method, headers, JSON body and auth", () => {
+    const r = parseCurl(
+      `curl -X POST 'https://api.example.com/users?x=1' -H 'Content-Type: application/json' -H "Authorization: Bearer abc" --data-raw '{"name":"a"}' -u user:pw -k -L`,
+    );
+    expect(r.method).toBe("POST");
+    expect(r.url).toBe("https://api.example.com/users?x=1");
+    expect(r.headers.map((h) => h.key)).toEqual(["Content-Type", "Authorization"]);
+    expect(r.body).toEqual({ mode: "raw", language: "json", raw: '{\n  "name": "a"\n}' });
+    expect(r.auth).toEqual({ type: "basic", basic: { username: "user", password: "pw" } });
+    expect(r.insecure).toBe(true);
+  });
+
+  it("handles form data, urlencoded data and -G", () => {
+    expect(parseCurl(`curl https://x.test -F 'a=1' -F 'file=@/tmp/a.png'`).body).toMatchObject({
+      mode: "formdata",
+      formdata: [
+        { key: "a", value: "1", type: "text" },
+        { key: "file", type: "file", fileName: "/tmp/a.png" },
+      ],
+    });
+    expect(parseCurl(`curl https://x.test -d 'a=1&b=two%20words'`).body).toEqual({
+      mode: "urlencoded",
+      urlencoded: [
+        { key: "a", value: "1", enabled: true },
+        { key: "b", value: "two words", enabled: true },
+      ],
+    });
+    const g = parseCurl(`curl -G https://x.test/search --data-urlencode 'q=a b'`);
+    expect(g.method).toBe("GET");
+    expect(g.url).toBe("https://x.test/search?q=a%20b");
+    expect(parseCurl("curl example.com").url).toBe("http://example.com");
+  });
+});
+
+const postmanFixture: PostmanCollection = {
+  info: { name: "Sample", schema: "https://schema.getpostman.com/json/collection/v2.1.0/collection.json" },
+  auth: { type: "bearer", bearer: [{ key: "token", value: "{{token}}", type: "string" }] },
+  event: [{ listen: "prerequest" as const, script: { exec: ["console.log('col')"] } }],
+  variable: [{ key: "baseUrl", value: "https://api.test" }],
+  item: [
+    {
+      name: "Users",
+      item: [
+        {
+          name: "Get user",
+          event: [
+            { listen: "test" as const, script: { exec: ["pm.test('ok', () => {});", "// second line"] } },
+          ],
+          request: {
+            method: "GET",
+            header: [
+              { key: "Accept", value: "application/json" },
+              { key: "X-Off", value: "1", disabled: true },
+            ],
+            url: {
+              raw: "{{baseUrl}}/users/:id?verbose=true",
+              host: ["{{baseUrl}}"],
+              path: ["users", ":id"],
+              query: [
+                { key: "verbose", value: "true" },
+                { key: "debug", value: "1", disabled: true },
+              ],
+              variable: [{ key: "id", value: "" }],
+            },
+          },
+          response: [{ name: "OK", code: 200, status: "OK", header: [], body: "{}" }],
+        },
+      ],
+    },
+    {
+      name: "Create",
+      request: {
+        method: "POST",
+        auth: { type: "noauth" },
+        url: "{{baseUrl}}/users",
+        body: { mode: "raw", raw: '{"a":1}', options: { raw: { language: "json" } } },
+      },
+    },
+  ],
+};
+
+describe("Postman collections", () => {
+  it("imports folders, requests, scripts, auth, variables and examples", () => {
+    const { root, variables } = importPostmanCollection(postmanFixture);
+    expect(root.name).toBe("Sample");
+    expect(root.auth).toEqual({ type: "bearer", bearer: { token: "{{token}}" } });
+    expect(root.preRequestScript).toBe("console.log('col')");
+    expect(variables).toEqual([
+      { key: "baseUrl", value: "https://api.test", enabled: true, type: "default" },
+    ]);
+    const users = root.children[0] as FolderNode;
+    const get = users.children[0] as RequestNode;
+    expect(get.url).toBe("{{baseUrl}}/users/{{id}}?verbose=true");
+    expect(get.params).toEqual([
+      { key: "verbose", value: "true", enabled: true, description: undefined },
+      { key: "debug", value: "1", enabled: false, description: undefined },
+    ]);
+    expect(get.headers[1]).toMatchObject({ key: "X-Off", enabled: false });
+    expect(get.testScript).toBe("pm.test('ok', () => {});\n// second line");
+    expect(get.auth).toEqual({ type: "inherit" });
+    expect(get.examples?.[0]).toMatchObject({ name: "OK", status: 200 });
+    const create = root.children[1] as RequestNode;
+    expect(create.auth).toEqual({ type: "none" });
+    expect(create.body).toEqual({ mode: "raw", raw: '{"a":1}', language: "json" });
+  });
+
+  it("round-trips through export", () => {
+    const { root, variables } = importPostmanCollection(postmanFixture);
+    const exported = exportPostmanCollection(root, variables);
+    expect(exported.info.schema).toContain("v2.1.0");
+    const again = importPostmanCollection(exported);
+    const strip = (n: FolderNode): unknown =>
+      JSON.parse(JSON.stringify(n, (k, v) => (k === "id" || k === "createdAt" ? undefined : v)));
+    expect(strip(again.root)).toEqual(strip(root));
+    expect(again.variables).toEqual(variables);
+  });
+
+  it("imports and exports environments without secrets by default", () => {
+    const env = importPostmanEnvironment({
+      name: "Dev",
+      values: [
+        { key: "host", value: "dev", enabled: true },
+        { key: "pw", value: "s3cret", type: "secret", enabled: true },
+      ],
+    });
+    expect(env.variables[1]).toEqual({ key: "pw", value: "s3cret", enabled: true, type: "secret" });
+    expect(exportPostmanEnvironment("Dev", env.variables).values[1].value).toBe("");
+    expect(exportPostmanEnvironment("Dev", env.variables, { includeSecrets: true }).values[1].value).toBe(
+      "s3cret",
+    );
+  });
+});
+
+describe("OpenAPI import", () => {
+  const spec = `
+openapi: 3.0.3
+info: { title: Pets, version: "1" }
+servers: [{ url: "https://{env}.pets.test/v1", variables: { env: { default: api } } }]
+security: [{ bearerAuth: [] }]
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer }
+  schemas:
+    Pet:
+      type: object
+      required: [name]
+      properties:
+        id: { type: integer, example: 7 }
+        name: { type: string }
+        tags: { type: array, items: { type: string } }
+paths:
+  /pets:
+    get:
+      tags: [pets]
+      summary: List pets
+      parameters:
+        - { name: limit, in: query, required: true, schema: { type: integer, default: 20 } }
+        - { name: cursor, in: query, schema: { type: string } }
+    post:
+      tags: [pets]
+      summary: Create pet
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Pet" }
+  /pets/{petId}:
+    parameters: [{ name: petId, in: path, required: true, schema: { type: string } }]
+    delete:
+      operationId: deletePet
+      security: []
+`;
+  it("creates folders per tag, requests, bodies, auth and baseUrl", () => {
+    const { root, variables } = importOpenApi(spec);
+    expect(root.name).toBe("Pets");
+    expect(root.auth).toEqual({ type: "bearer", bearer: { token: "{{token}}" } });
+    expect(variables).toEqual([
+      { key: "baseUrl", value: "https://api.pets.test/v1", type: "default", enabled: true },
+    ]);
+    const pets = root.children.find((c) => c.name === "pets") as FolderNode;
+    const list = pets.children[0] as RequestNode;
+    expect(list).toMatchObject({ name: "List pets", method: "GET", url: "{{baseUrl}}/pets?limit=20" });
+    expect(list.params.map((p) => [p.key, p.enabled])).toEqual([
+      ["limit", true],
+      ["cursor", false],
+    ]);
+    const create = pets.children[1] as RequestNode;
+    expect(create.body.mode).toBe("raw");
+    expect(JSON.parse((create.body as { raw: string }).raw)).toEqual({
+      id: 7,
+      name: "string",
+      tags: ["string"],
+    });
+    const del = root.children.find((c) => c.name === "deletePet") as RequestNode;
+    const rel = importOpenApi(
+      { openapi: "3.0.0", info: { title: "R" }, servers: [{ url: "/api/v3" }], paths: {} },
+      { sourceUrl: "https://pets.test/api/v3/openapi.json" },
+    );
+    expect(rel.variables[0].value).toBe("https://pets.test/api/v3");
+    expect(
+      importOpenApi({ openapi: "3.0.0", info: { title: "R" }, servers: [{ url: "/v1" }], paths: {} })
+        .variables[0].value,
+    ).toBe("http://localhost/v1");
+    expect(del).toMatchObject({
+      method: "DELETE",
+      url: "{{baseUrl}}/pets/{{petId}}",
+      auth: { type: "none" },
+    });
+  });
+});
+
+describe("code generation", () => {
+  const req = {
+    method: "POST",
+    url: "https://api.test/items?x=1",
+    headers: [
+      ["Content-Type", "application/json"],
+      ["Authorization", "Bearer it's"],
+      ["User-Agent", "Postbox/0.1"],
+    ] as [string, string][],
+    body: { mode: "raw" as const, raw: '{"a":1}', language: "json" as const },
+  };
+  it("generates cURL with proper quoting", () => {
+    const s = generateSnippet("curl", req);
+    expect(s).toContain("curl --location --request POST 'https://api.test/items?x=1'");
+    expect(s).toContain(`--header 'Authorization: Bearer it'\\''s'`);
+    expect(s).toContain(`--data-raw '{"a":1}'`);
+    expect(s).not.toContain("User-Agent");
+    // The generated command must round-trip through the cURL importer.
+    const back = parseCurl(s.replace(/\\\n/g, " "));
+    expect(back.method).toBe("POST");
+    expect(back.headers.find((h) => h.key === "Authorization")?.value).toBe("Bearer it's");
+  });
+  it("generates fetch, Python and PowerShell", () => {
+    expect(generateSnippet("fetch", req)).toContain('await fetch("https://api.test/items?x=1"');
+    expect(generateSnippet("python", req)).toContain(
+      'requests.request("POST", url, headers=headers, data=payload)',
+    );
+    const ps = generateSnippet("powershell", req);
+    expect(ps).toContain("Invoke-RestMethod -Uri 'https://api.test/items?x=1' -Method 'POST'");
+    expect(ps).toContain("-ContentType 'application/json'");
+    expect(
+      generateSnippet("python", {
+        ...req,
+        body: {
+          mode: "formdata",
+          formdata: [{ key: "f", value: "", enabled: true, type: "file", fileName: "a.csv" }],
+        },
+      }),
+    ).toContain('("f", ("a.csv", open("a.csv", "rb")))');
+  });
+});

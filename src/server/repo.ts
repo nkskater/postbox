@@ -657,3 +657,37 @@ export function deleteCookie(id: string) {
 export function clearCookies(workspaceId: string) {
   getDb().delete(cookies).where(eq(cookies.workspaceId, workspaceId)).run();
 }
+
+// ------------------------------------------------------------------ import
+
+/** Insert an in-memory collection tree as a new collection (or under `parentId`). */
+export function importTree(
+  workspaceId: string,
+  root: FolderNode,
+  variables: Variable[] = [],
+  parentId: string | null = null,
+) {
+  const db = getDb();
+  let folderCount = 0;
+  let requestCount = 0;
+  const insert = (node: FolderNode, parent: string | null): string => {
+    const { children, kind: _k, id: _id, ...def } = node;
+    const f = createFolder(workspaceId, parent, def);
+    folderCount++;
+    for (const child of children) {
+      if (child.kind === "folder") insert(child, f.id);
+      else {
+        const { kind: _rk, id: _rid, ...req } = child;
+        createRequest(workspaceId, f.id, req);
+        requestCount++;
+      }
+    }
+    return f.id;
+  };
+  let rootId = "";
+  db.transaction(() => {
+    rootId = insert(root, parentId);
+    if (!parentId && variables.length) replaceVariables(workspaceId, "collection", rootId, variables);
+  });
+  return { id: rootId, name: root.name, folders: folderCount - 1, requests: requestCount };
+}
