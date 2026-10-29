@@ -1,0 +1,273 @@
+/**
+ * Collection runner engine: runs every request of a folder/collection
+ * sequentially for N iterations, with iteration data, delays, stop-on-failure
+ * and setNextRequest support. Shared by the web runner, the CLI, the scheduler
+ * and the MCP server.
+ */
+import type {
+  ConsoleEntry,
+  DataTable,
+  FolderDef,
+  FolderNode,
+  RequestDef,
+  RunOptions,
+  TestResult,
+} from "../types";
+import { execute, executionPassed, type ExecuteResult, type ScriptError } from "../executor";
+import type { CookieJarStore } from "../http/cookies";
+import type { HostPolicy } from "../http/policy";
+import type { VariableScopes } from "../variables/resolver";
+
+export interface RunItem {
+  request: RequestDef;
+  /** Ancestor folders, collection first. */
+  ancestors: FolderDef[];
+  /** Folder path for display, e.g. "Users / Admin". */
+  path: string;
+}
+
+export interface RunResult {
+  iteration: number;
+  sequence: number;
+  requestId: string;
+  name: string;
+  path: string;
+  method: string;
+  url: string;
+  status: number | null;
+  statusText: string | null;
+  timeMs: number | null;
+  size: number | null;
+  tests: TestResult[];
+  scriptErrors: ScriptError[];
+  error: string | null;
+  passed: boolean;
+  skipped: boolean;
+  /** Truncated response body for the results view. */
+  responseBody?: string;
+  responseHeaders?: [string, string][];
+}
+
+export interface RunSummary {
+  name: string;
+  status: "passed" | "failed" | "cancelled" | "error";
+  iterations: number;
+  totalRequests: number;
+  failedRequests: number;
+  totalTests: number;
+  passedTests: number;
+  failedTests: number;
+  durationMs: number;
+  startedAt: number;
+  finishedAt: number;
+  results: RunResult[];
+  error?: string;
+}
+
+export type RunEvent =
+  | { type: "start"; name: string; iterations: number; total: number; startedAt: number }
+  | { type: "iteration"; iteration: number; data: Record<string, string> }
+  | { type: "request"; iteration: number; sequence: number; name: string }
+  | { type: "result"; result: RunResult }
+  | { type: "log"; entries: ConsoleEntry[] }
+  | { type: "done"; summary: Omit<RunSummary, "results"> };
+
+export interface RunCollectionInput {
+  root: FolderNode;
+  /** Folders above `root` (when running a sub-folder), collection first. */
+  ancestors?: FolderDef[];
+  scopes: VariableScopes;
+  options: RunOptions;
+  data?: DataTable | null;
+  /** Restrict to these request ids (in tree order). */
+  selectedRequestIds?: string[] | null;
+  cookieJar?: CookieJarStore;
+  policy?: HostPolicy;
+  secrets?: string[];
+  signal?: AbortSignal;
+  onEvent?: (e: RunEvent) => void;
+  /** Max bytes of response body kept per result (default 16 KB). */
+  keepBodyBytes?: number;
+}
+
+/** Depth-first flattening of a folder tree in sort order. */
+export function flattenTree(root: FolderNode, ancestors: FolderDef[] = []): RunItem[] {
+  const out: RunItem[] = [];
+  const walk = (folder: FolderNode, chain: FolderDef[]) => {
+    const { children, kind: _k, ...def } = folder;
+    const nextChain = [...chain, def];
+    for (const child of children) {
+      if (child.kind === "request") {
+        const { kind: _rk, ...req } = child;
+        out.push({ request: req, ancestors: nextChain, path: nextChain.map((f) => f.name).join(" / ") });
+      } else walk(child, nextChain);
+    }
+  };
+  walk(root, ancestors);
+  return out;
+}
+
+const sleep = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve) => {
+    if (ms <= 0) return resolve();
+    const t = setTimeout(resolve, ms);
+    signal?.addEventListener("abort", () => (clearTimeout(t), resolve()), { once: true });
+  });
+
+function toResult(
+  iteration: number,
+  sequence: number,
+  item: RunItem,
+  r: ExecuteResult,
+  keep: number,
+): RunResult {
+  const res = r.response;
+  return {
+    iteration,
+    sequence,
+    requestId: item.request.id,
+    name: item.request.name,
+    path: item.path,
+    method: r.sent?.method ?? item.request.method,
+    url: r.sent?.url ?? item.request.url,
+    status: res?.status ?? null,
+    statusText: res?.statusText ?? null,
+    timeMs: res ? Math.round(res.timings.total) : null,
+    size: res?.size ?? null,
+    tests: r.tests,
+    scriptErrors: r.scriptErrors,
+    error: r.error ?? null,
+    passed: r.skipped || executionPassed(r),
+    skipped: r.skipped,
+    responseBody: res && !res.isBinary ? res.bodyText.slice(0, keep) : undefined,
+    responseHeaders: res?.headers,
+  };
+}
+
+/**
+ * Run a collection. Returns the summary and the final variable scopes
+ * (callers decide whether to persist them).
+ */
+export async function runCollection(
+  input: RunCollectionInput,
+): Promise<{ summary: RunSummary; scopes: VariableScopes }> {
+  const startedAt = Date.now();
+  const opts = input.options;
+  let items = flattenTree(input.root, input.ancestors);
+  if (input.selectedRequestIds?.length) {
+    const set = new Set(input.selectedRequestIds);
+    items = items.filter((i) => set.has(i.request.id));
+  }
+  const rows = input.data?.rows ?? [];
+  const iterations = Math.max(1, rows.length && !opts.iterations ? rows.length : opts.iterations || 1);
+  const emit = input.onEvent ?? (() => undefined);
+  const keep = input.keepBodyBytes ?? 16 * 1024;
+  const results: RunResult[] = [];
+  let scopes: VariableScopes = structuredClone(input.scopes);
+  let status: RunSummary["status"] = "passed";
+  let sequence = 0;
+  let stopped = false;
+
+  emit({ type: "start", name: input.root.name, iterations, total: items.length * iterations, startedAt });
+
+  for (let iteration = 0; iteration < iterations && !stopped; iteration++) {
+    // Row n becomes the data scope for iteration n (rows repeat if there are more iterations).
+    const data = rows.length ? rows[iteration % rows.length] : {};
+    scopes = { ...scopes, data, local: {} };
+    emit({ type: "iteration", iteration, data });
+
+    let index = 0;
+    let steps = 0;
+    const maxSteps = Math.max(100, items.length * 50); // guards against setNextRequest loops
+    while (index < items.length && !stopped) {
+      if (input.signal?.aborted) {
+        status = "cancelled";
+        stopped = true;
+        break;
+      }
+      if (++steps > maxSteps) {
+        emit({
+          type: "log",
+          entries: [
+            {
+              level: "error",
+              source: "runner",
+              message: "Stopping: too many steps (setNextRequest loop?)",
+              timestamp: Date.now(),
+            },
+          ],
+        });
+        status = "failed";
+        stopped = true;
+        break;
+      }
+      const item = items[index];
+      emit({ type: "request", iteration, sequence, name: item.request.name });
+      const r = await execute({
+        request: item.request,
+        ancestors: item.ancestors,
+        scopes,
+        cookieJar: input.cookieJar,
+        policy: input.policy,
+        secrets: input.secrets,
+        iteration,
+        iterationCount: iterations,
+        signal: input.signal,
+        overrides: { timeoutMs: opts.timeoutMs, verifySsl: opts.verifySsl },
+      });
+      scopes = r.scopes;
+      if (r.logs.length) emit({ type: "log", entries: r.logs });
+      const result = toResult(iteration, sequence++, item, r, keep);
+      results.push(result);
+      emit({ type: "result", result });
+
+      if (!result.passed) {
+        if (status === "passed") status = "failed";
+        if (opts.stopOnFailure) {
+          stopped = true;
+          break;
+        }
+      }
+      if (input.signal?.aborted) {
+        status = "cancelled";
+        stopped = true;
+        break;
+      }
+
+      // Flow control via pm.execution.setNextRequest().
+      if (r.nextRequestSet) {
+        if (r.nextRequest === null) {
+          stopped = true;
+          break;
+        }
+        const target = items.findIndex(
+          (i) => i.request.name === r.nextRequest || i.request.id === r.nextRequest,
+        );
+        index = target >= 0 ? target : items.length;
+      } else index++;
+
+      if (opts.delayMs > 0 && index < items.length) await sleep(opts.delayMs, input.signal);
+    }
+    if (opts.delayMs > 0 && iteration < iterations - 1 && !stopped) await sleep(opts.delayMs, input.signal);
+  }
+
+  const finishedAt = Date.now();
+  const allTests = results.flatMap((r) => r.tests.filter((t) => !t.skipped));
+  const summary: RunSummary = {
+    name: input.root.name,
+    status,
+    iterations,
+    totalRequests: results.length,
+    failedRequests: results.filter((r) => !r.passed).length,
+    totalTests: allTests.length,
+    passedTests: allTests.filter((t) => t.passed).length,
+    failedTests: allTests.filter((t) => !t.passed).length,
+    durationMs: finishedAt - startedAt,
+    startedAt,
+    finishedAt,
+    results,
+  };
+  const { results: _r, ...rest } = summary;
+  emit({ type: "done", summary: rest });
+  return { summary, scopes };
+}
