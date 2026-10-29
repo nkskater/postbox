@@ -292,15 +292,35 @@ export function CollectionTree() {
               {renaming === f.id ? (
                 <RenameInput initial={f.name} onDone={(name) => rename("folder", f.id, name)} />
               ) : (
-                <span className={cn("truncate", isRoot && "font-medium")}>{f.name}</span>
+                <span className={cn("min-w-0 flex-1 truncate", isRoot && "font-medium")}>{f.name}</span>
               )}
               <div
-                className="ml-auto flex shrink-0 items-center opacity-0 group-hover:opacity-100"
+                className="ml-auto flex shrink-0 items-center gap-0.5"
                 onClick={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => e.stopPropagation()}
               >
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  aria-label={`Run ${isRoot ? "collection" : "folder"} ${f.name}`}
+                  title={`Run ${isRoot ? "collection" : "folder"}`}
+                  onClick={() =>
+                    openTab({ id: `runner-${f.id}`, type: "runner", folderId: f.id, name: f.name })
+                  }
+                >
+                  <Play className="size-3" /> Run
+                </Button>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" className="size-6">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-6"
+                      aria-label={`Actions for ${isRoot ? "collection" : "folder"} ${f.name}`}
+                      title={isRoot ? "Collection actions" : "Folder actions"}
+                    >
                       <MoreHorizontal className="size-3.5" />
                     </Button>
                   </DropdownMenuTrigger>
@@ -397,15 +417,23 @@ export function CollectionTree() {
           {renaming === r.id ? (
             <RenameInput initial={r.name} onDone={(name) => rename("request", r.id, name)} />
           ) : (
-            <span className="truncate">{r.name}</span>
+            <span className="min-w-0 flex-1 truncate">{r.name}</span>
           )}
           <div
-            className="ml-auto flex shrink-0 opacity-0 group-hover:opacity-100"
+            className="ml-auto flex shrink-0"
             onClick={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
           >
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="size-6">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-6"
+                  aria-label={`Actions for request ${r.name}`}
+                  title="Request actions"
+                >
                   <MoreHorizontal className="size-3.5" />
                 </Button>
               </DropdownMenuTrigger>
