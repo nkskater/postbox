@@ -1,0 +1,11 @@
+node_modules
+.next
+data
+dist
+coverage
+.git
+.claude
+CLAUDE.md
+AGENTS.md
+*.db
+*.log
