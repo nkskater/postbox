@@ -23,6 +23,8 @@ COPY --from=build --chown=postbox:postbox /app/.next/standalone ./
 COPY --from=build --chown=postbox:postbox /app/.next/static ./.next/static
 COPY --from=build --chown=postbox:postbox /app/public ./public
 COPY --from=build --chown=postbox:postbox /app/drizzle ./drizzle
+COPY --from=build --chown=postbox:postbox /app/dist /opt/postbox-cli
+RUN ln -s /opt/postbox-cli/cli.mjs /usr/local/bin/postbox-cli
 USER postbox
 VOLUME ["/data"]
 EXPOSE 3000

@@ -1,0 +1,181 @@
+#!/usr/bin/env node
+import { readFile, mkdir, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
+import { Command, InvalidArgumentError } from "commander";
+import { version } from "../../package.json";
+import {
+  importPostmanCollection,
+  importPostmanEnvironment,
+  isPostmanCollection,
+} from "../core/convert/postman";
+import { CookieJarStore } from "../core/http/cookies";
+import { HostPolicy } from "../core/http/policy";
+import { parseDataFile } from "../core/runner/data";
+import { renderReport, type ReportFormat } from "../core/runner/reporters";
+import { flattenTree, runCollection } from "../core/runner/runner";
+import { DEFAULT_RUN_OPTIONS, type Variable } from "../core/types";
+import { emptyScopes, redactSecrets, variablesToRecord } from "../core/variables/resolver";
+import { consoleReporter } from "./reporter";
+
+type Reporter = "cli" | ReportFormat;
+interface Options {
+  environment?: string;
+  globals?: string;
+  data?: string;
+  iterations?: number;
+  delay: number;
+  bail?: boolean;
+  insecure?: boolean;
+  timeout?: number;
+  reporters: Reporter[];
+  reporterJsonExport?: string;
+  reporterJunitExport?: string;
+  reporterHtmlExport?: string;
+}
+
+function integer(min: number) {
+  return (value: string) => {
+    const n = Number(value);
+    if (!/^\d+$/.test(value) || !Number.isSafeInteger(n) || n < min || n > 2_147_483_647) {
+      throw new InvalidArgumentError(`Expected an integer between ${min} and 2147483647.`);
+    }
+    return n;
+  };
+}
+
+function reporters(value: string): Reporter[] {
+  const names = value.split(",").map((name) => name.trim());
+  if (names.some((name) => !["cli", "json", "junit", "html"].includes(name))) {
+    throw new InvalidArgumentError("Reporters must be a comma-separated list of cli,json,junit,html.");
+  }
+  return [...new Set(names)] as Reporter[];
+}
+
+async function jsonFile(file: string): Promise<unknown> {
+  try {
+    return JSON.parse((await readFile(file, "utf8")).replace(/^\uFEFF/, ""));
+  } catch (error) {
+    throw new Error(`Cannot read JSON file ${file}: ${(error as Error).message}`);
+  }
+}
+
+async function loadVariables(file?: string): Promise<Variable[]> {
+  if (!file) return [];
+  return importPostmanEnvironment((await jsonFile(file)) as Parameters<typeof importPostmanEnvironment>[0])
+    .variables;
+}
+
+async function run(file: string, options: Options) {
+  const destinations = {
+    json: options.reporterJsonExport,
+    junit: options.reporterJunitExport,
+    html: options.reporterHtmlExport,
+  };
+  for (const [format, destination] of Object.entries(destinations)) {
+    if (destination && !options.reporters.includes(format as Reporter)) {
+      throw new Error(`Enable the ${format} reporter with --reporters to use its export option.`);
+    }
+  }
+  const collection = await jsonFile(file);
+  if (!isPostmanCollection(collection))
+    throw new Error("Expected a Postman collection with info and item fields.");
+  const { root, variables } = importPostmanCollection(collection);
+  if (!flattenTree(root).length) throw new Error("Collection contains no requests.");
+  const [environment, globals] = await Promise.all([
+    loadVariables(options.environment),
+    loadVariables(options.globals),
+  ]);
+  const secrets = [...variables, ...environment, ...globals]
+    .filter((v) => v.enabled && v.type === "secret" && v.value)
+    .map((v) => v.value);
+  const data = options.data ? parseDataFile(options.data, await readFile(options.data)) : undefined;
+  const controller = new AbortController();
+  let interrupted = 0;
+  const interrupt = () => {
+    interrupted = 130;
+    controller.abort();
+  };
+  const terminate = () => {
+    interrupted = 143;
+    controller.abort();
+  };
+  process.once("SIGINT", interrupt);
+  process.once("SIGTERM", terminate);
+  try {
+    const { summary } = await runCollection({
+      root,
+      scopes: {
+        ...emptyScopes(),
+        collection: variablesToRecord(variables),
+        environment: variablesToRecord(environment),
+        globals: variablesToRecord(globals),
+      },
+      options: {
+        ...DEFAULT_RUN_OPTIONS,
+        iterations: options.iterations ?? (data?.rows.length ? 0 : 1),
+        delayMs: options.delay,
+        stopOnFailure: options.bail ?? false,
+        timeoutMs: options.timeout,
+        verifySsl: options.insecure ? false : undefined,
+      },
+      data,
+      cookieJar: new CookieJarStore(),
+      policy: HostPolicy.fromEnv(),
+      secrets,
+      signal: controller.signal,
+      retainResults: options.reporters.some((reporter) => reporter !== "cli"),
+      onEvent: options.reporters.includes("cli") ? consoleReporter(secrets) : undefined,
+    });
+    // Report bodies and assertion errors can contain values echoed by the target.
+    const safeSummary = JSON.parse(
+      JSON.stringify(summary, (_key, value: unknown) =>
+        typeof value === "string" ? redactSecrets(value, secrets) : value,
+      ),
+    ) as typeof summary;
+    for (const format of options.reporters) {
+      if (format === "cli") continue;
+      const report = renderReport(safeSummary, format);
+      const destination = destinations[format] ?? `postbox-report.${report.ext}`;
+      await mkdir(dirname(destination), { recursive: true });
+      await writeFile(destination, report.body);
+    }
+    process.exitCode = interrupted || (summary.status === "passed" ? 0 : 1);
+  } finally {
+    process.removeListener("SIGINT", interrupt);
+    process.removeListener("SIGTERM", terminate);
+  }
+}
+
+const program = new Command()
+  .name("postbox")
+  .description("Run Postman collections using the Postbox engine, without a server or database.")
+  .version(version);
+
+program
+  .command("run")
+  .description(
+    "Run a Postman collection JSON file. Export reporters default to postbox-report.{json,xml,html}.",
+  )
+  .argument("<collection.json>", "Postman v2.1 collection")
+  .option("-e, --environment <file>", "Postman environment JSON")
+  .option("-g, --globals <file>", "Postman globals JSON")
+  .option("-d, --data <file>", "Iteration data (CSV, JSON, XLSX)")
+  .option("-n, --iterations <count>", "Iterations (defaults to data row count, otherwise 1)", integer(1))
+  .option("--delay <ms>", "Delay between requests in milliseconds", integer(0), 0)
+  .option("--bail", "Stop after the first failed request or assertion")
+  .option("--insecure", "Disable TLS certificate verification")
+  .option("--timeout <ms>", "Request timeout in milliseconds", integer(1))
+  .option("--reporters <list>", "Comma-separated reporters: cli,json,junit,html", reporters, ["cli"])
+  .option("--reporter-json-export <path>", "JSON report destination")
+  .option("--reporter-junit-export <path>", "JUnit XML report destination")
+  .option("--reporter-html-export <path>", "HTML report destination")
+  .addHelpText(
+    "after",
+    "\nExamples:\n  postbox run collection.json -e env.json -d data.csv\n  postbox run collection.json --bail --reporters cli,junit --reporter-junit-export reports/results.xml",
+  )
+  .action(run);
+
+await program.parseAsync().catch((error: unknown) => {
+  console.error(`postbox: ${(error as Error).message}`);
+  process.exitCode = 1;
+});
