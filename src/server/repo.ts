@@ -9,7 +9,6 @@ import type {
   FolderDef,
   FolderNode,
   RequestDef,
-  RequestNode,
   TreeNode,
   Variable,
 } from "@/core/types";
@@ -240,7 +239,10 @@ export function deleteFolder(id: string) {
   while (grew) {
     grew = false;
     for (const f of all)
-      if (f.parentId && toDelete.has(f.parentId) && !toDelete.has(f.id)) (toDelete.add(f.id), (grew = true));
+      if (f.parentId && toDelete.has(f.parentId) && !toDelete.has(f.id)) {
+        toDelete.add(f.id);
+        grew = true;
+      }
   }
   const ids = [...toDelete];
   db.transaction((tx) => {
