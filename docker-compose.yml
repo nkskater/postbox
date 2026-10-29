@@ -10,7 +10,10 @@ services:
       - postbox-data:/data
     environment:
       DATABASE_PATH: /data/postbox.db
-      # Optional hardening (see README):
+      # Authentication (recommended, see README):
+      # POSTBOX_PASSWORD: "change-me"
+      # POSTBOX_TOKEN: "long-random-token-for-mcp-and-scripts"
+      # Optional hardening:
       # PROXY_ALLOW_HOSTS: "*.internal.example.com,10.0.0.0/8"
       # PROXY_DENY_HOSTS: "169.254.169.254"
       # SCRIPT_TIMEOUT_MS: "5000"

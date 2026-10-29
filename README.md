@@ -53,6 +53,10 @@ npm run db:generate  # after changing src/server/db/schema.ts
 |---|---|---|
 | `DATABASE_PATH` | `/data/postbox.db` (prod), `./data/postbox.db` (dev) | SQLite file |
 | `PORT` | `3000` | HTTP port |
+| `POSTBOX_PASSWORD` | _(none)_ | Enables login with this password |
+| `POSTBOX_TOKEN` | _(none)_ | Enables `Authorization: Bearer` access (API, MCP, automation) |
+| `POSTBOX_SESSION_SECRET` | _(derived)_ | Optional explicit key for signing session cookies |
+| `POSTBOX_SESSION_DAYS` | `30` | Session lifetime |
 | `PROXY_ALLOW_HOSTS` | _(all)_ | Comma list of hosts, `*.wildcards` or CIDRs requests may target |
 | `PROXY_DENY_HOSTS` | _(none)_ | Comma list that is always blocked (wins over allow) |
 | `SCRIPT_TIMEOUT_MS` | `5000` | Per-script time limit |
@@ -61,8 +65,15 @@ npm run db:generate  # after changing src/server/db/schema.ts
 | `MCP_ALLOWED_ORIGINS` | _(none)_ | Extra browser origins allowed to call `/api/mcp` (cross-origin browser requests are rejected otherwise) |
 | `HISTORY_LIMIT` | `500` | History entries kept per workspace |
 
-> **Security:** Built-in authentication is **not implemented yet** (see roadmap). Until it is, only expose Postbox on a
-> trusted network, or put it behind a reverse proxy that handles authentication.
+### Authentication
+
+Set either or both of these to require authentication for the UI and every API route, including `/api/mcp`.
+`/api/health` and `/login` stay public.
+
+- `POSTBOX_PASSWORD`: enables the `/login` page, which issues a signed, HTTP-only session cookie (default 30 days).
+- `POSTBOX_TOKEN`: accepted as `Authorization: Bearer <token>` for scripts and MCP clients (and on the login form).
+
+Changing either value signs everyone out. With neither set, Postbox is open. Only run it that way on a trusted network.
 
 ## Running behind a reverse proxy
 
@@ -75,7 +86,6 @@ unbounded server memory. Reopen the run from history to inspect its persisted re
 **Caddy**
 ```
 postbox.example.com {
-    basicauth { admin <bcrypt-hash> }   # optional until built-in auth lands
     reverse_proxy postbox:3000 {
         flush_interval -1
     }
@@ -99,14 +109,16 @@ location / {
 
 ## MCP Server (`/api/mcp`)
 
-> Until built-in auth lands, anyone who can reach Postbox can use its MCP tools (including deletes). Requests from
-> foreign browser origins are rejected, and bodies must be `application/json`, which blocks drive-by web pages.
+> Set `POSTBOX_TOKEN` so MCP clients must authenticate. Without auth, anyone who can reach Postbox can use its MCP
+> tools (including deletes). Requests from foreign browser origins are always rejected.
 
 Postbox exposes a Streamable HTTP MCP endpoint at `/api/mcp` backed by the same server-side execution engine, collection runner, variable resolver, and SQLite database as the web UI.
 
 **Claude Code**
 ```bash
 claude mcp add --transport http postbox http://localhost:3000/api/mcp
+# with POSTBOX_TOKEN set:
+claude mcp add --transport http postbox http://localhost:3000/api/mcp --header "Authorization: Bearer $POSTBOX_TOKEN"
 ```
 
 **Cursor / MCP JSON config**
@@ -124,7 +136,7 @@ claude mcp add --transport http postbox http://localhost:3000/api/mcp
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the design. Remaining work:
 
-- [ ] Optional single-user auth (`POSTBOX_PASSWORD` / `POSTBOX_TOKEN`). The UI already has a logout button wired for it
+- [x] Optional single-user auth (`POSTBOX_PASSWORD` / `POSTBOX_TOKEN`)
 - [x] MCP server endpoint (`/api/mcp`) so Claude Code / Open WebUI can list, edit, send and run requests
 - [ ] Headless CLI runner (Newman-style) reusing `src/core/runner`
 - [ ] Scheduled runs (the `schedules` table exists)
