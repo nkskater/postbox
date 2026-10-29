@@ -1,0 +1,39 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.*
+
+# build output
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# testing
+coverage/
+
+# local data
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# env files
+.env
+.env*.local
+
+# logs
+npm-debug.log*
+*.log
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# assistant tooling (kept local)
+CLAUDE.md
+.claude/
