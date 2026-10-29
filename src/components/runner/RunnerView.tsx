@@ -23,6 +23,7 @@ import { formatBytes, formatMs, methodColor, relativeTime, statusColor } from "@
 import { cn } from "@/lib/utils";
 import { readNdjson } from "@/lib/ndjson";
 import { DataGrid } from "./DataGrid";
+import { Schedules } from "./Schedules";
 
 interface RunState {
   runId: string | null;
@@ -384,6 +385,19 @@ export function RunnerView({ folderId }: { folderId: string }) {
               </p>
             )}
           </section>
+
+          {workspaceId && (
+            <Schedules
+              key={`${workspaceId}:${folderId}`}
+              workspaceId={workspaceId}
+              folderId={folderId}
+              environments={environments}
+              environmentId={envId}
+              onOpenRun={(id) => void openPast(id)}
+              onRunStarted={loadPast}
+              canOpenRun={!run.running}
+            />
+          )}
 
           <div className="sticky bottom-0 flex gap-2 bg-background pt-2">
             {run.running ? (
