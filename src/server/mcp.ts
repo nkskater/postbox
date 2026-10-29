@@ -586,7 +586,8 @@ export function createPostboxMcpServer(): McpServer {
     "duplicate_folder",
     {
       title: "Duplicate Collection or Folder",
-      description: "Recursively duplicate a collection or folder (including requests and collection variables).",
+      description:
+        "Recursively duplicate a collection or folder (including requests and collection variables).",
       inputSchema: {
         folderId: z.string().min(1).describe("Collection or folder ID to duplicate"),
       },
@@ -796,7 +797,8 @@ export function createPostboxMcpServer(): McpServer {
     "move_tree_item",
     {
       title: "Move or Reorder Folder/Request",
-      description: "Move a folder or request into a target parent folder (or root for collections) at a specific 0-based index.",
+      description:
+        "Move a folder or request into a target parent folder (or root for collections) at a specific 0-based index.",
       inputSchema: {
         kind: z.enum(["folder", "request"]).describe("Item kind"),
         id: z.string().min(1).describe("Folder or request ID"),
@@ -834,7 +836,11 @@ export function createPostboxMcpServer(): McpServer {
           .string()
           .optional()
           .describe("Workspace ID (inferred from requestId/folderId or defaults to primary workspace)"),
-        environmentId: z.string().nullable().optional().describe("Active environment ID for {{variable}} resolution"),
+        environmentId: z
+          .string()
+          .nullable()
+          .optional()
+          .describe("Active environment ID for {{variable}} resolution"),
         folderId: z
           .string()
           .nullable()
@@ -1061,7 +1067,13 @@ export function createPostboxMcpServer(): McpServer {
         iterations: z.number().int().min(1).max(1000).optional().describe("Number of iterations (default 1)"),
         delayMs: z.number().int().min(0).max(60_000).optional().describe("Delay between requests in ms"),
         stopOnFailure: z.boolean().optional().describe("Stop the run on the first failed request/test"),
-        timeoutMs: z.number().int().min(100).max(300_000).optional().describe("Per-request timeout override in ms"),
+        timeoutMs: z
+          .number()
+          .int()
+          .min(100)
+          .max(300_000)
+          .optional()
+          .describe("Per-request timeout override in ms"),
         verifySsl: z.boolean().optional().describe("Verify TLS certificates"),
         persistVariables: z
           .boolean()
@@ -1072,7 +1084,10 @@ export function createPostboxMcpServer(): McpServer {
           .optional()
           .describe("Optional subset of request IDs to run (in tree order)"),
         dataCsv: z.string().optional().describe("Optional CSV string providing iteration data rows"),
-        dataJson: z.string().optional().describe("Optional JSON array of objects providing iteration data rows"),
+        dataJson: z
+          .string()
+          .optional()
+          .describe("Optional JSON array of objects providing iteration data rows"),
         dataRows: z
           .array(z.record(z.string(), z.string()))
           .optional()
@@ -1192,7 +1207,8 @@ export function createPostboxMcpServer(): McpServer {
     "list_environments",
     {
       title: "List Environments",
-      description: "List all environments and their variables in a workspace (secrets are masked by default).",
+      description:
+        "List all environments and their variables in a workspace (secrets are masked by default).",
       inputSchema: {
         workspaceId: z.string().optional().describe("Workspace ID (defaults to primary workspace)"),
         includeSecrets: z.boolean().default(false).describe("Include unmasked secret variable values"),
@@ -1318,7 +1334,9 @@ export function createPostboxMcpServer(): McpServer {
           .string()
           .nullable()
           .optional()
-          .describe("Collection folderId (when scope='collection') or environmentId (when scope='environment')"),
+          .describe(
+            "Collection folderId (when scope='collection') or environmentId (when scope='environment')",
+          ),
         includeSecrets: z.boolean().default(false).describe("Include unmasked secret values"),
       },
     },
@@ -1327,7 +1345,8 @@ export function createPostboxMcpServer(): McpServer {
         let wsId: string;
         let resolvedOwner: string | null = null;
         if (scope === "collection") {
-          if (!ownerId) throw new Error("ownerId (collection folderId) is required when scope is 'collection'");
+          if (!ownerId)
+            throw new Error("ownerId (collection folderId) is required when scope is 'collection'");
           const folder = repo.getFolder(ownerId);
           if (!folder) throw new Error(`Collection folder not found: ${ownerId}`);
           const chain = repo.getFolderChain(ownerId);
@@ -1368,7 +1387,9 @@ export function createPostboxMcpServer(): McpServer {
           .string()
           .nullable()
           .optional()
-          .describe("Collection folderId (when scope='collection') or environmentId (when scope='environment')"),
+          .describe(
+            "Collection folderId (when scope='collection') or environmentId (when scope='environment')",
+          ),
         mode: z
           .enum(["merge", "replace"])
           .default("merge")
@@ -1381,7 +1402,8 @@ export function createPostboxMcpServer(): McpServer {
         let wsId: string;
         let resolvedOwner: string | null = null;
         if (scope === "collection") {
-          if (!ownerId) throw new Error("ownerId (collection folderId) is required when scope is 'collection'");
+          if (!ownerId)
+            throw new Error("ownerId (collection folderId) is required when scope is 'collection'");
           const folder = repo.getFolder(ownerId);
           if (!folder) throw new Error(`Collection folder not found: ${ownerId}`);
           const chain = repo.getFolderChain(ownerId);

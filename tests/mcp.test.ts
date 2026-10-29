@@ -107,7 +107,11 @@ describe("MCP server (/api/mcp)", () => {
     expect(ws.name).toBe("MCP Workspace");
 
     // 2. Create environment & set variables (including a secret)
-    const env = parseToolJson<{ id: string; name: string; variables: { key: string; value: string; type: string }[] }>(
+    const env = parseToolJson<{
+      id: string;
+      name: string;
+      variables: { key: string; value: string; type: string }[];
+    }>(
       await client.callTool({
         name: "create_environment",
         arguments: {
@@ -282,7 +286,9 @@ describe("MCP server (/api/mcp)", () => {
 
     const envResource = await client.readResource({ uri: `postbox://environments/${env.id}` });
     const envResourceData = JSON.parse((envResource.contents[0] as { text: string }).text);
-    expect(envResourceData.variables.find((v: { key: string }) => v.key === "api_key").value).toBe("••••••••");
+    expect(envResourceData.variables.find((v: { key: string }) => v.key === "api_key").value).toBe(
+      "••••••••",
+    );
 
     // 10. Import OpenAPI spec and export collection
     const imported = parseToolJson<{ kind: string; id: string; name: string; requests: number }>(
@@ -341,7 +347,11 @@ describe("MCP server (/api/mcp)", () => {
     const call = (headers: Record<string, string>) =>
       mcpRoute.POST(new Request("http://localhost:3000/api/mcp", { method: "POST", headers, body }));
 
-    const foreign = await call({ "Content-Type": "application/json", Accept: "application/json", Origin: "https://evil.example" });
+    const foreign = await call({
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      Origin: "https://evil.example",
+    });
     expect(foreign.status).toBe(403);
 
     const textPlain = await call({ "Content-Type": "text/plain", Accept: "application/json" });
@@ -357,7 +367,11 @@ describe("MCP server (/api/mcp)", () => {
 
     process.env.MCP_ALLOWED_ORIGINS = "https://webui.example";
     try {
-      const allowed = await call({ "Content-Type": "application/json", Accept: "application/json", Origin: "https://webui.example" });
+      const allowed = await call({
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Origin: "https://webui.example",
+      });
       expect(allowed.status).toBe(200);
     } finally {
       delete process.env.MCP_ALLOWED_ORIGINS;

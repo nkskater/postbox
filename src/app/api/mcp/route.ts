@@ -108,7 +108,8 @@ export async function OPTIONS(): Promise<Response> {
     headers: {
       Allow: "POST, GET, DELETE, OPTIONS",
       "Access-Control-Allow-Methods": "POST, GET, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Accept, Authorization, Mcp-Session-Id, MCP-Protocol-Version",
+      "Access-Control-Allow-Headers":
+        "Content-Type, Accept, Authorization, Mcp-Session-Id, MCP-Protocol-Version",
     },
   });
 }
