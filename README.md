@@ -22,6 +22,7 @@ secrets stay on the server.
   test results; save as example.
 - **Import/export**: Postman v2.0/v2.1 collections and environments, OpenAPI 3 and Swagger 2 (from a file, pasted text or a URL), and cURL
   (paste one into the URL bar). Code snippets for cURL, fetch, Python and PowerShell.
+- **MCP server (`/api/mcp`)**: Streamable HTTP Model Context Protocol endpoint so Claude Code, Open WebUI, Cursor and other MCP clients can inspect workspaces, create/edit collections, folders, environments and requests, execute single requests, run collections with iteration data, and import/export specs.
 - History, cookie manager, command palette (Ctrl+K) and keyboard shortcuts (press `?` in the app).
 
 ## Quick start (Docker)
@@ -41,7 +42,7 @@ Data lives in the `postbox-data` volume (`/data/postbox.db`). To use a bind moun
 ```bash
 npm install
 npm run dev        # http://localhost:3000, DB at ./data/postbox.db
-npm test           # Vitest: resolver, proxy, sandbox, executor, runner, converters, repository
+npm test           # Vitest: resolver, proxy, sandbox, executor, runner, converters, repository, mcp
 npm run lint && npm run typecheck
 npm run db:generate  # after changing src/server/db/schema.ts
 ```
@@ -95,12 +96,32 @@ location / {
 
 **Traefik**: route to port 3000. No special settings are needed.
 
+## MCP Server (`/api/mcp`)
+
+Postbox exposes a Streamable HTTP MCP endpoint at `/api/mcp` backed by the same server-side execution engine, collection runner, variable resolver, and SQLite database as the web UI.
+
+**Claude Code**
+```bash
+claude mcp add --transport http postbox http://localhost:3000/api/mcp
+```
+
+**Cursor / MCP JSON config**
+```json
+{
+  "mcpServers": {
+    "postbox": {
+      "url": "http://localhost:3000/api/mcp"
+    }
+  }
+}
+```
+
 ## Roadmap / TODO
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the design. Remaining work:
 
 - [ ] Optional single-user auth (`POSTBOX_PASSWORD` / `POSTBOX_TOKEN`). The UI already has a logout button wired for it
-- [ ] MCP server endpoint (`/api/mcp`) so Claude Code / Open WebUI can list, edit, send and run requests
+- [x] MCP server endpoint (`/api/mcp`) so Claude Code / Open WebUI can list, edit, send and run requests
 - [ ] Headless CLI runner (Newman-style) reusing `src/core/runner`
 - [ ] Scheduled runs (the `schedules` table exists)
 - [ ] GitHub Actions workflow (lint, typecheck, test, build, publish image to GHCR)

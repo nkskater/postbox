@@ -11,11 +11,11 @@ need to leave the server except in the requests they are meant for.
 │   Browser    │ ────────────────▶ │  Next.js server (Node runtime)           │
 │  (React UI)  │ ◀──────────────── │                                          │
 └──────────────┘                   │  /api/proxy ──▶ Executor ──▶ HTTP engine ├──▶ target API
-                                   │                   │   ▲                  │
-                                   │                   ▼   │                  │
+                                   │  /api/mcp   ──┘     │   ▲                │
+                                   │                     ▼   │                │
                                    │             Script sandbox (QuickJS)     │
-                                   │                   │                      │
-                                   │                   ▼                      │
+                                   │                     │                    │
+                                   │                     ▼                    │
                                    │             SQLite (Drizzle)             │
                                    └──────────────────────────────────────────┘
 ```
@@ -27,6 +27,7 @@ need to leave the server except in the requests they are meant for.
 | Core engine | `src/core/` | Node stdlib, small libs | Pure TypeScript, **no Next.js or DB imports**. Shared by the web app, the runner and the CLI. |
 | Persistence | `src/server/db/` | Drizzle, better-sqlite3 | Schema, migrations, repositories that map rows to core types. |
 | API routes | `src/app/api/**` | core + persistence | Thin HTTP handlers: validate input, call core, persist results. |
+| MCP server | `src/server/mcp.ts`, `src/app/api/mcp/route.ts` | `@modelcontextprotocol/sdk` + core + persistence | Streamable HTTP MCP tools and resources for workspaces, collections, requests, environments, execution, runner, and import/export. |
 | UI | `src/app/`, `src/components/`, `src/stores/` | React, Tailwind, shadcn/ui | Talks to the API only. Never reaches targets directly. |
 | CLI | `src/cli/` | core | Newman-style headless runner, bundled to `dist/cli.mjs`. |
 
