@@ -5,6 +5,7 @@ import type { AuthConfig, OAuth2Config, PreparedRequest } from "../types";
 import { DEFAULT_SETTINGS } from "../types";
 import type { Resolver } from "../variables/resolver";
 import { sendRequest, type EngineOptions } from "./engine";
+import { createHash } from "node:crypto";
 
 /**
  * Resolve the effective auth from an outermost → innermost chain
@@ -64,13 +65,31 @@ export interface OAuth2Token {
   tokenType: string;
   expiresAt?: number;
   raw: Record<string, unknown>;
+  contextKey?: string;
 }
 
 /** In-process token cache so repeated sends/runs don't fetch a new token every time. */
-const tokenCache = new Map<string, OAuth2Token>();
+const tokenCache = new Map<string, { token: OAuth2Token; expiresAt: number }>();
+const MAX_CACHE_SIZE = 256;
+const MAX_CACHE_TTL = 60 * 60 * 1000;
+const DEFAULT_TOKEN_TTL = 5 * 60 * 1000;
 
-function cacheKey(o: OAuth2Config) {
-  return [o.grantType, o.accessTokenUrl, o.clientId, o.scope, o.username ?? ""].join("|");
+function cacheKey(o: OAuth2Config, scope = "standalone") {
+  return createHash("sha256")
+    .update(
+      JSON.stringify([
+        scope,
+        o.grantType,
+        o.accessTokenUrl,
+        o.clientId,
+        o.clientSecret,
+        o.scope,
+        o.username ?? "",
+        o.password ?? "",
+        o.clientAuthentication,
+      ]),
+    )
+    .digest("hex");
 }
 
 export function clearOAuth2Cache() {
@@ -120,27 +139,52 @@ export async function fetchOAuth2Token(o: OAuth2Config, engine: EngineOptions = 
     throw new Error(`OAuth 2.0 token request failed (${res.status}): ${res.bodyText.slice(0, 300)}`);
   }
   const expiresIn = Number(json.expires_in);
+  const ttl =
+    json.expires_in === undefined
+      ? DEFAULT_TOKEN_TTL
+      : Number.isFinite(expiresIn) && expiresIn > 0
+        ? Math.min(expiresIn * 1000, MAX_CACHE_TTL)
+        : 0;
   return {
     accessToken: String(json.access_token),
     tokenType: String(json.token_type ?? "Bearer"),
-    expiresAt: Number.isFinite(expiresIn) && expiresIn > 0 ? Date.now() + expiresIn * 1000 : undefined,
+    expiresAt: Date.now() + ttl,
     raw: json,
+    contextKey: cacheKey(o, engine.oauth2CacheScope),
   };
 }
 
 /** Returns a valid token for the config, fetching (and caching) a new one when needed. */
 export async function getOAuth2Token(o: OAuth2Config, engine?: EngineOptions): Promise<OAuth2Token | null> {
-  const fresh = (exp?: number) => !exp || exp - 30_000 > Date.now();
-  if (o.grantType === "manual" || (o.accessToken && fresh(o.expiresAt))) {
+  const fresh = (exp?: number) =>
+    typeof exp === "number" &&
+    Number.isFinite(exp) &&
+    exp <= Date.now() + MAX_CACHE_TTL &&
+    exp - 30_000 > Date.now();
+  const key = cacheKey(o, engine?.oauth2CacheScope);
+  if (o.grantType === "manual" || (o.accessToken && o.tokenContext === key && fresh(o.expiresAt))) {
     return o.accessToken
-      ? { accessToken: o.accessToken, tokenType: o.tokenType ?? "Bearer", expiresAt: o.expiresAt, raw: {} }
+      ? {
+          accessToken: o.accessToken,
+          tokenType: o.tokenType ?? "Bearer",
+          expiresAt: o.expiresAt,
+          contextKey: o.tokenContext,
+          raw: {},
+        }
       : null;
   }
-  const key = cacheKey(o);
+  for (const [cachedKey, entry] of tokenCache) {
+    if (!fresh(entry.expiresAt)) tokenCache.delete(cachedKey);
+  }
   const cached = tokenCache.get(key);
-  if (cached && fresh(cached.expiresAt)) return cached;
+  if (cached) {
+    tokenCache.delete(key);
+    tokenCache.set(key, cached);
+    return cached.token;
+  }
   const token = await fetchOAuth2Token(o, engine);
-  tokenCache.set(key, token);
+  tokenCache.set(key, { token, expiresAt: Math.min(token.expiresAt!, Date.now() + MAX_CACHE_TTL) });
+  while (tokenCache.size > MAX_CACHE_SIZE) tokenCache.delete(tokenCache.keys().next().value!);
   return token;
 }
 

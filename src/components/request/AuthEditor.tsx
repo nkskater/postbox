@@ -221,7 +221,12 @@ function OAuth2Editor({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      set({ accessToken: data.accessToken, tokenType: data.tokenType, expiresAt: data.expiresAt });
+      set({
+        accessToken: data.accessToken,
+        tokenType: data.tokenType,
+        expiresAt: data.expiresAt,
+        tokenContext: data.tokenContext,
+      });
       toast.success("Access token obtained");
     } catch (err) {
       toast.error((err as Error).message);

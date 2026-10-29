@@ -21,6 +21,8 @@ import { buildDigestAuthorization, parseDigestChallenge } from "./digest";
 import { HostPolicy, HostPolicyError, OPEN_POLICY } from "./policy";
 
 export interface EngineOptions {
+  /** Isolates OAuth token reuse between workspaces or standalone callers. */
+  oauth2CacheScope?: string;
   cookieJar?: CookieJarStore;
   policy?: HostPolicy;
   signal?: AbortSignal;

@@ -191,13 +191,15 @@ describe("standalone CLI", () => {
   });
 
   it("redacts secret variables echoed in console output and exported reports", async () => {
-    const input = await fixture(
-      "secret.json",
-      collection(
-        "{{base}}/echo?token={{token}}",
-        'console.log(pm.response.text()); pm.test("secret", () => { throw new Error(pm.response.json().query.token); });',
-      ),
+    const definition = collection(
+      "{{base}}/echo?token={{token}}",
+      'console.log(pm.response.text()); pm.test("secret", () => { throw new Error(pm.response.json().query.token); });',
     );
+    definition.item[0].event.push({
+      listen: "prerequest",
+      script: { exec: ['pm.environment.set("token", "rotated-cli-secret");'] },
+    });
+    const input = await fixture("secret.json", definition);
     const env = await fixture("secret-env.json", {
       name: "Secrets",
       values: [{ key: "token", value: "secret-value-123", type: "secret" }],
@@ -205,9 +207,13 @@ describe("standalone CLI", () => {
     const result = await invoke(["run", input, "-e", env, "--reporters", "cli,json,junit,html"]);
     expect(result.code).toBe(1);
     expect(result.stdout).not.toContain("secret-value-123");
+    expect(result.stdout).not.toContain("rotated-cli-secret");
     for (const ext of ["json", "xml", "html"]) {
       expect(await readFile(path.join(directory, `postbox-report.${ext}`), "utf8")).not.toContain(
         "secret-value-123",
+      );
+      expect(await readFile(path.join(directory, `postbox-report.${ext}`), "utf8")).not.toContain(
+        "rotated-cli-secret",
       );
     }
   });

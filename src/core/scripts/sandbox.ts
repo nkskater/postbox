@@ -77,17 +77,21 @@ export interface SendRequestSpec {
 }
 
 export interface ScriptHost {
-  sendRequest?: (spec: SendRequestSpec) => Promise<SandboxResponse>;
+  sendRequest?: (spec: SendRequestSpec, signal?: AbortSignal) => Promise<SandboxResponse>;
 }
 
 export interface ScriptLimits {
   timeoutMs: number;
   memoryBytes: number;
+  maxHostRequests: number;
+  maxTimers: number;
 }
 
 export const DEFAULT_LIMITS: ScriptLimits = {
   timeoutMs: Number(process.env.SCRIPT_TIMEOUT_MS) || 5000,
   memoryBytes: (Number(process.env.SCRIPT_MEMORY_MB) || 32) * 1024 * 1024,
+  maxHostRequests: 100,
+  maxTimers: 1000,
 };
 
 export interface ScriptResult {
@@ -133,6 +137,13 @@ export async function runScript(
     skipRequest: false,
   };
   if (!code.trim()) return base;
+  for (const [key, value] of Object.entries(limits)) {
+    if (!Number.isSafeInteger(value) || value < (key === "maxHostRequests" || key === "maxTimers" ? 0 : 1)) {
+      return { ...base, error: `Invalid script limit: ${key}` };
+    }
+  }
+  limits.maxHostRequests = Math.min(limits.maxHostRequests, DEFAULT_LIMITS.maxHostRequests);
+  limits.maxTimers = Math.min(limits.maxTimers, DEFAULT_LIMITS.maxTimers);
 
   const QuickJS = await loadQuickJS();
   const runtime = QuickJS.newRuntime();
@@ -143,6 +154,11 @@ export async function runScript(
   const vm = runtime.newContext();
 
   let disposed = false;
+  let evaluation: QuickJSHandle | undefined;
+  const timers = new Set<ReturnType<typeof setTimeout>>();
+  const controller = new AbortController();
+  let hostRequests = 0;
+  let timerCalls = 0;
   const deferreds = new Set<QuickJSDeferredPromise>();
   const pump = () => {
     if (disposed) return;
@@ -194,14 +210,26 @@ export async function runScript(
       return v === undefined ? vm.undefined : vm.newString(v);
     });
     define("__host_sleep", (msH) => {
+      if (++timerCalls > limits.maxTimers)
+        throw new Error(`Script exceeded the setTimeout quota of ${limits.maxTimers}`);
       const ms = Math.min(Math.max(0, vm.getNumber(msH)), Math.max(0, deadline - Date.now()));
-      return bridge(new Promise((r) => setTimeout(() => r(undefined), ms)));
+      return bridge(
+        new Promise((resolve) => {
+          const timer = setTimeout(() => {
+            timers.delete(timer);
+            resolve(undefined);
+          }, ms);
+          timers.add(timer);
+        }),
+      );
     });
     define("__host_send", (specH) => {
+      if (++hostRequests > limits.maxHostRequests)
+        throw new Error(`Script exceeded the pm.sendRequest quota of ${limits.maxHostRequests}`);
       const spec = JSON.parse(vm.getString(specH)) as SendRequestSpec;
       if (!opts.host?.sendRequest)
         return bridge(Promise.reject(new Error("pm.sendRequest is not available here")));
-      return bridge(opts.host.sendRequest(spec).then((r) => JSON.stringify(r)));
+      return bridge(opts.host.sendRequest(spec, controller.signal).then((r) => JSON.stringify(r)));
     });
 
     const ctxStr = vm.newString(
@@ -236,26 +264,34 @@ export async function runScript(
       return { ...base, error: msg };
     }
 
-    const promise = vm.resolvePromise(evalResult.value);
-    evalResult.value.dispose();
+    evaluation = evalResult.value;
     pump();
-
-    let timer: NodeJS.Timeout | undefined;
-    const timeout = new Promise<"timeout">(
-      (r) => (timer = setTimeout(() => r("timeout"), Math.max(0, deadline - Date.now()) + 10)),
-    );
-    const outcome = await Promise.race([promise, timeout]);
-    clearTimeout(timer);
-
     let error: string | undefined;
-    if (outcome === "timeout") {
-      error = `Script exceeded the time limit of ${limits.timeoutMs} ms`;
-    } else if (outcome.error) {
-      error = describeError(vm, outcome.error);
-      outcome.error.dispose();
-    } else {
-      if (vm.typeof(outcome.value) === "string") error = vm.getString(outcome.value);
-      outcome.value.dispose();
+    // Poll the guest promise rather than allocating host callbacks that can survive a timeout.
+    while (true) {
+      const outcome = vm.getPromiseState(evaluation);
+      if (outcome.type === "fulfilled") {
+        if (vm.typeof(outcome.value) === "string") error = vm.getString(outcome.value);
+        outcome.value.dispose();
+        break;
+      }
+      if (outcome.type === "rejected") {
+        error = describeError(vm, outcome.error);
+        outcome.error.dispose();
+        break;
+      }
+      if (Date.now() >= deadline) {
+        error = `Script exceeded the time limit of ${limits.timeoutMs} ms`;
+        break;
+      }
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(() => {
+          timers.delete(timer);
+          resolve();
+        }, 1);
+        timers.add(timer);
+      });
+      pump();
     }
 
     // Collect state even after an error so partial tests / variable changes are kept.
@@ -288,12 +324,21 @@ export async function runScript(
     return { ...base, error: `Sandbox error: ${(err as Error).message}` };
   } finally {
     disposed = true;
+    controller.abort();
+    for (const timer of timers) clearTimeout(timer);
+    timers.clear();
     for (const d of deferreds) d.dispose();
+    deferreds.clear();
+    if (evaluation?.alive) evaluation.dispose();
     try {
       vm.dispose();
-      runtime.dispose();
     } catch {
       /* a leaked handle must never crash the server */
+    }
+    try {
+      runtime.dispose();
+    } catch {
+      /* always attempt runtime cleanup as well */
     }
   }
 }

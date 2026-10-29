@@ -28,8 +28,16 @@ export const POST = route(async (req: Request) => {
   );
   if (resolved.type !== "oauth2") throw new HttpError(400, "Invalid OAuth2 config");
   try {
-    const token = await fetchOAuth2Token(resolved.oauth2, { policy: getPolicy() });
-    return json({ accessToken: token.accessToken, tokenType: token.tokenType, expiresAt: token.expiresAt });
+    const token = await fetchOAuth2Token(resolved.oauth2, {
+      policy: getPolicy(),
+      oauth2CacheScope: input.workspaceId,
+    });
+    return json({
+      accessToken: token.accessToken,
+      tokenType: token.tokenType,
+      expiresAt: token.expiresAt,
+      tokenContext: token.contextKey,
+    });
   } catch (err) {
     throw new HttpError(502, (err as Error).message);
   }

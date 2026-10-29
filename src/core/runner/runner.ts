@@ -16,7 +16,7 @@ import type {
 import { execute, executionPassed, type ExecuteResult, type ScriptError } from "../executor";
 import type { CookieJarStore } from "../http/cookies";
 import type { HostPolicy } from "../http/policy";
-import type { VariableScopes } from "../variables/resolver";
+import { redactStoredValue, type VariableScopes } from "../variables/resolver";
 
 export interface RunItem {
   request: RequestDef;
@@ -90,6 +90,8 @@ export interface RunCollectionInput {
   keepBodyBytes?: number;
   /** Keep results in the returned summary (default true). Disable when persisting via onEvent. */
   retainResults?: boolean;
+  oauth2CacheScope?: string;
+  onExecution?: (item: RunItem, result: ExecuteResult) => void;
 }
 
 /** Depth-first flattening of a folder tree in sort order. */
@@ -226,10 +228,13 @@ export async function runCollection(
         iterationCount: iterations,
         signal: input.signal,
         overrides: { timeoutMs: opts.timeoutMs, verifySsl: opts.verifySsl },
+        oauth2CacheScope: input.oauth2CacheScope,
       });
+      input.onExecution?.(item, r);
       scopes = r.scopes;
       if (r.logs.length) emit({ type: "log", entries: r.logs });
-      const result = toResult(iteration, sequence++, item, r, keep);
+      const rawResult = toResult(iteration, sequence++, item, r, keep);
+      const result = { ...redactStoredValue(rawResult, input.secrets ?? []), requestId: rawResult.requestId };
       if (input.retainResults !== false) results.push(result);
       totalRequests++;
       if (!result.passed) failedRequests++;

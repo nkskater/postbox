@@ -52,6 +52,8 @@ export interface OAuth2Config {
   tokenType?: string;
   /** epoch ms when the cached token expires */
   expiresAt?: number;
+  /** Binds an automatically fetched token to its resolved credentials and workspace. */
+  tokenContext?: string;
   headerPrefix: string;
 }
 

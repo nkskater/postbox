@@ -1,6 +1,6 @@
 import { z } from "zod";
 import * as repo from "@/server/repo";
-import { json, notFound, parseBody, route } from "@/server/http";
+import { HttpError, json, notFound, parseBody, route } from "@/server/http";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -13,6 +13,7 @@ export const GET = route(async (_req: Request, { params }: Ctx) => {
 });
 
 const patchSchema = z.object({
+  parentId: z.string().min(1).nullable().optional(),
   name: z.string().min(1).max(300).optional(),
   description: z.string().optional(),
   auth: z.any().optional(),
@@ -26,7 +27,17 @@ export const PATCH = route(async (req: Request, { params }: Ctx) => {
   const { id } = await params;
   const f = repo.getFolder(id);
   if (!f) throw notFound("Folder");
-  const { variables, ...patch } = await parseBody(req, patchSchema);
+  const { variables, parentId, ...patch } = await parseBody(req, patchSchema);
+  if (parentId !== undefined && parentId !== f.parentId) {
+    const parent = parentId ? repo.getFolder(parentId) : null;
+    if (parentId && (!parent || parent.workspaceId !== f.workspaceId))
+      throw new HttpError(400, "Parent must belong to the same workspace");
+    try {
+      repo.reorder("folder", id, parentId, Number.MAX_SAFE_INTEGER);
+    } catch (error) {
+      throw new HttpError(400, (error as Error).message);
+    }
+  }
   repo.updateFolder(id, patch);
   if (variables && !f.parentId) repo.replaceVariables(f.workspaceId, "collection", id, variables);
   return json(repo.getFolder(id));

@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { getQuickJS } from "quickjs-emscripten";
 import { runScript, type ScriptContext } from "@/core/scripts/sandbox";
 import { emptyScopes } from "@/core/variables/resolver";
 
@@ -20,6 +21,76 @@ function ctx(partial: Partial<ScriptContext> = {}): ScriptContext {
 }
 
 describe("script sandbox", () => {
+  it("limits host requests and timer creation before allocating more work", async () => {
+    const sendRequest = vi.fn(async () => ({
+      code: 200,
+      status: "OK",
+      headers: [],
+      body: "{}",
+      responseTime: 1,
+      responseSize: 2,
+    }));
+    const requests = await runScript(
+      'for (let i = 0; i < 10; i++) pm.sendRequest("https://example.com");',
+      ctx(),
+      { host: { sendRequest }, limits: { maxHostRequests: 2 } },
+    );
+    expect(requests.error).toMatch(/pm.sendRequest quota/);
+    expect(sendRequest).toHaveBeenCalledTimes(2);
+    const timers = await runScript("for (let i = 0; i < 10; i++) setTimeout(() => {}, 0);", ctx(), {
+      limits: { maxTimers: 3 },
+    });
+    expect(timers.error).toMatch(/setTimeout quota/);
+  });
+
+  it("aborts pending host work when the script times out", async () => {
+    let signal: AbortSignal | undefined;
+    const result = await runScript('await pm.sendRequest("https://example.com");', ctx(), {
+      limits: { timeoutMs: 20 },
+      host: {
+        sendRequest: async (_spec, currentSignal) => {
+          signal = currentSignal;
+          return new Promise((_resolve, reject) =>
+            currentSignal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true }),
+          );
+        },
+      },
+    });
+    expect(result.error).toMatch(/time limit/);
+    expect(signal?.aborted).toBe(true);
+  });
+
+  it("disposes runtimes and cancels every host timer during repeated interrupted scripts", async () => {
+    const quickjs = await getQuickJS();
+    const original = quickjs.newRuntime.bind(quickjs);
+    const runtimes: ReturnType<typeof quickjs.newRuntime>[] = [];
+    const runtimeSpy = vi.spyOn(quickjs, "newRuntime").mockImplementation((...args) => {
+      const runtime = original(...args);
+      runtimes.push(runtime);
+      return runtime;
+    });
+    const timers = vi.spyOn(globalThis, "setTimeout");
+    const clear = vi.spyOn(globalThis, "clearTimeout");
+    try {
+      for (let i = 0; i < 25; i++) {
+        const result = await runScript("setTimeout(() => {}, 60000); while (true) {}", ctx(), {
+          limits: { timeoutMs: 5 },
+        });
+        expect(result.error).toMatch(/time limit/);
+      }
+      for (const result of timers.mock.results) {
+        if (result.type === "return")
+          expect(clear.mock.calls.some(([handle]) => handle === result.value)).toBe(true);
+      }
+      expect(runtimes).toHaveLength(25);
+      expect(runtimes.every((runtime) => !runtime.alive)).toBe(true);
+    } finally {
+      runtimeSpy.mockRestore();
+      timers.mockRestore();
+      clear.mockRestore();
+    }
+  });
+
   it("records passing and failing tests", async () => {
     const r = await runScript(
       `pm.test("created", () => pm.response.to.have.status(201));
