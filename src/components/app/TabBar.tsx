@@ -1,5 +1,5 @@
 "use client";
-import { Cookie, Globe, Layers, Library, Play, Plus, X } from "lucide-react";
+import { Settings, Cookie, Globe, Layers, Library, Play, Plus, X } from "lucide-react";
 import { useApp, snapshot, type Tab } from "@/stores/app";
 import { methodColor } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -54,6 +54,13 @@ function TabTitle({ tab }: { tab: Tab }) {
         <>
           <Cookie className="size-3.5 shrink-0" />
           <span>Cookies</span>
+        </>
+      );
+    case "settings":
+      return (
+        <>
+          <Settings className="size-3.5 shrink-0" />
+          <span>Settings</span>
         </>
       );
   }

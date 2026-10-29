@@ -24,6 +24,8 @@ import { CodeSnippetDialog } from "@/components/dialogs/CodeSnippetDialog";
 import { TopBar } from "./TopBar";
 import { TabBar } from "./TabBar";
 import { CookiesView } from "./CookiesView";
+import { SettingsView } from "@/components/settings/SettingsView";
+import { useSettings, useSetting } from "@/stores/settings";
 
 function MainArea() {
   const tabs = useApp((s) => s.tabs);
@@ -54,6 +56,8 @@ function MainArea() {
       return <RunnerView key={tab.folderId} folderId={tab.folderId} />;
     case "cookies":
       return <CookiesView />;
+    case "settings":
+      return <SettingsView />;
   }
 }
 
@@ -72,6 +76,7 @@ export function App({ authEnabled }: { authEnabled: boolean }) {
   const consoleOpen = useApp((s) => s.consoleOpen);
   const setConsoleOpen = useApp((s) => s.setConsoleOpen);
   const theme = useApp((s) => s.theme);
+  const sidebarRight = useSetting<string>("layout.sidebarPosition") === "right";
   const entriesCount = useApp((s) => s.consoleEntries.length);
   const saveTabId = useDialogs((s) => s.saveTabId);
   const openSave = useDialogs((s) => s.openSave);
@@ -84,15 +89,11 @@ export function App({ authEnabled }: { authEnabled: boolean }) {
   useEffect(() => {
     if (initOnce.current) return;
     initOnce.current = true;
-    document.documentElement.classList.toggle("light", useApp.getState().theme === "light");
+    void useSettings.getState().init();
     init()
       .catch((e) => console.error(e))
       .finally(() => setReady(true));
   }, [init]);
-
-  useEffect(() => {
-    document.documentElement.classList.toggle("light", theme === "light");
-  }, [theme]);
 
   // Global keyboard shortcuts.
   useEffect(() => {
@@ -109,6 +110,9 @@ export function App({ authEnabled }: { authEnabled: boolean }) {
         e.preventDefault();
         if (tab.requestId) void s.saveTab(tab.id);
         else d.openSave(tab.id);
+      } else if (mod && e.key === ",") {
+        e.preventDefault();
+        s.openTab({ id: "settings", type: "settings", name: "Settings" });
       } else if (mod && key === "k") {
         e.preventDefault();
         d.setPaletteOpen(true);
@@ -148,37 +152,77 @@ export function App({ authEnabled }: { authEnabled: boolean }) {
         <TopBar authEnabled={authEnabled} />
         {ready ? (
           <Group orientation="horizontal" className="min-h-0 flex-1">
-            <Panel
-              panelRef={sidebarRef}
-              defaultSize={300}
-              minSize={200}
-              maxSize="50"
-              collapsible
-              collapsedSize={0}
-            >
-              <Sidebar />
-            </Panel>
-            <Separator className="w-px bg-border transition-colors hover:bg-primary data-[separator=active]:bg-primary" />
-            <Panel minSize="30">
-              <Group orientation="vertical" className="h-full">
-                <Panel minSize="20">
-                  <div className="flex h-full min-h-0 flex-col">
-                    <TabBar />
-                    <div className="min-h-0 flex-1">
-                      <MainArea />
-                    </div>
-                  </div>
-                </Panel>
-                {consoleOpen && (
-                  <>
-                    <Separator className="h-px bg-border transition-colors hover:bg-primary data-[separator=active]:bg-primary" />
-                    <Panel defaultSize="30" minSize="10">
-                      <ConsolePanel />
+            {sidebarRight ? (
+              <>
+                <Panel id="main" minSize="30">
+                  <Group orientation="vertical" className="h-full">
+                    <Panel minSize="20">
+                      <div className="flex h-full min-h-0 flex-col">
+                        <TabBar />
+                        <div className="min-h-0 flex-1">
+                          <MainArea />
+                        </div>
+                      </div>
                     </Panel>
-                  </>
-                )}
-              </Group>
-            </Panel>
+                    {consoleOpen && (
+                      <>
+                        <Separator className="h-px bg-border transition-colors hover:bg-primary data-[separator=active]:bg-primary" />
+                        <Panel defaultSize="30" minSize="10">
+                          <ConsolePanel />
+                        </Panel>
+                      </>
+                    )}
+                  </Group>
+                </Panel>
+                <Separator className="w-px bg-border transition-colors hover:bg-primary data-[separator=active]:bg-primary" />
+                <Panel
+                  id="sidebar"
+                  panelRef={sidebarRef}
+                  defaultSize={300}
+                  minSize={200}
+                  maxSize="50"
+                  collapsible
+                  collapsedSize={0}
+                >
+                  <Sidebar />
+                </Panel>
+              </>
+            ) : (
+              <>
+                <Panel
+                  id="sidebar"
+                  panelRef={sidebarRef}
+                  defaultSize={300}
+                  minSize={200}
+                  maxSize="50"
+                  collapsible
+                  collapsedSize={0}
+                >
+                  <Sidebar />
+                </Panel>
+                <Separator className="w-px bg-border transition-colors hover:bg-primary data-[separator=active]:bg-primary" />
+                <Panel id="main" minSize="30">
+                  <Group orientation="vertical" className="h-full">
+                    <Panel minSize="20">
+                      <div className="flex h-full min-h-0 flex-col">
+                        <TabBar />
+                        <div className="min-h-0 flex-1">
+                          <MainArea />
+                        </div>
+                      </div>
+                    </Panel>
+                    {consoleOpen && (
+                      <>
+                        <Separator className="h-px bg-border transition-colors hover:bg-primary data-[separator=active]:bg-primary" />
+                        <Panel defaultSize="30" minSize="10">
+                          <ConsolePanel />
+                        </Panel>
+                      </>
+                    )}
+                  </Group>
+                </Panel>
+              </>
+            )}
           </Group>
         ) : (
           <div className="flex flex-1 items-center justify-center text-muted-foreground">Loading…</div>

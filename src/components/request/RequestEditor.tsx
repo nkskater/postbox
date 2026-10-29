@@ -15,6 +15,7 @@ import { VarInput } from "@/components/editor/VarInput";
 import { ResponseViewer } from "@/components/response/ResponseViewer";
 import { folderPath, useApp, type RequestDraft, type Tab } from "@/stores/app";
 import { useDialogs } from "@/stores/dialogs";
+import { useSetting } from "@/stores/settings";
 import { paramsFromUrl, urlWithParams } from "@/lib/url-params";
 import { methodColor } from "@/lib/format";
 import { api } from "@/lib/api";
@@ -49,6 +50,7 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
   const openSave = useDialogs((s) => s.openSave);
   const openCode = useDialogs((s) => s.openCode);
   const d = tab.draft;
+  const sideBySide = useSetting<string>("layout.requestLayout") === "side-by-side";
   const set = useCallback(
     (patch: Partial<RequestDraft>) => updateDraft(tab.id, patch),
     [tab.id, updateDraft],
@@ -190,7 +192,7 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
         )}
       </div>
 
-      <Group orientation="vertical" className="min-h-0 flex-1">
+      <Group orientation={sideBySide ? "horizontal" : "vertical"} className="min-h-0 flex-1">
         <Panel defaultSize="45" minSize="15">
           <Tabs defaultValue="params" className="flex h-full min-h-0 flex-col gap-0">
             <TabsList className="mx-3 h-8 shrink-0 justify-start bg-transparent p-0">
@@ -254,7 +256,12 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
             </div>
           </Tabs>
         </Panel>
-        <Separator className="h-1 border-t bg-transparent transition-colors hover:bg-primary/40 data-[separator=active]:bg-primary/60" />
+        <Separator
+          className={cn(
+            "bg-transparent transition-colors hover:bg-primary/40 data-[separator=active]:bg-primary/60",
+            sideBySide ? "w-1 border-l" : "h-1 border-t",
+          )}
+        />
         <Panel defaultSize="55" minSize="10">
           <ResponseViewer
             result={tab.result}

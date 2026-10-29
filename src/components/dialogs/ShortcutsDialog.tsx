@@ -6,6 +6,7 @@ export const SHORTCUTS: [string, string][] = [
   ["Ctrl/⌘ + Enter", "Send request"],
   ["Ctrl/⌘ + S", "Save request / folder / environment"],
   ["Ctrl/⌘ + K", "Command palette"],
+  ["Ctrl/⌘ + ,", "Open settings"],
   ["Ctrl/⌘ + B", "Toggle sidebar"],
   ["Ctrl/⌘ + `", "Toggle console"],
   ["Alt + T", "New request tab"],

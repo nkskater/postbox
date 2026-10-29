@@ -2,7 +2,19 @@
 /**
  * Ctrl+K command palette: jump to requests, collections and environments, or run commands.
  */
-import { FilePlus, Globe, Keyboard, Layers, Library, Moon, Play, Terminal, Upload } from "lucide-react";
+import {
+  Palette,
+  Settings,
+  FilePlus,
+  Globe,
+  Keyboard,
+  Layers,
+  Library,
+  Moon,
+  Play,
+  Terminal,
+  Upload,
+} from "lucide-react";
 import {
   CommandDialog,
   CommandEmpty,
@@ -13,6 +25,9 @@ import {
 } from "@/components/ui/command";
 import { useApp, folderPath } from "@/stores/app";
 import { useDialogs } from "@/stores/dialogs";
+import { useSettings } from "@/stores/settings";
+import { ACCENT_PRESETS } from "@/lib/settings/accent";
+import { CATEGORIES, SETTINGS } from "@/lib/settings/registry";
 import { methodColor } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -28,11 +43,15 @@ export function CommandPalette() {
     openTab,
     openDraft,
     setEnvironment,
-    setTheme,
     theme,
     setConsoleOpen,
     consoleOpen,
   } = useApp();
+
+  const openSettings = (query: string) => {
+    useSettings.getState().setQuery(query);
+    openTab({ id: "settings", type: "settings", name: "Settings" });
+  };
 
   const run = (fn: () => void) => {
     setOpen(false);
@@ -64,12 +83,45 @@ export function CommandPalette() {
           <CommandItem onSelect={() => run(() => setConsoleOpen(!consoleOpen))}>
             <Terminal /> Toggle console
           </CommandItem>
-          <CommandItem onSelect={() => run(() => setTheme(theme === "dark" ? "light" : "dark"))}>
+          <CommandItem
+            onSelect={() =>
+              run(
+                () =>
+                  void useSettings.getState().set("appearance.theme", theme === "dark" ? "light" : "dark"),
+              )
+            }
+          >
             <Moon /> Toggle theme
           </CommandItem>
           <CommandItem onSelect={() => run(() => setShortcutsOpen(true))}>
             <Keyboard /> Keyboard shortcuts
           </CommandItem>
+        </CommandGroup>
+        <CommandGroup heading="Settings">
+          <CommandItem onSelect={() => run(() => openSettings(""))}>
+            <Settings /> Open settings
+          </CommandItem>
+          {SETTINGS.map((d) => (
+            <CommandItem
+              key={d.key}
+              value={`settings ${d.label} ${d.description} ${(d.keywords ?? []).join(" ")}`}
+              onSelect={() => run(() => openSettings(d.label))}
+            >
+              <Settings /> Settings: {d.label}
+              <span className="ml-auto text-xs text-muted-foreground">
+                {CATEGORIES.find((c) => c.id === d.category)?.label}
+              </span>
+            </CommandItem>
+          ))}
+          {ACCENT_PRESETS.map((p) => (
+            <CommandItem
+              key={p.id}
+              value={`accent color ${p.label}`}
+              onSelect={() => run(() => void useSettings.getState().set("appearance.accent", p.id))}
+            >
+              <Palette /> Accent color: {p.label}
+            </CommandItem>
+          ))}
         </CommandGroup>
         <CommandGroup heading="Requests">
           {requests.map((r) => (

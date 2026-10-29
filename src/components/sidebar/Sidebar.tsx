@@ -1,6 +1,7 @@
 "use client";
 import { History, Layers, Library } from "lucide-react";
 import { useApp } from "@/stores/app";
+import { useSetting } from "@/stores/settings";
 import { cn } from "@/lib/utils";
 import { CollectionTree } from "./CollectionTree";
 import { EnvironmentList } from "./EnvironmentList";
@@ -16,20 +17,30 @@ const VIEWS = [
 export function Sidebar() {
   const view = useApp((s) => s.sidebarView);
   const setView = useApp((s) => s.setSidebarView);
+  const labels = useSetting<boolean>("layout.sidebarLabels");
+  const right = useSetting<string>("layout.sidebarPosition") === "right";
   return (
-    <div className="flex h-full bg-sidebar">
-      <nav className="flex w-[76px] shrink-0 flex-col items-center gap-1 border-r py-2">
+    <div className={cn("flex h-full bg-sidebar", right && "flex-row-reverse")}>
+      <nav
+        className={cn(
+          "flex shrink-0 flex-col items-center gap-1 py-2",
+          labels ? "w-[76px]" : "w-12",
+          right ? "border-l" : "border-r",
+        )}
+      >
         {VIEWS.map((v) => (
           <button
             key={v.id}
+            title={v.label}
             onClick={() => setView(v.id)}
             className={cn(
-              "flex w-[68px] flex-col items-center gap-0.5 rounded-md py-1.5 text-[10px]",
+              labels ? "flex w-[68px] flex-col" : "flex w-9 flex-col justify-center",
+              " items-center gap-0.5 rounded-md py-1.5 text-[10px]",
               view === v.id ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/50",
             )}
           >
             <v.icon className="size-4" />
-            {v.label}
+            {labels && v.label}
           </button>
         ))}
       </nav>

@@ -36,7 +36,8 @@ export type Tab =
   | { id: string; type: "environment"; environmentId: string; name: string }
   | { id: string; type: "globals"; name: string }
   | { id: string; type: "runner"; folderId: string; name: string }
-  | { id: string; type: "cookies"; name: string };
+  | { id: string; type: "cookies"; name: string }
+  | { id: string; type: "settings"; name: string };
 
 export interface KnownVariable {
   value: string;
@@ -334,7 +335,8 @@ export const useApp = create<AppState>()(
                 tab.type === "environment" &&
                 t.environmentId === tab.environmentId) ||
               t.type === "globals" ||
-              t.type === "cookies"),
+              t.type === "cookies" ||
+              t.type === "settings"),
         );
         if (same) set({ activeTabId: same.id });
         else set((s) => ({ tabs: [...s.tabs, tab], activeTabId: tab.id }));
@@ -531,8 +533,8 @@ export const useApp = create<AppState>()(
       },
       clearConsole: () => set({ consoleEntries: [] }),
       setConsoleOpen: (open) => set({ consoleOpen: open }),
+      // The DOM is updated by the settings store (appearance.theme); this only tracks the resolved theme.
       setTheme(theme) {
-        document.documentElement.classList.toggle("light", theme === "light");
         set({ theme });
       },
       setSidebarView: (sidebarView) => set({ sidebarView }),

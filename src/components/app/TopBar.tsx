@@ -1,8 +1,21 @@
 "use client";
 import { useState } from "react";
-import { Command, Cookie, Eye, Keyboard, Moon, Plus, Sun, Upload, Mailbox, LogOut } from "lucide-react";
+import {
+  Command,
+  Cookie,
+  Eye,
+  Keyboard,
+  Moon,
+  Plus,
+  Settings,
+  Sun,
+  Upload,
+  Mailbox,
+  LogOut,
+} from "lucide-react";
 import { useApp } from "@/stores/app";
 import { useDialogs } from "@/stores/dialogs";
+import { useSettings } from "@/stores/settings";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
@@ -28,7 +41,6 @@ export function TopBar({ authEnabled }: { authEnabled: boolean }) {
     setEnvironment,
     variables,
     theme,
-    setTheme,
     openTab,
   } = useApp();
   const { setImportOpen, setPaletteOpen, setShortcutsOpen } = useDialogs();
@@ -167,8 +179,19 @@ export function TopBar({ authEnabled }: { authEnabled: boolean }) {
         variant="ghost"
         size="icon"
         className="size-7"
+        title="Settings (Ctrl+,)"
+        onClick={() => openTab({ id: "settings", type: "settings", name: "Settings" })}
+      >
+        <Settings className="size-4" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-7"
         title="Toggle theme"
-        onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+        onClick={() =>
+          void useSettings.getState().set("appearance.theme", theme === "dark" ? "light" : "dark")
+        }
       >
         {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
       </Button>
