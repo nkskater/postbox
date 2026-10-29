@@ -125,6 +125,8 @@ export const runs = sqliteTable(
     failedTests: integer("failed_tests").notNull().default(0),
     durationMs: integer("duration_ms").notNull().default(0),
     source: text("source").notNull().default("manual"),
+    failedRequests: integer("failed_requests").notNull().default(0),
+    error: text("error"),
     startedAt: integer("started_at").notNull(),
     finishedAt: integer("finished_at"),
   },
@@ -151,6 +153,14 @@ export const runResults = sqliteTable(
     tests: text("tests", { mode: "json" }).$type<TestResult[]>().notNull(),
     error: text("error"),
     passed: integer("passed", { mode: "boolean" }).notNull(),
+    path: text("path").notNull().default(""),
+    skipped: integer("skipped", { mode: "boolean" }).notNull().default(false),
+    scriptErrors: text("script_errors", { mode: "json" })
+      .$type<{ phase: "prerequest" | "test"; source: string; message: string }[]>()
+      .notNull()
+      .default([]),
+    responseBody: text("response_body"),
+    responseHeaders: text("response_headers", { mode: "json" }).$type<[string, string][]>(),
     createdAt: integer("created_at").notNull(),
   },
   (t) => [index("run_results_run_idx").on(t.runId, t.sequence)],
