@@ -8,13 +8,9 @@
   "engines": {
     "node": ">=20.9"
   },
-  "bin": {
-    "postbox": "dist/cli.mjs"
-  },
   "scripts": {
     "dev": "next dev",
-    "build": "next build && npm run build:cli",
-    "build:cli": "node scripts/build-cli.mjs",
+    "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "format": "prettier --write .",
@@ -22,8 +18,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "db:generate": "drizzle-kit generate",
-    "cli": "tsx src/cli/index.ts"
+    "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.4",
