@@ -15,6 +15,50 @@ beforeAll(async () => {
 });
 
 describe("repository", () => {
+  it("derives query params on create when omitted or empty", () => {
+    const ws = repo.createWorkspace("Query params");
+    const folder = repo.createFolder(ws.id, null);
+    for (const partial of [{}, { params: [] }]) {
+      const request = repo.createRequest(ws.id, folder.id, {
+        url: "{{host}}/api?asn={{asn_id}}&tag=a&tag=b&flag&encoded=a%20b#fragment",
+        ...partial,
+      });
+      expect(request.params).toEqual([
+        { key: "asn", value: "{{asn_id}}", enabled: true },
+        { key: "tag", value: "a", enabled: true },
+        { key: "tag", value: "b", enabled: true },
+        { key: "flag", value: "", enabled: true },
+        { key: "encoded", value: "a%20b", enabled: true },
+      ]);
+      expect(repo.getRequest(request.id)?.params).toEqual(request.params);
+    }
+    expect(repo.createRequest(ws.id, folder.id, { url: "http://host/api" }).params).toEqual([]);
+  });
+
+  it("refreshes params on URL-only updates and preserves explicit params and disabled rows", () => {
+    const ws = repo.createWorkspace("Update params");
+    const folder = repo.createFolder(ws.id, null);
+    const params = [
+      { key: "asn", value: "old", enabled: true, description: "ASN" },
+      { key: "hidden", value: "saved", enabled: false },
+    ];
+    const request = repo.createRequest(ws.id, folder.id, { url: "http://host?asn=old", params });
+    expect(request.params).toEqual(params);
+    expect(repo.updateRequest(request.id, { name: "Renamed" })?.params).toEqual(params);
+    expect(repo.updateRequest(request.id, { url: "http://host?asn={{asn_id}}" })?.params).toEqual([
+      { ...params[0], value: "{{asn_id}}" }, params[1],
+    ]);
+    expect(repo.updateRequest(request.id, { url: "http://host" })?.params).toEqual([params[1]]);
+    expect(repo.updateRequest(request.id, { url: "http://host?x=1", params: [] })?.params).toEqual([
+      { key: "x", value: "1", enabled: true },
+    ]);
+    expect(repo.updateRequest(request.id, { params: [] })?.params).toEqual([
+      { key: "x", value: "1", enabled: true },
+    ]);
+    expect(repo.updateRequest(request.id, { url: "http://host?x=2", params })?.params).toEqual(params);
+    expect(repo.updateRequest(request.id, { url: "http://host", params: [] })?.params).toEqual([]);
+  });
+
   it("loads only the requested subtree and preserves mixed sibling order", () => {
     const ws = repo.createWorkspace("Tree ordering");
     const root = repo.createFolder(ws.id, null, { name: "Root" });
