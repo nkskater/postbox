@@ -22,7 +22,10 @@ const schema = z.object({
 export const POST = route(async (req: Request) => {
   const input = await parseBody(req, schema);
   const r = input.request as unknown as Partial<RequestDef>;
-  const request = defaultRequest({ ...r, settings: { ...DEFAULT_SETTINGS, ...(r.settings ?? {}) } } as Partial<RequestDef>);
+  const request = defaultRequest({
+    ...r,
+    settings: { ...DEFAULT_SETTINGS, ...(r.settings ?? {}) },
+  } as Partial<RequestDef>);
   const result = await runSingleRequest({
     workspaceId: input.workspaceId,
     environmentId: input.environmentId ?? null,

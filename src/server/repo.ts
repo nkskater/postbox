@@ -115,7 +115,13 @@ export function getTreeSummary(workspaceId: string) {
     .orderBy(asc(folders.sort), asc(folders.createdAt))
     .all();
   const r = db
-    .select({ id: requests.id, folderId: requests.folderId, name: requests.name, method: requests.method, sort: requests.sort })
+    .select({
+      id: requests.id,
+      folderId: requests.folderId,
+      name: requests.name,
+      method: requests.method,
+      sort: requests.sort,
+    })
     .from(requests)
     .where(eq(requests.workspaceId, workspaceId))
     .orderBy(asc(requests.sort), asc(requests.createdAt))
@@ -145,7 +151,9 @@ export function getFolderTree(folderId: string): FolderNode | null {
 }
 
 /** Ancestors of a folder, collection first, including the folder itself. */
-export function getFolderChain(folderId: string): (FolderDef & { parentId: string | null; workspaceId: string })[] {
+export function getFolderChain(
+  folderId: string,
+): (FolderDef & { parentId: string | null; workspaceId: string })[] {
   const db = getDb();
   const chain: (FolderDef & { parentId: string | null; workspaceId: string })[] = [];
   let id: string | null = folderId;
@@ -172,9 +180,16 @@ function nextSort(workspaceId: string, parentId: string | null): number {
   const f = db
     .select({ sort: folders.sort })
     .from(folders)
-    .where(and(eq(folders.workspaceId, workspaceId), parentId ? eq(folders.parentId, parentId) : isNull(folders.parentId)))
+    .where(
+      and(
+        eq(folders.workspaceId, workspaceId),
+        parentId ? eq(folders.parentId, parentId) : isNull(folders.parentId),
+      ),
+    )
     .all();
-  const r = parentId ? db.select({ sort: requests.sort }).from(requests).where(eq(requests.folderId, parentId)).all() : [];
+  const r = parentId
+    ? db.select({ sort: requests.sort }).from(requests).where(eq(requests.folderId, parentId)).all()
+    : [];
   return Math.max(-1, ...f.map((x) => x.sort), ...r.map((x) => x.sort)) + 1;
 }
 
@@ -215,17 +230,24 @@ export function deleteFolder(id: string) {
   const db = getDb();
   const row = db.select().from(folders).where(eq(folders.id, id)).get();
   if (!row) return;
-  const all = db.select({ id: folders.id, parentId: folders.parentId }).from(folders).where(eq(folders.workspaceId, row.workspaceId)).all();
+  const all = db
+    .select({ id: folders.id, parentId: folders.parentId })
+    .from(folders)
+    .where(eq(folders.workspaceId, row.workspaceId))
+    .all();
   const toDelete = new Set([id]);
   let grew = true;
   while (grew) {
     grew = false;
-    for (const f of all) if (f.parentId && toDelete.has(f.parentId) && !toDelete.has(f.id)) (toDelete.add(f.id), (grew = true));
+    for (const f of all)
+      if (f.parentId && toDelete.has(f.parentId) && !toDelete.has(f.id)) (toDelete.add(f.id), (grew = true));
   }
   const ids = [...toDelete];
   db.transaction((tx) => {
     tx.delete(requests).where(inArray(requests.folderId, ids)).run();
-    tx.delete(variables).where(and(eq(variables.scope, "collection"), inArray(variables.ownerId, ids))).run();
+    tx.delete(variables)
+      .where(and(eq(variables.scope, "collection"), inArray(variables.ownerId, ids)))
+      .run();
     tx.delete(folders).where(inArray(folders.id, ids)).run();
   });
 }
@@ -297,11 +319,21 @@ export function duplicateFolder(id: string, targetParent?: string | null, rename
   const { id: _id, parentId: _p, sort, workspaceId, ...def } = src;
   const copy = createFolder(workspaceId, parentId, { ...def, name: rename ? `${src.name} Copy` : src.name });
   if (rename) reorder("folder", copy.id, parentId, sort + 1);
-  for (const r of db.select().from(requests).where(eq(requests.folderId, id)).orderBy(asc(requests.sort)).all()) {
+  for (const r of db
+    .select()
+    .from(requests)
+    .where(eq(requests.folderId, id))
+    .orderBy(asc(requests.sort))
+    .all()) {
     const { id: _rid, folderId: _f, sort: _s, ...rdef } = rowToRequest(r);
     createRequest(workspaceId, copy.id, rdef);
   }
-  for (const f of db.select().from(folders).where(eq(folders.parentId, id)).orderBy(asc(folders.sort)).all()) {
+  for (const f of db
+    .select()
+    .from(folders)
+    .where(eq(folders.parentId, id))
+    .orderBy(asc(folders.sort))
+    .all()) {
     duplicateFolder(f.id, copy.id, false);
   }
   if (!src.parentId) {
@@ -324,13 +356,19 @@ export function reorder(kind: "folder" | "request", id: string, parentId: string
   if (!item) throw new Error("Item not found");
   if (kind === "request" && !parentId) throw new Error("Requests must live inside a collection or folder");
   if (kind === "folder" && parentId) {
-    if (getFolderChain(parentId).some((f) => f.id === id)) throw new Error("Cannot move a folder into itself");
+    if (getFolderChain(parentId).some((f) => f.id === id))
+      throw new Error("Cannot move a folder into itself");
   }
   const workspaceId = item.workspaceId;
   const siblingsF = db
     .select({ id: folders.id, sort: folders.sort })
     .from(folders)
-    .where(and(eq(folders.workspaceId, workspaceId), parentId ? eq(folders.parentId, parentId) : isNull(folders.parentId)))
+    .where(
+      and(
+        eq(folders.workspaceId, workspaceId),
+        parentId ? eq(folders.parentId, parentId) : isNull(folders.parentId),
+      ),
+    )
     .all()
     .map((x) => ({ ...x, kind: "folder" as const }));
   const siblingsR = parentId
@@ -341,7 +379,9 @@ export function reorder(kind: "folder" | "request", id: string, parentId: string
         .all()
         .map((x) => ({ ...x, kind: "request" as const }))
     : [];
-  const siblings = [...siblingsF, ...siblingsR].filter((s) => !(s.id === id && s.kind === kind)).sort((a, b) => a.sort - b.sort);
+  const siblings = [...siblingsF, ...siblingsR]
+    .filter((s) => !(s.id === id && s.kind === kind))
+    .sort((a, b) => a.sort - b.sort);
   const pos = Math.max(0, Math.min(index, siblings.length));
   siblings.splice(pos, 0, { id, sort: 0, kind });
   db.transaction((tx) => {
@@ -375,14 +415,26 @@ export function listEnvironments(workspaceId: string) {
 export function getEnvironment(id: string): (Environment & { workspaceId: string }) | null {
   const row = getDb().select().from(environments).where(eq(environments.id, id)).get();
   if (!row) return null;
-  return { id: row.id, name: row.name, workspaceId: row.workspaceId, variables: listVariables(row.workspaceId, "environment", row.id) };
+  return {
+    id: row.id,
+    name: row.name,
+    workspaceId: row.workspaceId,
+    variables: listVariables(row.workspaceId, "environment", row.id),
+  };
 }
 
 export function createEnvironment(workspaceId: string, name: string, vars: Variable[] = []) {
   const id = newId();
   getDb()
     .insert(environments)
-    .values({ id, workspaceId, name, sort: listEnvironments(workspaceId).length, createdAt: now(), updatedAt: now() })
+    .values({
+      id,
+      workspaceId,
+      name,
+      sort: listEnvironments(workspaceId).length,
+      createdAt: now(),
+      updatedAt: now(),
+    })
     .run();
   if (vars.length) replaceVariables(workspaceId, "environment", id, vars);
   return getEnvironment(id)!;
@@ -395,14 +447,20 @@ export function renameEnvironment(id: string, name: string) {
 export function deleteEnvironment(id: string) {
   const db = getDb();
   db.transaction((tx) => {
-    tx.delete(variables).where(and(eq(variables.scope, "environment"), eq(variables.ownerId, id))).run();
+    tx.delete(variables)
+      .where(and(eq(variables.scope, "environment"), eq(variables.ownerId, id)))
+      .run();
     tx.delete(environments).where(eq(environments.id, id)).run();
   });
 }
 
 export type VariableScopeName = "global" | "collection" | "environment";
 
-export function listVariables(workspaceId: string, scope: VariableScopeName, ownerId: string | null): Variable[] {
+export function listVariables(
+  workspaceId: string,
+  scope: VariableScopeName,
+  ownerId: string | null,
+): Variable[] {
   return getDb()
     .select()
     .from(variables)
@@ -419,7 +477,12 @@ export function listVariables(workspaceId: string, scope: VariableScopeName, own
 }
 
 /** Replace the full variable list of one scope/owner (used by the variable editor). */
-export function replaceVariables(workspaceId: string, scope: VariableScopeName, ownerId: string | null, list: Variable[]) {
+export function replaceVariables(
+  workspaceId: string,
+  scope: VariableScopeName,
+  ownerId: string | null,
+  list: Variable[],
+) {
   const db = getDb();
   db.transaction((tx) => {
     tx.delete(variables)
@@ -486,7 +549,9 @@ const HISTORY_LIMIT = Number(process.env.HISTORY_LIMIT) || 500;
 export function addHistory(entry: Omit<typeof history.$inferInsert, "id" | "createdAt">) {
   const db = getDb();
   const id = newId();
-  db.insert(history).values({ ...entry, id, createdAt: now() }).run();
+  db.insert(history)
+    .values({ ...entry, id, createdAt: now() })
+    .run();
   // Trim old entries.
   const cutoff = db
     .select({ createdAt: history.createdAt })
@@ -496,7 +561,10 @@ export function addHistory(entry: Omit<typeof history.$inferInsert, "id" | "crea
     .limit(1)
     .offset(HISTORY_LIMIT)
     .get();
-  if (cutoff) db.delete(history).where(and(eq(history.workspaceId, entry.workspaceId), lt(history.createdAt, cutoff.createdAt + 1))).run();
+  if (cutoff)
+    db.delete(history)
+      .where(and(eq(history.workspaceId, entry.workspaceId), lt(history.createdAt, cutoff.createdAt + 1)))
+      .run();
   return id;
 }
 

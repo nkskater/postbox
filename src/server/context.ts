@@ -25,9 +25,16 @@ export interface ScopeContext {
 }
 
 const secretValues = (...lists: Variable[][]) =>
-  lists.flat().filter((v) => v.type === "secret" && v.enabled && v.value).map((v) => v.value);
+  lists
+    .flat()
+    .filter((v) => v.type === "secret" && v.enabled && v.value)
+    .map((v) => v.value);
 
-export function loadScopes(workspaceId: string, environmentId: string | null, collectionId: string | null): ScopeContext {
+export function loadScopes(
+  workspaceId: string,
+  environmentId: string | null,
+  collectionId: string | null,
+): ScopeContext {
   const globals = repo.listVariables(workspaceId, "global", null);
   const env = environmentId ? repo.listVariables(workspaceId, "environment", environmentId) : [];
   const col = collectionId ? repo.listVariables(workspaceId, "collection", collectionId) : [];
@@ -49,10 +56,26 @@ export function loadScopes(workspaceId: string, environmentId: string | null, co
 export function persistScopes(ctx: ScopeContext, after: VariableScopes): string[] {
   const warnings: string[] = [];
   repo.persistScopeDiff(ctx.workspaceId, "global", null, ctx.scopes.globals, after.globals);
-  if (ctx.environmentId) repo.persistScopeDiff(ctx.workspaceId, "environment", ctx.environmentId, ctx.scopes.environment, after.environment);
+  if (ctx.environmentId)
+    repo.persistScopeDiff(
+      ctx.workspaceId,
+      "environment",
+      ctx.environmentId,
+      ctx.scopes.environment,
+      after.environment,
+    );
   else if (JSON.stringify(after.environment) !== JSON.stringify(ctx.scopes.environment))
-    warnings.push("A script set environment variables but no environment is selected; the changes were discarded.");
-  if (ctx.collectionId) repo.persistScopeDiff(ctx.workspaceId, "collection", ctx.collectionId, ctx.scopes.collection, after.collection);
+    warnings.push(
+      "A script set environment variables but no environment is selected; the changes were discarded.",
+    );
+  if (ctx.collectionId)
+    repo.persistScopeDiff(
+      ctx.workspaceId,
+      "collection",
+      ctx.collectionId,
+      ctx.scopes.collection,
+      after.collection,
+    );
   return warnings;
 }
 

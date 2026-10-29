@@ -22,7 +22,9 @@ const globalForDb = globalThis as unknown as { __postboxDb?: DbHolder };
 
 export function resolveDatabasePath(): string {
   if (process.env.DATABASE_PATH) return process.env.DATABASE_PATH;
-  return process.env.NODE_ENV === "production" ? "/data/postbox.db" : path.join(process.cwd(), "data", "postbox.db");
+  return process.env.NODE_ENV === "production"
+    ? "/data/postbox.db"
+    : path.join(process.cwd(), "data", "postbox.db");
 }
 
 function resolveMigrationsFolder(): string {
