@@ -5,12 +5,16 @@
   "description": "Self-hosted, lightweight API client - an open-source alternative to Postman.",
   "license": "MIT",
   "type": "module",
+  "bin": {
+    "postbox": "dist/cli.mjs"
+  },
   "engines": {
     "node": ">=20.9"
   },
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build && npm run build:cli",
+    "build:cli": "node scripts/build-cli.mjs",
     "start": "next start",
     "lint": "eslint",
     "format": "prettier --write .",
