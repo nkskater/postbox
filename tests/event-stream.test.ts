@@ -24,6 +24,16 @@ describe("bounded progress stream", () => {
     expect(() => events.close()).not.toThrow();
   });
 
+  it("still delivers terminal events when the queue is full", async () => {
+    const events = createEventStream(40);
+    expect(events.send({ message: "fills the queue" })).toBe(true);
+    expect(events.send({ type: "done", summary: { status: "passed", totalRequests: 3 } })).toBe(true);
+    events.close();
+    const received: unknown[] = [];
+    for await (const event of readNdjson(events.stream)) received.push(event);
+    expect(received.at(-1)).toMatchObject({ type: "done" });
+  });
+
   it("measures queue size in encoded bytes rather than character count", async () => {
     const events = createEventStream(20);
     expect(events.send({ x: "📬📬📬" })).toBe(false);

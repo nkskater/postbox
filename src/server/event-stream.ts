@@ -26,7 +26,11 @@ export function createEventStream(maxQueuedBytes = 1024 * 1024) {
     send(event: unknown): boolean {
       if (closed) return false;
       const chunk = encoder.encode(JSON.stringify(event) + "\n");
-      if (chunk.byteLength > (controller.desiredSize ?? 0)) {
+      // Terminal events are tiny and sent once, so they may exceed the bound; dropping
+      // them would leave a live subscriber unable to tell the run has finished.
+      const type = (event as { type?: unknown } | null)?.type;
+      const terminal = type === "done" || type === "error";
+      if (!terminal && chunk.byteLength > (controller.desiredSize ?? 0)) {
         closed = true;
         controller.error(
           new Error("Run progress consumer is too slow. Retrieve persisted results from run history."),
