@@ -135,15 +135,31 @@ export function getFolderTree(folderId: string): FolderNode | null {
   if (!root) return null;
   const allFolders = db.select().from(folders).where(eq(folders.workspaceId, root.workspaceId)).all();
   const allRequests = db.select().from(requests).where(eq(requests.workspaceId, root.workspaceId)).all();
+  const foldersByParent = new Map<string | null, FolderRow[]>();
+  const requestsByFolder = new Map<string, RequestRow[]>();
+  for (const folder of allFolders) {
+    const siblings = foldersByParent.get(folder.parentId) ?? [];
+    siblings.push(folder);
+    foldersByParent.set(folder.parentId, siblings);
+  }
+  for (const request of allRequests) {
+    const siblings = requestsByFolder.get(request.folderId) ?? [];
+    siblings.push(request);
+    requestsByFolder.set(request.folderId, siblings);
+  }
+  const visiting = new Set<string>();
   const build = (f: FolderRow): FolderNode => {
-    const subFolders = allFolders.filter((x) => x.parentId === f.id);
-    const reqs = allRequests.filter((x) => x.folderId === f.id);
+    if (visiting.has(f.id)) throw new Error("Folder tree contains a cycle");
+    visiting.add(f.id);
+    const subFolders = foldersByParent.get(f.id) ?? [];
+    const reqs = requestsByFolder.get(f.id) ?? [];
     const children: (TreeNode & { sort: number })[] = [
       ...subFolders.map((x) => ({ ...build(x), sort: x.sort })),
       ...reqs.map((x) => ({ ...rowToRequest(x), kind: "request" as const })),
     ];
     children.sort((a, b) => a.sort - b.sort);
     const { parentId: _p, sort: _s, ...def } = rowToFolder(f);
+    visiting.delete(f.id);
     return { ...def, kind: "folder", children };
   };
   return build(root);

@@ -15,6 +15,32 @@ beforeAll(async () => {
 });
 
 describe("repository", () => {
+  it("loads only the requested subtree and preserves mixed sibling order", () => {
+    const ws = repo.createWorkspace("Tree ordering");
+    const root = repo.createFolder(ws.id, null, { name: "Root" });
+    const other = repo.createFolder(ws.id, null, { name: "Other" });
+    repo.createRequest(ws.id, other.id, { name: "Excluded" });
+    const child = repo.createFolder(ws.id, root.id, { name: "Child" });
+    repo.createRequest(ws.id, child.id, { name: "Nested" });
+    const request = repo.createRequest(ws.id, root.id, { name: "First" });
+    repo.reorder("request", request.id, root.id, 0);
+    const tree = repo.getFolderTree(root.id)!;
+    expect(tree.children.map((node) => node.name)).toEqual(["First", "Child"]);
+    expect(tree.children[1]).toMatchObject({ children: [{ name: "Nested" }] });
+  });
+
+  it("uses migrated indexes for workspace request and environment ordering", async () => {
+    const { getSqlite } = await import("@/server/db");
+    const sqlite = getSqlite();
+    for (const table of ["requests", "environments"]) {
+      const plan = sqlite
+        .prepare(`EXPLAIN QUERY PLAN SELECT * FROM ${table} WHERE workspace_id = ? ORDER BY sort, created_at`)
+        .all("workspace");
+      expect(JSON.stringify(plan)).toContain(`${table}_workspace_sort_idx`);
+      expect(JSON.stringify(plan)).not.toContain("USE TEMP B-TREE");
+    }
+  });
+
   it("imports a tree, persists variable diffs and reorders items", () => {
     const ws = repo.createWorkspace("Test");
     const { root, variables } = importPostmanCollection({

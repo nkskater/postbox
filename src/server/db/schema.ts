@@ -73,18 +73,25 @@ export const requests = sqliteTable(
     description: text("description").notNull().default(""),
     ...timestamps,
   },
-  (t) => [index("requests_folder_idx").on(t.folderId)],
+  (t) => [
+    index("requests_folder_idx").on(t.folderId),
+    index("requests_workspace_sort_idx").on(t.workspaceId, t.sort, t.createdAt),
+  ],
 );
 
-export const environments = sqliteTable("environments", {
-  id: text("id").primaryKey(),
-  workspaceId: text("workspace_id")
-    .notNull()
-    .references(() => workspaces.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  sort: integer("sort").notNull().default(0),
-  ...timestamps,
-});
+export const environments = sqliteTable(
+  "environments",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    sort: integer("sort").notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [index("environments_workspace_sort_idx").on(t.workspaceId, t.sort, t.createdAt)],
+);
 
 export const variables = sqliteTable(
   "variables",

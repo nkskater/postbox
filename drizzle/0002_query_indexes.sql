@@ -1,0 +1,2 @@
+CREATE INDEX `environments_workspace_sort_idx` ON `environments` (`workspace_id`,`sort`,`created_at`);--> statement-breakpoint
+CREATE INDEX `requests_workspace_sort_idx` ON `requests` (`workspace_id`,`sort`,`created_at`);

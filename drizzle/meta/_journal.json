@@ -15,6 +15,13 @@
       "when": 1793281583755,
       "tag": "0001_run_details",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1793293111232,
+      "tag": "0002_query_indexes",
+      "breakpoints": true
     }
   ]
 }
