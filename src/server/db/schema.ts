@@ -232,6 +232,13 @@ export const schedules = sqliteTable("schedules", {
   ...timestamps,
 });
 
+/** App-wide settings (key -> JSON value). Keys and validation live in src/lib/settings/registry.ts. */
+export const appSettings = sqliteTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: text("value", { mode: "json" }).$type<unknown>().notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
 export type WorkspaceRow = typeof workspaces.$inferSelect;
 export type FolderRow = typeof folders.$inferSelect;
 export type RequestRow = typeof requests.$inferSelect;
