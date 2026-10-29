@@ -1,0 +1,325 @@
+/**
+ * Script sandbox: runs pre-request / test scripts inside a fresh QuickJS (WASM)
+ * runtime with memory, stack and wall-clock limits. The guest has no access to
+ * Node APIs; it can only call the host functions defined below.
+ */
+import {
+  getQuickJS,
+  shouldInterruptAfterDeadline,
+  type QuickJSContext,
+  type QuickJSDeferredPromise,
+  type QuickJSHandle,
+} from "quickjs-emscripten";
+import type { ConsoleEntry, CookieInfo, TestResult } from "../types";
+import type { VariableScopes } from "../variables/resolver";
+import { redactSecrets } from "../variables/resolver";
+import { generateDynamic } from "../variables/dynamic";
+import { BOOTSTRAP_SOURCE } from "./bootstrap";
+
+export type ScriptEvent = "prerequest" | "test";
+
+export interface SandboxHeader {
+  key: string;
+  value: string;
+  disabled?: boolean;
+}
+
+/** Request as seen by scripts (Postman's shape, simplified). */
+export interface SandboxRequest {
+  id?: string;
+  name?: string;
+  url: string;
+  method: string;
+  headers: SandboxHeader[];
+  body?: Record<string, unknown> | null;
+  auth?: unknown;
+}
+
+export interface SandboxResponse {
+  code: number;
+  status: string;
+  headers: SandboxHeader[];
+  body: string;
+  bodyBase64?: string;
+  responseTime: number;
+  responseSize: number;
+  cookies?: CookieInfo[];
+}
+
+export interface ScriptInfo {
+  eventName: ScriptEvent;
+  iteration: number;
+  iterationCount: number;
+  requestName: string;
+  requestId: string;
+}
+
+export interface ScriptContext {
+  scopes: VariableScopes;
+  request: SandboxRequest;
+  response?: SandboxResponse;
+  info: ScriptInfo;
+  cookies?: CookieInfo[];
+}
+
+/** Request object passed to pm.sendRequest (Postman request-definition shape). */
+export interface SendRequestSpec {
+  url: string;
+  method: string;
+  header: SandboxHeader[];
+  body: {
+    mode?: string;
+    raw?: string;
+    urlencoded?: SandboxHeader[];
+    formdata?: SandboxHeader[];
+    graphql?: unknown;
+  } | null;
+}
+
+export interface ScriptHost {
+  sendRequest?: (spec: SendRequestSpec) => Promise<SandboxResponse>;
+}
+
+export interface ScriptLimits {
+  timeoutMs: number;
+  memoryBytes: number;
+}
+
+export const DEFAULT_LIMITS: ScriptLimits = {
+  timeoutMs: Number(process.env.SCRIPT_TIMEOUT_MS) || 5000,
+  memoryBytes: (Number(process.env.SCRIPT_MEMORY_MB) || 32) * 1024 * 1024,
+};
+
+export interface ScriptResult {
+  scopes: VariableScopes;
+  request: SandboxRequest;
+  tests: TestResult[];
+  logs: ConsoleEntry[];
+  error?: string;
+  /** undefined = not set, null = stop the run, string = jump to request with that name */
+  nextRequest?: string | null;
+  nextRequestSet: boolean;
+  skipRequest: boolean;
+}
+
+export interface RunScriptOptions {
+  host?: ScriptHost;
+  limits?: Partial<ScriptLimits>;
+  /** Values redacted from console output. */
+  secrets?: string[];
+  /** Label used for console entries, e.g. "Collection pre-request". */
+  source?: string;
+}
+
+let quickjsPromise: ReturnType<typeof getQuickJS> | null = null;
+const loadQuickJS = () => (quickjsPromise ??= getQuickJS());
+
+/** Run a single script. Never throws for script errors; they are returned in `error`. */
+export async function runScript(
+  code: string,
+  ctx: ScriptContext,
+  opts: RunScriptOptions = {},
+): Promise<ScriptResult> {
+  const limits = { ...DEFAULT_LIMITS, ...opts.limits };
+  const source = opts.source ?? ctx.info.eventName;
+  const logs: ConsoleEntry[] = [];
+  const secrets = opts.secrets ?? [];
+  const base: ScriptResult = {
+    scopes: ctx.scopes,
+    request: ctx.request,
+    tests: [],
+    logs,
+    nextRequestSet: false,
+    skipRequest: false,
+  };
+  if (!code.trim()) return base;
+
+  const QuickJS = await loadQuickJS();
+  const runtime = QuickJS.newRuntime();
+  const deadline = Date.now() + limits.timeoutMs;
+  runtime.setMemoryLimit(limits.memoryBytes);
+  runtime.setMaxStackSize(1024 * 1024);
+  runtime.setInterruptHandler(shouldInterruptAfterDeadline(deadline));
+  const vm = runtime.newContext();
+
+  let disposed = false;
+  const deferreds = new Set<QuickJSDeferredPromise>();
+  const pump = () => {
+    if (disposed) return;
+    const r = runtime.executePendingJobs();
+    if (r.error) r.error.dispose();
+  };
+
+  const define = (name: string, fn: (...args: QuickJSHandle[]) => QuickJSHandle | void) => {
+    const h = vm.newFunction(name, fn);
+    vm.setProp(vm.global, name, h);
+    h.dispose();
+  };
+
+  /** Create a guest promise settled by a host promise. */
+  const bridge = (work: Promise<string | undefined>): QuickJSHandle => {
+    const d = vm.newPromise();
+    deferreds.add(d);
+    work.then(
+      (value) => {
+        if (disposed) return;
+        const h = value === undefined ? vm.undefined : vm.newString(value);
+        d.resolve(h);
+        if (value !== undefined) h.dispose();
+        deferreds.delete(d);
+        d.dispose();
+        pump();
+      },
+      (err) => {
+        if (disposed) return;
+        const e = vm.newError({ name: "Error", message: (err as Error)?.message ?? String(err) });
+        d.reject(e);
+        e.dispose();
+        deferreds.delete(d);
+        d.dispose();
+        pump();
+      },
+    );
+    return d.handle;
+  };
+
+  try {
+    define("__host_log", (levelH, msgH) => {
+      const level = vm.getString(levelH) as ConsoleEntry["level"];
+      const message = redactSecrets(vm.getString(msgH), secrets);
+      if (logs.length < 1000) logs.push({ level, message, source, timestamp: Date.now() });
+    });
+    define("__host_dynamic", (nameH) => {
+      const v = generateDynamic(vm.getString(nameH));
+      return v === undefined ? vm.undefined : vm.newString(v);
+    });
+    define("__host_sleep", (msH) => {
+      const ms = Math.min(Math.max(0, vm.getNumber(msH)), Math.max(0, deadline - Date.now()));
+      return bridge(new Promise((r) => setTimeout(() => r(undefined), ms)));
+    });
+    define("__host_send", (specH) => {
+      const spec = JSON.parse(vm.getString(specH)) as SendRequestSpec;
+      if (!opts.host?.sendRequest)
+        return bridge(Promise.reject(new Error("pm.sendRequest is not available here")));
+      return bridge(opts.host.sendRequest(spec).then((r) => JSON.stringify(r)));
+    });
+
+    const ctxStr = vm.newString(
+      JSON.stringify({
+        scopes: ctx.scopes,
+        request: ctx.request,
+        response: ctx.response,
+        info: ctx.info,
+        cookies: ctx.cookies ?? [],
+      }),
+    );
+    vm.setProp(vm.global, "__ctx_json", ctxStr);
+    ctxStr.dispose();
+
+    const boot = vm.evalCode(BOOTSTRAP_SOURCE, "postbox-bootstrap.js");
+    if (boot.error) {
+      const msg = describeError(vm, boot.error);
+      boot.error.dispose();
+      return { ...base, error: `Sandbox bootstrap failed: ${msg}` };
+    }
+    boot.value.dispose();
+
+    // Wrap user code in an async function so top-level `await` works and errors are caught.
+    const wrapped =
+      "(async function () {\n" +
+      code +
+      "\n})().then(function () { return __drain().then(function () { return null; }); }, function (e) { return __drain().then(function () { return __errMsg(e); }); })";
+    const evalResult = vm.evalCode(wrapped, "script.js");
+    if (evalResult.error) {
+      const msg = describeError(vm, evalResult.error);
+      evalResult.error.dispose();
+      return { ...base, error: msg };
+    }
+
+    const promise = vm.resolvePromise(evalResult.value);
+    evalResult.value.dispose();
+    pump();
+
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<"timeout">(
+      (r) => (timer = setTimeout(() => r("timeout"), Math.max(0, deadline - Date.now()) + 10)),
+    );
+    const outcome = await Promise.race([promise, timeout]);
+    clearTimeout(timer);
+
+    let error: string | undefined;
+    if (outcome === "timeout") {
+      error = `Script exceeded the time limit of ${limits.timeoutMs} ms`;
+    } else if (outcome.error) {
+      error = describeError(vm, outcome.error);
+      outcome.error.dispose();
+    } else {
+      if (vm.typeof(outcome.value) === "string") error = vm.getString(outcome.value);
+      outcome.value.dispose();
+    }
+
+    // Collect state even after an error so partial tests / variable changes are kept.
+    const fin = vm.evalCode("__finalize()");
+    if (fin.error) {
+      const msg = describeError(vm, fin.error);
+      fin.error.dispose();
+      return { ...base, error: error ?? msg };
+    }
+    const state = JSON.parse(vm.getString(fin.value)) as {
+      scopes: VariableScopes;
+      tests: TestResult[];
+      nextRequest?: string | null;
+      nextRequestSet: boolean;
+      skip: boolean;
+      request: SandboxRequest;
+    };
+    fin.value.dispose();
+    return {
+      scopes: state.scopes,
+      request: { ...ctx.request, ...state.request },
+      tests: state.tests,
+      logs,
+      error: error ? redactSecrets(friendlyError(error, limits), secrets) : undefined,
+      nextRequest: state.nextRequest,
+      nextRequestSet: state.nextRequestSet,
+      skipRequest: state.skip,
+    };
+  } catch (err) {
+    return { ...base, error: `Sandbox error: ${(err as Error).message}` };
+  } finally {
+    disposed = true;
+    for (const d of deferreds) d.dispose();
+    try {
+      vm.dispose();
+      runtime.dispose();
+    } catch {
+      /* a leaked handle must never crash the server */
+    }
+  }
+}
+
+/** Map QuickJS internal error texts to messages users understand. */
+function friendlyError(msg: string, limits: ScriptLimits): string {
+  if (/InternalError: interrupted/.test(msg))
+    return `Script exceeded the time limit of ${limits.timeoutMs} ms`;
+  if (/out of memory/i.test(msg))
+    return `Script exceeded the memory limit of ${Math.round(limits.memoryBytes / 1048576)} MB`;
+  return msg;
+}
+
+function describeError(vm: QuickJSContext, handle: QuickJSHandle): string {
+  try {
+    const e = vm.dump(handle) as { name?: string; message?: string; stack?: string } | string;
+    if (typeof e === "string") return e;
+    if (e && typeof e === "object") {
+      if (e.message === "interrupted") return "Script exceeded the time limit";
+      if (e.name === "InternalError" && /out of memory/i.test(e.message ?? ""))
+        return "Script exceeded the memory limit";
+      const line = /script\.js:(\d+)/.exec(e.stack ?? "")?.[1];
+      return `${e.name ?? "Error"}: ${e.message ?? ""}${line ? ` (line ${Number(line) - 1})` : ""}`;
+    }
+    return String(e);
+  } catch {
+    return "Unknown script error";
+  }
+}
