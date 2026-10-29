@@ -124,6 +124,19 @@ async function run(file: string, options: Options) {
       secrets,
       signal: controller.signal,
       retainResults: options.reporters.some((reporter) => reporter !== "cli"),
+      onExecution: (_item, result) => {
+        for (const [list, scope] of [
+          [environment, "environment"],
+          [globals, "globals"],
+          [variables, "collection"],
+        ] as const) {
+          for (const variable of list) {
+            const value = result.scopes[scope][variable.key];
+            if (variable.enabled && variable.type === "secret" && value && !secrets.includes(value))
+              secrets.push(value);
+          }
+        }
+      },
       onEvent: options.reporters.includes("cli") ? consoleReporter(secrets) : undefined,
     });
     // Report bodies and assertion errors can contain values echoed by the target.

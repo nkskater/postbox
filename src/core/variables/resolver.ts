@@ -118,3 +118,39 @@ export function redactSecrets(text: string, secrets: Iterable<string>): string {
   }
   return out;
 }
+
+/** Redact structured persistence payloads without serializing secrets into JSON first. */
+export function redactStoredValue<T>(value: T, secrets: Iterable<string>): T {
+  const patterns = [
+    ...new Set(
+      [...secrets].filter(Boolean).flatMap((secret) => {
+        let encoded = secret;
+        try {
+          encoded = encodeURIComponent(secret);
+        } catch {
+          /* preserve malformed Unicode literally */
+        }
+        return [
+          secret,
+          encoded,
+          encoded.replace(/%[0-9A-F]{2}/g, (match) => match.toLowerCase()),
+          encoded.replace(/%20/g, "+"),
+          JSON.stringify(secret).slice(1, -1),
+        ];
+      }),
+    ),
+  ].sort((a, b) => b.length - a.length);
+  const matcher = patterns.length
+    ? new RegExp(patterns.map((pattern) => pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "g")
+    : undefined;
+  const scrub = (input: unknown): unknown => {
+    if (typeof input === "string") {
+      return matcher ? input.replace(matcher, "********") : input;
+    }
+    if (Array.isArray(input)) return input.map(scrub);
+    if (input && typeof input === "object")
+      return Object.fromEntries(Object.entries(input).map(([key, entry]) => [key, scrub(entry)]));
+    return input;
+  };
+  return scrub(value) as T;
+}

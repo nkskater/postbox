@@ -47,6 +47,7 @@ export interface ExecuteOptions {
   iterationCount?: number;
   signal?: AbortSignal;
   scriptLimits?: Partial<ScriptLimits>;
+  oauth2CacheScope?: string;
   /** Run-level overrides (e.g. the runner's global timeout / SSL setting). */
   overrides?: { timeoutMs?: number; verifySsl?: boolean };
 }
@@ -211,7 +212,13 @@ export async function execute(opts: ExecuteOptions): Promise<ExecuteResult> {
   let nextRequest: string | null | undefined;
   let nextRequestSet = false;
 
-  const engine: EngineOptions = { cookieJar: opts.cookieJar, policy: opts.policy, signal: opts.signal };
+  const jar = request.settings?.useCookieJar === false ? undefined : opts.cookieJar;
+  const engine: EngineOptions = {
+    cookieJar: jar,
+    policy: opts.policy,
+    signal: opts.signal,
+    oauth2CacheScope: opts.oauth2CacheScope,
+  };
   const info = (eventName: "prerequest" | "test") => ({
     eventName,
     iteration: opts.iteration ?? 0,
@@ -222,7 +229,12 @@ export async function execute(opts: ExecuteOptions): Promise<ExecuteResult> {
 
   // pm.sendRequest implementation: resolve variables, send through the same engine/policy.
   const host = {
-    sendRequest: async (spec: SendRequestSpec): Promise<SandboxResponse> => {
+    sendRequest: async (spec: SendRequestSpec, signal?: AbortSignal): Promise<SandboxResponse> => {
+      const hostEngine = {
+        ...engine,
+        signal:
+          signal && engine.signal ? AbortSignal.any([signal, engine.signal]) : (signal ?? engine.signal),
+      };
       const def: RequestDef = {
         id: "sendRequest",
         name: "pm.sendRequest",
@@ -246,8 +258,8 @@ export async function execute(opts: ExecuteOptions): Promise<ExecuteResult> {
           formdata: normalizeKv(spec.body.formdata).map((f) => ({ ...f, type: "text" as const })),
         };
       }
-      const { prepared } = await prepareRequest(def, [], new Resolver(scopes), engine);
-      const res = await sendRequest(prepared, engine);
+      const { prepared } = await prepareRequest(def, [], new Resolver(scopes), hostEngine);
+      const res = await sendRequest(prepared, hostEngine);
       logs.push({
         level: "info",
         source: "network",
@@ -310,7 +322,7 @@ export async function execute(opts: ExecuteOptions): Promise<ExecuteResult> {
   });
 
   // 1. pre-request scripts
-  const jarCookies = opts.cookieJar ? await opts.cookieJar.list() : [];
+  const jarCookies = jar ? await jar.list() : [];
   const skipped = await runPhase("prerequest", undefined, jarCookies);
   if (skipped) return { ...base(), skipped: true };
 
@@ -367,7 +379,7 @@ export async function execute(opts: ExecuteOptions): Promise<ExecuteResult> {
   });
 
   // 4. test scripts
-  const cookiesAfter = opts.cookieJar ? await opts.cookieJar.list() : response.cookies;
+  const cookiesAfter = jar ? await jar.list() : [];
   await runPhase("test", toSandboxResponse(response), cookiesAfter);
 
   return { ...base(), response, unresolved, sent, oauth2Token };

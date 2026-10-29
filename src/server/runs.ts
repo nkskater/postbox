@@ -10,8 +10,9 @@ import { runCollection, type RunEvent, type RunResult, type RunSummary } from "@
 import { CookieJarStore } from "@/core/http/cookies";
 import { getDb, schema } from "./db";
 import * as repo from "./repo";
-import { getPolicy, loadScopes, persistScopes } from "./context";
+import { getPolicy, loadScopes, persistScopes, persistOAuth2Token, persistenceSecrets } from "./context";
 import { newId } from "./defaults";
+import { redactStoredValue } from "@/core/variables/resolver";
 
 const { runs, runResults } = schema;
 
@@ -104,6 +105,18 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
       cookieJar: jar,
       policy: getPolicy(),
       secrets: ctx.secrets,
+      oauth2CacheScope: input.workspaceId,
+      onExecution: (item, result) => {
+        persistOAuth2Token(
+          input.workspaceId,
+          item.request,
+          item.ancestors,
+          result.oauth2Token,
+          item.request.id,
+        );
+        const secrets = persistenceSecrets(ctx, result.scopes);
+        ctx.secrets.splice(0, ctx.secrets.length, ...secrets);
+      },
       signal: ctrl.signal,
       retainResults: input.retainResults,
       onEvent: (e) => {
@@ -134,7 +147,11 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
     return { runId, summary };
   } catch (err) {
     db.update(runs)
-      .set({ status: "error", error: (err as Error).message, finishedAt: Date.now() })
+      .set({
+        status: "error",
+        error: redactStoredValue((err as Error).message, ctx.secrets),
+        finishedAt: Date.now(),
+      })
       .where(eq(runs.id, runId))
       .run();
     throw err;

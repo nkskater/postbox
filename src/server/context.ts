@@ -7,7 +7,13 @@ import type { FolderDef, RequestDef, Variable } from "@/core/types";
 import { execute, type ExecuteResult } from "@/core/executor";
 import { CookieJarStore } from "@/core/http/cookies";
 import { HostPolicy } from "@/core/http/policy";
-import { emptyScopes, variablesToRecord, type VariableScopes } from "@/core/variables/resolver";
+import {
+  emptyScopes,
+  variablesToRecord,
+  redactStoredValue,
+  type VariableScopes,
+} from "@/core/variables/resolver";
+import type { OAuth2Token } from "@/core/http/auth";
 import * as repo from "./repo";
 
 let policy: HostPolicy | null = null;
@@ -22,6 +28,7 @@ export interface ScopeContext {
   collectionId: string | null;
   scopes: VariableScopes;
   secrets: string[];
+  secretKeys: { globals: string[]; environment: string[]; collection: string[] };
 }
 
 const secretValues = (...lists: Variable[][]) =>
@@ -49,6 +56,11 @@ export function loadScopes(
       collection: variablesToRecord(col),
     },
     secrets: secretValues(globals, env, col),
+    secretKeys: {
+      globals: globals.filter((v) => v.type === "secret" && v.enabled).map((v) => v.key),
+      environment: env.filter((v) => v.type === "secret" && v.enabled).map((v) => v.key),
+      collection: col.filter((v) => v.type === "secret" && v.enabled).map((v) => v.key),
+    },
   };
 }
 
@@ -79,6 +91,48 @@ export function persistScopes(ctx: ScopeContext, after: VariableScopes): string[
   return warnings;
 }
 
+/** Include both old and script-updated values of declared secret variables. */
+export function persistenceSecrets(ctx: ScopeContext, after: VariableScopes): string[] {
+  const values = [...ctx.secrets];
+  for (const scope of ["globals", "environment", "collection"] as const) {
+    for (const key of ctx.secretKeys[scope]) if (after[scope][key]) values.push(after[scope][key]);
+  }
+  return [...new Set(values)];
+}
+
+/** Save only to the original auth owner, without overwriting edits made during the request. */
+export function persistOAuth2Token(
+  workspaceId: string,
+  request: RequestDef,
+  ancestors: FolderDef[],
+  token?: OAuth2Token,
+  requestId?: string | null,
+) {
+  if (!token) return;
+  const folder =
+    request.auth.type === "inherit"
+      ? [...ancestors].reverse().find((item) => item.auth.type !== "inherit")
+      : undefined;
+  const original = folder?.auth ?? request.auth;
+  if (original.type !== "oauth2" || original.oauth2.grantType === "manual") return;
+  const owner = folder ? repo.getFolder(folder.id) : requestId ? repo.getRequest(requestId) : null;
+  if (!owner || owner.workspaceId !== workspaceId || JSON.stringify(owner.auth) !== JSON.stringify(original))
+    return;
+  const auth = {
+    ...original,
+    oauth2: {
+      ...original.oauth2,
+      accessToken: token.accessToken,
+      tokenType: token.tokenType,
+      expiresAt: token.expiresAt,
+      tokenContext: token.contextKey,
+    },
+  };
+  if (JSON.stringify(owner.auth) === JSON.stringify(auth)) return;
+  if (folder) repo.updateFolder(owner.id, { auth });
+  else repo.updateRequest(owner.id, { auth });
+}
+
 export interface RunSingleInput {
   workspaceId: string;
   environmentId: string | null;
@@ -100,7 +154,10 @@ export async function runSingleRequest(input: RunSingleInput): Promise<RunSingle
   const chain: FolderDef[] = input.folderId ? repo.getFolderChain(input.folderId) : [];
   const collectionId = chain[0]?.id ?? null;
   const ctx = loadScopes(input.workspaceId, input.environmentId, collectionId);
-  const jar = new CookieJarStore(repo.listCookies(input.workspaceId));
+  const jar =
+    input.request.settings?.useCookieJar === false
+      ? undefined
+      : new CookieJarStore(repo.listCookies(input.workspaceId));
 
   const result = await execute({
     request: input.request,
@@ -110,34 +167,45 @@ export async function runSingleRequest(input: RunSingleInput): Promise<RunSingle
     policy: getPolicy(),
     secrets: ctx.secrets,
     signal: input.signal,
+    oauth2CacheScope: input.workspaceId,
   });
 
+  persistOAuth2Token(input.workspaceId, input.request, chain, result.oauth2Token, input.requestId);
+  const secrets = persistenceSecrets(ctx, result.scopes);
   const warnings = persistScopes(ctx, result.scopes);
-  if (input.request.settings?.useCookieJar !== false) repo.saveCookies(input.workspaceId, await jar.list());
+  if (jar) repo.saveCookies(input.workspaceId, await jar.list());
 
   let historyId: string | undefined;
   if (input.saveHistory !== false && !result.skipped) {
-    historyId = repo.addHistory({
-      workspaceId: input.workspaceId,
-      requestId: input.requestId ?? null,
-      method: input.request.method,
-      url: input.request.url,
-      status: result.response?.status ?? null,
-      timeMs: result.response ? Math.round(result.response.timings.total) : null,
-      size: result.response?.size ?? null,
-      request: { ...input.request, folderId: input.folderId } as unknown as Record<string, unknown>,
-      response: result.response
-        ? {
-            status: result.response.status,
-            statusText: result.response.statusText,
-            headers: result.response.headers,
-            body: result.response.isBinary ? "" : result.response.bodyText.slice(0, 256 * 1024),
-            isBinary: result.response.isBinary,
-            timings: result.response.timings,
-            size: result.response.size,
-          }
-        : { error: result.error },
-    });
+    const entry = redactStoredValue(
+      {
+        workspaceId: input.workspaceId,
+        requestId: input.requestId ?? null,
+        method: input.request.method,
+        url: input.request.url,
+        status: result.response?.status ?? null,
+        timeMs: result.response ? Math.round(result.response.timings.total) : null,
+        size: result.response?.size ?? null,
+        request: { ...input.request, folderId: input.folderId } as unknown as Record<string, unknown>,
+        response: result.response
+          ? {
+              status: result.response.status,
+              statusText: result.response.statusText,
+              headers: result.response.headers,
+              body: result.response.isBinary ? "" : result.response.bodyText.slice(0, 256 * 1024),
+              isBinary: result.response.isBinary,
+              timings: result.response.timings,
+              size: result.response.size,
+            }
+          : { error: result.error },
+      },
+      secrets,
+    );
+    // Stable identifiers are references, not payload strings; short secret values can overlap them.
+    entry.workspaceId = input.workspaceId;
+    entry.requestId = input.requestId ?? null;
+    entry.request = { ...entry.request, id: input.request.id, folderId: input.folderId };
+    historyId = repo.addHistory(entry);
   }
   return { ...result, warnings, historyId };
 }
