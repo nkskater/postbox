@@ -58,6 +58,7 @@ npm run db:generate  # after changing src/server/db/schema.ts
 | `SCRIPT_TIMEOUT_MS` | `5000` | Per-script time limit |
 | `SCRIPT_MEMORY_MB` | `32` | Per-script memory limit |
 | `RESPONSE_MAX_BYTES` | `52428800` | Encoded response bytes are truncated at this limit; decompression exceeding the limit at any stage is rejected |
+| `MCP_ALLOWED_ORIGINS` | _(none)_ | Extra browser origins allowed to call `/api/mcp` (cross-origin browser requests are rejected otherwise) |
 | `HISTORY_LIMIT` | `500` | History entries kept per workspace |
 
 > **Security:** Built-in authentication is **not implemented yet** (see roadmap). Until it is, only expose Postbox on a
@@ -97,6 +98,9 @@ location / {
 **Traefik**: route to port 3000. No special settings are needed.
 
 ## MCP Server (`/api/mcp`)
+
+> Until built-in auth lands, anyone who can reach Postbox can use its MCP tools (including deletes). Requests from
+> foreign browser origins are rejected, and bodies must be `application/json`, which blocks drive-by web pages.
 
 Postbox exposes a Streamable HTTP MCP endpoint at `/api/mcp` backed by the same server-side execution engine, collection runner, variable resolver, and SQLite database as the web UI.
 

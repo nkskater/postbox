@@ -9,21 +9,47 @@ import { createPostboxMcpServer } from "@/server/mcp";
 
 export const dynamic = "force-dynamic";
 
-function normalizePostRequest(req: Request): Request {
+/**
+ * Browsers attach an Origin header to cross-site POSTs. Rejecting foreign origins stops
+ * web pages (and DNS-rebinding attacks) from driving MCP tools through the user's browser,
+ * as required by the MCP Streamable HTTP spec. Non-browser clients send no Origin.
+ * Extra trusted origins (e.g. a browser-based MCP client) go in MCP_ALLOWED_ORIGINS.
+ */
+export function isAllowedOrigin(req: Request): boolean {
+  const origin = req.headers.get("origin");
+  if (!origin) return true;
+  let originHost: string;
+  try {
+    originHost = new URL(origin).host;
+  } catch {
+    return false;
+  }
+  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? new URL(req.url).host;
+  if (originHost === host) return true;
+  const allowed = (process.env.MCP_ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((o) => o.trim().replace(/\/$/, ""))
+    .filter(Boolean);
+  return allowed.includes(origin.replace(/\/$/, ""));
+}
+
+function jsonRpcError(status: number, message: string): Response {
+  return new Response(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message }, id: null }), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+/**
+ * Some clients only send `Accept: application/json`; the SDK transport insists on both
+ * JSON and SSE, so the Accept header is widened. Content-Type is deliberately NOT rewritten:
+ * requiring application/json keeps cross-site "simple" form/text POSTs from being accepted.
+ */
+function normalizeAccept(req: Request): Request {
   const accept = req.headers.get("accept") ?? "";
-  const contentType = req.headers.get("content-type") ?? "";
-  const needsAcceptFix = !accept.includes("application/json") || !accept.includes("text/event-stream");
-  const needsContentTypeFix = !contentType.includes("application/json");
-
-  if (!needsAcceptFix && !needsContentTypeFix) return req;
-
+  if (accept.includes("application/json") && accept.includes("text/event-stream")) return req;
   const headers = new Headers(req.headers);
-  if (needsAcceptFix) {
-    headers.set("accept", "application/json, text/event-stream");
-  }
-  if (needsContentTypeFix) {
-    headers.set("content-type", "application/json");
-  }
+  headers.set("accept", "application/json, text/event-stream");
   return new Request(req.url, {
     method: req.method,
     headers,
@@ -35,6 +61,10 @@ function normalizePostRequest(req: Request): Request {
 }
 
 export async function POST(req: Request): Promise<Response> {
+  if (!isAllowedOrigin(req)) return jsonRpcError(403, "Forbidden: cross-origin MCP requests are not allowed");
+  if (!(req.headers.get("content-type") ?? "").toLowerCase().includes("application/json")) {
+    return jsonRpcError(415, "Unsupported Media Type: MCP requests must use Content-Type: application/json");
+  }
   const server = createPostboxMcpServer();
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
@@ -42,7 +72,7 @@ export async function POST(req: Request): Promise<Response> {
   });
   await server.connect(transport);
   try {
-    return await transport.handleRequest(normalizePostRequest(req));
+    return await transport.handleRequest(normalizeAccept(req));
   } finally {
     await server.close();
   }

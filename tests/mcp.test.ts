@@ -335,4 +335,32 @@ describe("MCP server (/api/mcp)", () => {
     const body = (await res.json()) as { result?: { tools?: { name: string }[] } };
     expect(body.result?.tools?.some((t) => t.name === "send_request")).toBe(true);
   });
+
+  it("rejects cross-origin browser requests and non-JSON bodies (CSRF / DNS rebinding)", async () => {
+    const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} });
+    const call = (headers: Record<string, string>) =>
+      mcpRoute.POST(new Request("http://localhost:3000/api/mcp", { method: "POST", headers, body }));
+
+    const foreign = await call({ "Content-Type": "application/json", Accept: "application/json", Origin: "https://evil.example" });
+    expect(foreign.status).toBe(403);
+
+    const textPlain = await call({ "Content-Type": "text/plain", Accept: "application/json" });
+    expect(textPlain.status).toBe(415);
+
+    const sameOrigin = await call({
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      Origin: "http://localhost:3000",
+      Host: "localhost:3000",
+    });
+    expect(sameOrigin.status).toBe(200);
+
+    process.env.MCP_ALLOWED_ORIGINS = "https://webui.example";
+    try {
+      const allowed = await call({ "Content-Type": "application/json", Accept: "application/json", Origin: "https://webui.example" });
+      expect(allowed.status).toBe(200);
+    } finally {
+      delete process.env.MCP_ALLOWED_ORIGINS;
+    }
+  });
 });
