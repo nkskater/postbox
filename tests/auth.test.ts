@@ -13,6 +13,7 @@ import {
 } from "@/server/auth";
 import { proxy } from "@/proxy";
 import { POST as login } from "@/app/api/auth/login/route";
+import { POST as logout } from "@/app/api/auth/logout/route";
 
 const env = { POSTBOX_PASSWORD: "hunter2", POSTBOX_TOKEN: "tok-123" } as unknown as NodeJS.ProcessEnv;
 
@@ -68,6 +69,15 @@ describe("auth primitives", () => {
 });
 
 describe("proxy gate", () => {
+  it("clears the session cookie before the client returns to login", async () => {
+    const response = logout();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true });
+    const cookie = response.headers.get("set-cookie") ?? "";
+    expect(cookie).toContain(`${SESSION_COOKIE}=`);
+    expect(cookie).toContain("Max-Age=0");
+    expect(cookie.toLowerCase()).toContain("httponly");
+  });
   const req = (path: string, init: { headers?: Record<string, string>; cookie?: string } = {}) => {
     const headers = new Headers(init.headers);
     if (init.cookie) headers.set("cookie", init.cookie);
