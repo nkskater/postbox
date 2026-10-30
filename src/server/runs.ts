@@ -7,6 +7,8 @@ import { and, desc, eq } from "drizzle-orm";
 import type { DataTable, RunOptions } from "@/core/types";
 import { DEFAULT_RUN_OPTIONS } from "@/core/types";
 import { runCollection, type RunEvent, type RunResult, type RunSummary } from "@/core/runner/runner";
+import { compareRunSummaries, type RunComparisonSummary } from "@/core/runner/compare";
+import { HttpError, notFound } from "./errors";
 import { CookieJarStore } from "@/core/http/cookies";
 import { getDb, schema } from "./db";
 import * as repo from "./repo";
@@ -237,4 +239,38 @@ export function getRunSummary(
 
 export function deleteRun(runId: string) {
   getDb().delete(runs).where(eq(runs.id, runId)).run();
+}
+
+export interface CompareRunsInput {
+  baselineId: string;
+  candidateId: string;
+  workspaceId?: string | null;
+  folderId?: string | null;
+}
+
+/**
+ * Compare two persisted runs without re-running requests. Enforces that both
+ * runs exist, belong to the requested (or same) workspace, and match the same
+ * folder/collection scope.
+ */
+export function compareRuns(input: CompareRunsInput): RunComparisonSummary {
+  if (input.baselineId === input.candidateId) {
+    throw new HttpError(400, "Select two distinct runs to compare");
+  }
+  const base = getRunSummary(input.baselineId);
+  const cand = getRunSummary(input.candidateId);
+  if (!base || !cand) throw notFound("Run");
+  if (input.workspaceId && (base.workspaceId !== input.workspaceId || cand.workspaceId !== input.workspaceId)) {
+    throw notFound("Run");
+  }
+  if (base.workspaceId !== cand.workspaceId) {
+    throw notFound("Run");
+  }
+  if (input.folderId && (base.folderId !== input.folderId || cand.folderId !== input.folderId)) {
+    throw new HttpError(400, "Both runs must belong to the requested collection or folder");
+  }
+  if (base.folderId && cand.folderId && base.folderId !== cand.folderId) {
+    throw new HttpError(400, "Both runs must belong to the same collection or folder");
+  }
+  return compareRunSummaries(base, cand);
 }
