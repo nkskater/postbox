@@ -163,7 +163,10 @@ filesystem, `require`, or the host's globals.
 - **Bridge**: the host injects a small set of functions (`__host.log`,
   `__host.sendRequest`, `__host.setTimeout`) and a JSON snapshot of the
   execution context. All values cross the boundary as JSON strings, so no host
-  object references leak into the sandbox.
+  object references leak into the sandbox. Everything coming back from the
+  guest (`pm.sendRequest` arguments, console levels and the final state) is
+  validated against `core/schemas.ts` before the host acts on it, because user
+  code can replace any guest-side helper.
 - **pm API** (implemented in JavaScript inside the sandbox):
   `pm.environment`, `pm.globals`, `pm.collectionVariables`, `pm.variables`,
   `pm.iterationData` (`get/set/unset/has/clear/toObject/replaceIn`),
@@ -208,6 +211,14 @@ filesystem, `require`, or the host's globals.
   separated, `*.example.com` wildcards and CIDR ranges supported). Deny wins.
   Checked for every hop of a redirect chain and for `pm.sendRequest`.
 - **Sandbox** limits as in §5.
+- **Workspace ownership**: any operation that combines a workspace with a
+  folder, request, environment or variable owner checks that they belong
+  together (`require*In` helpers in `server/repo.ts`, also used by
+  `loadScopes`, `runSingleRequest` and `startRun`). A foreign ID is reported as
+  `404`, exactly like a missing one, so other workspaces cannot be probed.
+- **Input validation**: REST and MCP bodies are parsed with the shared schemas
+  in `core/schemas.ts` (unknown keys are dropped, wrong shapes get `400`) and
+  are capped at `API_BODY_LIMIT_MB` (`413` beyond it).
 - **Logging**: the server logs request method/host/status only; resolved
   values of secret variables are redacted from console output, history and
   run results.
