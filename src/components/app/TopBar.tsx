@@ -14,6 +14,7 @@ import {
   Upload,
   Mailbox,
   LogOut,
+  UserRound,
 } from "lucide-react";
 import { useApp } from "@/stores/app";
 import { useDialogs } from "@/stores/dialogs";
@@ -198,6 +199,15 @@ export function TopBar({ authEnabled }: { authEnabled: boolean }) {
         }
       >
         {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-7"
+        title={authEnabled ? "Profile and API tokens" : "Set up user accounts"}
+        onClick={() => router.push("/profile")}
+      >
+        <UserRound className="size-4" />
       </Button>
       {authEnabled && (
         <Button
