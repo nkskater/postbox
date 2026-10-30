@@ -5,7 +5,7 @@
  * JSON text columns because they are always read and written as a unit.
  * See ARCHITECTURE.md §3 for the rationale.
  */
-import { sqliteTable, text, integer, index, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, index, uniqueIndex, primaryKey } from "drizzle-orm/sqlite-core";
 import type {
   AuthConfig,
   BodyConfig,
@@ -136,6 +136,7 @@ export const runs = sqliteTable(
     passedTests: integer("passed_tests").notNull().default(0),
     failedTests: integer("failed_tests").notNull().default(0),
     durationMs: integer("duration_ms").notNull().default(0),
+    createdBy: text("created_by").references(() => users.id),
     source: text("source").notNull().default("manual"),
     failedRequests: integer("failed_requests").notNull().default(0),
     error: text("error"),
@@ -185,6 +186,7 @@ export const history = sqliteTable(
     workspaceId: text("workspace_id")
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
+    createdBy: text("created_by").references(() => users.id),
     requestId: text("request_id"),
     method: text("method").notNull(),
     url: text("url").notNull(),
@@ -226,6 +228,7 @@ export const schedules = sqliteTable("schedules", {
   workspaceId: text("workspace_id")
     .notNull()
     .references(() => workspaces.id, { onDelete: "cascade" }),
+  createdBy: text("created_by").references(() => users.id),
   name: text("name").notNull(),
   folderId: text("folder_id").notNull(),
   environmentId: text("environment_id"),
@@ -299,3 +302,21 @@ export type RunResultRow = typeof runResults.$inferSelect;
 export type HistoryRow = typeof history.$inferSelect;
 export type CookieRow = typeof cookies.$inferSelect;
 export type ScheduleRow = typeof schedules.$inferSelect;
+
+export const workspaceMembers = sqliteTable(
+  "workspace_members",
+  {
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: text("role").$type<"owner" | "editor" | "viewer">().notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.workspaceId, t.userId] }),
+    index("workspace_members_user_idx").on(t.userId),
+  ],
+);

@@ -12,6 +12,7 @@ import { getDb, schema } from "./db";
 import * as repo from "./repo";
 import { getPolicy, loadScopes, persistScopes, persistOAuth2Token, persistenceSecrets } from "./context";
 import { newId } from "./defaults";
+import { actorId } from "./authorize";
 import { redactStoredValue } from "@/core/variables/resolver";
 
 const { runs, runResults } = schema;
@@ -50,6 +51,7 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
   db.insert(runs)
     .values({
       id: runId,
+      createdBy: actorId(),
       workspaceId: input.workspaceId,
       folderId: input.folderId,
       name: tree.name,

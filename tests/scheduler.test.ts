@@ -45,8 +45,8 @@ function fixture() {
   return { name: "Weekdays", workspaceId: workspace.id, folderId: folder.id, cron: "0 9 * * 1-5" };
 }
 const context = (id: string) => ({ params: Promise.resolve({ id }) });
-const request = (method: string, body?: unknown) =>
-  new Request("http://localhost/api/schedules", {
+const request = (method: string, body?: unknown, id?: string, trigger = false) =>
+  new Request(`http://localhost/api/schedules${id ? `/${id}${trigger ? "/run" : ""}` : ""}`, {
     method,
     headers: { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -125,13 +125,15 @@ describe("scheduled runs", () => {
     const input = fixture();
     repo.createRequest(input.workspaceId, input.folderId, { url: `${server.url}/slow?ms=120` });
     const schedule = scheduler.createSchedule({ ...input, enabled: false });
-    const response = await trigger.POST(request("POST"), context(schedule.id));
+    const response = await trigger.POST(request("POST", undefined, schedule.id, true), context(schedule.id));
     expect(response.status).toBe(202);
     const { runId } = await response.json();
     const current = scheduler.listSchedules(input.workspaceId)[0];
     expect(current).toMatchObject({ running: true, lastRunId: runId, lastRunStatus: "running" });
     expect(current.lastRunAt).toBeGreaterThan(0);
-    expect((await trigger.POST(request("POST"), context(schedule.id))).status).toBe(409);
+    expect(
+      (await trigger.POST(request("POST", undefined, schedule.id, true), context(schedule.id))).status,
+    ).toBe(409);
     await vi.waitFor(() =>
       expect(scheduler.listSchedules(input.workspaceId)[0]).toMatchObject({
         running: false,
@@ -194,7 +196,11 @@ describe("scheduled runs", () => {
     expect(created.status).toBe(201);
     const schedule = await created.json();
     const updated = await item.PATCH(
-      request("PATCH", { name: "Edited", enabled: false, options: { timeoutMs: null, iterations: 2 } }),
+      request(
+        "PATCH",
+        { name: "Edited", enabled: false, options: { timeoutMs: null, iterations: 2 } },
+        schedule.id,
+      ),
       context(schedule.id),
     );
     expect(updated.status).toBe(200);
@@ -211,12 +217,19 @@ describe("scheduled runs", () => {
     const listed = await list.json();
     expect(listed).toHaveLength(1);
     expect(listed[0].options.timeoutMs).toBeUndefined();
-    expect((await item.PATCH(request("PATCH", { environmentId: env.id }), context(schedule.id))).status).toBe(
-      400,
+    expect(
+      (await item.PATCH(request("PATCH", { environmentId: env.id }, schedule.id), context(schedule.id)))
+        .status,
+    ).toBe(400);
+    expect((await item.DELETE(request("DELETE", undefined, schedule.id), context(schedule.id))).status).toBe(
+      200,
     );
-    expect((await item.DELETE(request("DELETE"), context(schedule.id))).status).toBe(200);
-    expect((await trigger.POST(request("POST"), context(schedule.id))).status).toBe(404);
-    expect((await item.PATCH(request("PATCH", { enabled: true }), context(schedule.id))).status).toBe(404);
+    expect(
+      (await trigger.POST(request("POST", undefined, schedule.id, true), context(schedule.id))).status,
+    ).toBe(404);
+    expect(
+      (await item.PATCH(request("PATCH", { enabled: true }, schedule.id), context(schedule.id))).status,
+    ).toBe(404);
     expect((await routes.GET(new Request("http://localhost/api/schedules"))).status).toBe(400);
   });
 

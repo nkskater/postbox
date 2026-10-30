@@ -13,6 +13,8 @@ import type {
   Variable,
 } from "@/core/types";
 import type { CookieChanges } from "@/core/http/cookies";
+import { currentCaller } from "./access-context";
+import { actorId, workspaceRole } from "./authorize";
 import { DEFAULT_SETTINGS } from "@/core/types";
 import { paramsFromUrl } from "@/lib/url-params";
 import { getDb, schema } from "./db";
@@ -62,7 +64,12 @@ export function rowToRequest(r: RequestRow): RequestDef & { folderId: string; so
 // ------------------------------------------------------------------ workspaces
 
 export function listWorkspaces() {
-  return getDb().select().from(workspaces).orderBy(asc(workspaces.createdAt)).all();
+  return getDb()
+    .select()
+    .from(workspaces)
+    .orderBy(asc(workspaces.createdAt))
+    .all()
+    .filter((ws) => workspaceRole(currentCaller(), ws.id));
 }
 
 export function getWorkspace(id: string) {
@@ -71,7 +78,14 @@ export function getWorkspace(id: string) {
 
 export function createWorkspace(name: string) {
   const row = { id: newId(), name, createdAt: now(), updatedAt: now() };
-  getDb().insert(workspaces).values(row).run();
+  getDb().transaction((tx) => {
+    tx.insert(workspaces).values(row).run();
+    const userId = actorId();
+    if (userId)
+      tx.insert(schema.workspaceMembers)
+        .values({ workspaceId: row.id, userId, role: "owner", createdAt: now() })
+        .run();
+  });
   return row;
 }
 
@@ -634,11 +648,11 @@ export function persistScopeDiff(
 
 const HISTORY_LIMIT = Number(process.env.HISTORY_LIMIT) || 500;
 
-export function addHistory(entry: Omit<typeof history.$inferInsert, "id" | "createdAt">) {
+export function addHistory(entry: Omit<typeof history.$inferInsert, "id" | "createdAt" | "createdBy">) {
   const db = getDb();
   const id = newId();
   db.insert(history)
-    .values({ ...entry, id, createdAt: now() })
+    .values({ ...entry, id, createdAt: now(), createdBy: actorId() })
     .run();
   // Trim old entries.
   const cutoff = db

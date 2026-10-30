@@ -344,7 +344,13 @@ under Profile for the CLI, scripts and MCP clients (`Authorization: Bearer pbx_â
 and can be revoked at any time. Changing your password signs out your other sessions. In open mode, whoever reaches
 Profile first can create the administrator, so do this before exposing Postbox. To control that step, set
 `POSTBOX_PASSWORD` or `POSTBOX_TOKEN` first: the first account can then only be created after signing in with them.
-More users, invites and workspace sharing are coming next (LAB-133, LAB-134).
+Each account receives a private workspace. Existing workspaces are assigned to the first administrator.
+Under **Settings â†’ Workspace sharing**, owners can add existing accounts and assign viewer, editor or owner
+roles. Viewers can read/export; editors can also modify and execute requests; owners can manage membership and
+delete the workspace. Administrators can access every workspace. Hidden workspaces return 404; actions disallowed
+by a visible workspace's role return 403. REST and MCP enforce the same roles, including history, cookies and exports.
+Scheduled runs use their creator's identity and stop when that account is disabled or loses execution access.
+User administration and invite links follow in LAB-134.
 
 **Single-user mode.** Without accounts, these environment variables work as before:
 
