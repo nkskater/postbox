@@ -6,7 +6,7 @@
 import { z } from "zod";
 import { callerOf, getAuthState, setUserSessionCookie } from "@/server/caller";
 import { HttpError, json, parseBody, route } from "@/server/http";
-import { createUser, toPublicUser } from "@/server/users";
+import { insertPreparedUser, prepareUser, toPublicUser } from "@/server/users";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +23,8 @@ export const POST = route(async (req: Request) => {
       displayName: z.string().max(200).optional(),
     }),
   );
-  const user = await createUser({ ...input, isAdmin: true });
+  // The early hasUsers check only saves work; the insert re-checks atomically after the
+  // (slow) password hash, which is where concurrent requests would otherwise interleave.
+  const user = insertPreparedUser(await prepareUser({ ...input, isAdmin: true }), { firstOnly: true });
   return setUserSessionCookie(json({ user: toPublicUser(user) }, 201), req, user);
 });
