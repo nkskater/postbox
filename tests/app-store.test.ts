@@ -5,7 +5,7 @@ vi.mock("zustand/middleware", () => ({ persist: (initializer: unknown) => initia
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
 vi.mock("@/lib/api", () => ({
   api: {
-    workspaces: { tree: vi.fn() },
+    workspaces: { list: vi.fn(), tree: vi.fn() },
     environments: { list: vi.fn() },
     variables: { list: vi.fn() },
     requests: { update: vi.fn(), create: vi.fn(), get: vi.fn() },
@@ -14,7 +14,7 @@ vi.mock("@/lib/api", () => ({
 }));
 
 import { api, type ProxyResult, type SavedRequest } from "@/lib/api";
-import { newDraft, snapshot, useApp, type Tab } from "@/stores/app";
+import { newDraft, sanitizeStoredState, snapshot, useApp, type Tab } from "@/stores/app";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -51,11 +51,78 @@ beforeEach(() => {
   vi.resetAllMocks();
   useApp.setState({ ...useApp.getInitialState(), workspaceId: "workspace" }, true);
   vi.mocked(api.workspaces.tree).mockResolvedValue({ folders: [], requests: [] });
+  vi.mocked(api.workspaces.list).mockResolvedValue([{ id: "workspace", name: "Workspace" }]);
   vi.mocked(api.environments.list).mockResolvedValue([]);
   vi.mocked(api.variables.list).mockResolvedValue([]);
 });
 
 describe("request builder concurrency", () => {
+  it("migrates legacy browser state without stored auth credentials or upload bytes", () => {
+    const draft = newDraft({
+      auth: { type: "bearer", bearer: { token: "legacy-token" } },
+      body: { mode: "binary", binary: { fileName: "legacy.bin", data: "c2VjcmV0" } },
+    });
+    const migrated = sanitizeStoredState({
+      workspaceId: "workspace",
+      tabs: [{ ...requestTab(), draft, saved: snapshot(draft) }],
+    });
+    const storedTab = migrated.tabs[0];
+    expect(storedTab.type).toBe("request");
+    if (storedTab.type !== "request") throw new Error("Expected a request tab");
+    expect(JSON.stringify(migrated)).not.toContain("legacy-token");
+    expect(JSON.stringify(migrated)).not.toContain("c2VjcmV0");
+    expect(storedTab.draft.auth).toEqual({ type: "bearer", bearer: { token: "" } });
+    expect(storedTab.draft.body).toMatchObject({ mode: "binary", binary: { data: "", missing: true } });
+    expect(storedTab.saved).not.toContain("legacy-token");
+    expect(storedTab.credentialsOmitted).toBe(true);
+  });
+
+  it("does not save a browser draft while retained credentials are still being restored", async () => {
+    const tab = { ...requestTab(), credentialsOmitted: true };
+    useApp.setState({ tabs: [tab] });
+    expect(await useApp.getState().saveTab(tab.id)).toBe(false);
+    expect(api.requests.update).not.toHaveBeenCalled();
+  });
+
+  it("rehydrates saved auth and upload bytes from the server without replacing browser draft edits", async () => {
+    const source = requestTab();
+    const draft = {
+      ...source.draft,
+      auth: { type: "bearer", bearer: { token: "server-token" } } as const,
+      body: { mode: "binary", binary: { fileName: "payload.bin", data: "cGF5bG9hZA==" } } as const,
+      name: "Browser draft edit",
+    };
+    const persisted = sanitizeStoredState({
+      workspaceId: "workspace",
+      tabs: [{ ...source, draft, saved: snapshot(draft) }],
+    }).tabs[0];
+    if (persisted.type !== "request") throw new Error("Expected a request tab");
+    useApp.setState({ tabs: [persisted], workspaceId: "workspace" });
+    vi.mocked(api.workspaces.tree).mockResolvedValue({
+      folders: [],
+      requests: [{ id: "request" } as never],
+    });
+    vi.mocked(api.requests.get).mockResolvedValue({
+      ...draft,
+      auth: { type: "bearer", bearer: { token: "server-token" } },
+      body: { mode: "binary", binary: { fileName: "payload.bin", data: "cGF5bG9hZA==" } },
+      folderId: "folder",
+      workspaceId: "workspace",
+      sort: 0,
+    });
+
+    await useApp.getState().init();
+
+    const restored = current();
+    expect(restored.draft.name).toBe("Browser draft edit");
+    expect(restored.draft.auth).toEqual({ type: "bearer", bearer: { token: "server-token" } });
+    expect(restored.draft.body).toMatchObject({
+      mode: "binary",
+      binary: { data: "cGF5bG9hZA==", missing: false },
+    });
+    expect(restored.credentialsOmitted).toBe(false);
+  });
+
   it("does not open a request loaded for a workspace that was left", async () => {
     const tab = requestTab();
     const pending = deferred<SavedRequest>();

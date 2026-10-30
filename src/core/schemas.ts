@@ -5,6 +5,7 @@
  */
 import { z } from "zod";
 import type { AuthConfig, BodyConfig, OAuth2Config } from "./types";
+import { base64ByteLength, MAX_UPLOAD_BYTES, MAX_UPLOAD_BASE64_CHARS } from "./retention";
 
 /** RFC 9110 method token (custom methods such as PROPFIND or M-SEARCH are allowed). */
 export const methodSchema = z
@@ -25,9 +26,10 @@ export const formDataFieldSchema = keyValueSchema.extend({
   fileName: z.string().optional(),
   contentType: z.string().optional(),
   data: z.string().optional(),
+  missing: z.boolean().optional(),
 });
 
-export const bodySchema: z.ZodType<BodyConfig> = z.discriminatedUnion("mode", [
+const bodyConfigSchema = z.discriminatedUnion("mode", [
   z.object({ mode: z.literal("none") }),
   z.object({
     mode: z.literal("raw"),
@@ -39,7 +41,12 @@ export const bodySchema: z.ZodType<BodyConfig> = z.discriminatedUnion("mode", [
   z.object({
     mode: z.literal("binary"),
     binary: z
-      .object({ fileName: z.string(), contentType: z.string().optional(), data: z.string() })
+      .object({
+        fileName: z.string(),
+        contentType: z.string().optional(),
+        data: z.string(),
+        missing: z.boolean().optional(),
+      })
       .nullable(),
   }),
   z.object({
@@ -51,6 +58,32 @@ export const bodySchema: z.ZodType<BodyConfig> = z.discriminatedUnion("mode", [
     }),
   }),
 ]);
+
+export const bodySchema: z.ZodType<BodyConfig> = bodyConfigSchema.superRefine((body, ctx) => {
+  const uploadChars =
+    body.mode === "binary"
+      ? (body.binary?.data.length ?? 0)
+      : body.mode === "formdata"
+        ? body.formdata.reduce(
+            (total, field) => total + (field.type === "file" ? (field.data?.length ?? 0) : 0),
+            0,
+          )
+        : 0;
+  const upload =
+    body.mode === "binary"
+      ? body.binary
+        ? base64ByteLength(body.binary.data)
+        : 0
+      : body.mode === "formdata"
+        ? body.formdata.reduce(
+            (total, field) => total + (field.type === "file" ? base64ByteLength(field.data ?? "") : 0),
+            0,
+          )
+        : 0;
+  if (upload > MAX_UPLOAD_BYTES || uploadChars > MAX_UPLOAD_BASE64_CHARS) {
+    ctx.addIssue({ code: "custom", message: "Uploaded request files must total 5 MiB or less" });
+  }
+});
 
 export const oauth2ConfigSchema: z.ZodType<OAuth2Config> = z.object({
   grantType: z.enum(["client_credentials", "password", "manual"]),

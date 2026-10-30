@@ -13,6 +13,8 @@ import { KeyValueEditor } from "./KeyValueEditor";
 import { cn } from "@/lib/utils";
 import { getSetting } from "@/lib/settings/runtime";
 import { formatXml } from "@/lib/format";
+import { toast } from "sonner";
+import { MAX_UPLOAD_BYTES } from "@/core/retention";
 
 const MODES: { mode: BodyMode; label: string }[] = [
   { mode: "none", label: "none" },
@@ -162,7 +164,9 @@ export function BodyEditor({ body, onChange }: { body: BodyConfig; onChange: (b:
             <FileUp className="size-5" />
             <span>
               {body.binary
-                ? `${body.binary.fileName} (${Math.round((body.binary.data.length * 3) / 4 / 1024)} KB)`
+                ? body.binary.missing
+                  ? `${body.binary.fileName} (reselect to attach)`
+                  : `${body.binary.fileName} (${Math.round((body.binary.data.length * 3) / 4 / 1024)} KB)`
                 : "Select a file"}
             </span>
             <input
@@ -170,10 +174,18 @@ export function BodyEditor({ body, onChange }: { body: BodyConfig; onChange: (b:
               className="hidden"
               onChange={async (e) => {
                 const file = e.target.files?.[0];
-                if (file)
+                if (file && file.size > MAX_UPLOAD_BYTES) {
+                  toast.error("Request uploads must total 5 MiB or less");
+                  e.currentTarget.value = "";
+                } else if (file)
                   onChange({
                     mode: "binary",
-                    binary: { fileName: file.name, contentType: file.type, data: await readFile(file) },
+                    binary: {
+                      fileName: file.name,
+                      contentType: file.type,
+                      data: await readFile(file),
+                      missing: false,
+                    },
                   });
               }}
             />

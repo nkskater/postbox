@@ -23,6 +23,8 @@ export interface FormDataField extends KeyValue {
   contentType?: string;
   /** base64 encoded file content (type === "file") */
   data?: string;
+  /** Browser-restored draft lost its intentionally unpersisted upload bytes. */
+  missing?: boolean;
 }
 
 export type RawLanguage = "json" | "xml" | "text" | "html" | "javascript";
@@ -32,7 +34,10 @@ export type BodyConfig =
   | { mode: "raw"; raw: string; language: RawLanguage }
   | { mode: "urlencoded"; urlencoded: KeyValue[] }
   | { mode: "formdata"; formdata: FormDataField[] }
-  | { mode: "binary"; binary: { fileName: string; contentType?: string; data: string } | null }
+  | {
+      mode: "binary";
+      binary: { fileName: string; contentType?: string; data: string; missing?: boolean } | null;
+    }
   | { mode: "graphql"; graphql: { query: string; variables: string; operationName?: string } };
 
 export type BodyMode = BodyConfig["mode"];
