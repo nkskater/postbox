@@ -4,6 +4,8 @@
  * global dialogs and keyboard shortcuts.
  */
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { onAuthenticationRequired } from "@/lib/api";
 import { Group, Panel, Separator, usePanelRef } from "react-resizable-panels";
 import { Toaster } from "sonner";
 import { Terminal } from "lucide-react";
@@ -72,6 +74,7 @@ const isTyping = (e: KeyboardEvent) => {
 };
 
 export function App({ authEnabled }: { authEnabled: boolean }) {
+  const router = useRouter();
   const init = useApp((s) => s.init);
   const consoleOpen = useApp((s) => s.consoleOpen);
   const setConsoleOpen = useApp((s) => s.setConsoleOpen);
@@ -85,6 +88,17 @@ export function App({ authEnabled }: { authEnabled: boolean }) {
   const sidebarRef = usePanelRef();
   const [ready, setReady] = useState(false);
   const initOnce = useRef(false);
+
+  // Subscribe before initialization so bootstrap requests can also report an expired session.
+  useEffect(() => {
+    let redirecting = false;
+    return onAuthenticationRequired(() => {
+      if (redirecting) return;
+      redirecting = true;
+      router.replace("/login");
+      router.refresh();
+    });
+  }, [router]);
 
   useEffect(() => {
     if (initOnce.current) return;
