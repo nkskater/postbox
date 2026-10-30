@@ -25,8 +25,9 @@ services:
       PROXY_DENY_HOSTS: ${PROXY_DENY_HOSTS:-}
       MCP_ALLOWED_ORIGINS: ${MCP_ALLOWED_ORIGINS:-}
       API_BODY_LIMIT_MB: ${API_BODY_LIMIT_MB:-25}
-      SCRIPT_TIMEOUT_MS: ${SCRIPT_TIMEOUT_MS:-5000}
-      SCRIPT_MEMORY_MB: ${SCRIPT_MEMORY_MB:-32}
+      # Empty = configurable under Settings → Request execution; a value pins it.
+      SCRIPT_TIMEOUT_MS: ${SCRIPT_TIMEOUT_MS:-}
+      SCRIPT_MEMORY_MB: ${SCRIPT_MEMORY_MB:-}
 
 volumes:
   postbox-data:

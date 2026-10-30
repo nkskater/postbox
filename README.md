@@ -56,7 +56,9 @@ execute on the machine running Postbox, so VPN-connected Windows users can reach
 - **Import/export**: Postman v2.0/v2.1 collections and environments, OpenAPI 3 and Swagger 2 (from a file, pasted text or a URL), and cURL
   (paste one into the URL bar). Code snippets for cURL, fetch, Python and PowerShell.
 - **Settings**: a searchable Settings page for theme, accent color, fonts, density, layout, editor behaviour and
-  defaults for new requests, responses, tabs, the console and the runner.
+  defaults for new requests, responses, tabs, the console and the runner. Administrators also set instance-wide
+  **Request execution** defaults: headers added to every request, the User-Agent, automatic `Accept` headers and
+  script time and memory limits.
 - **MCP server (`/api/mcp`)**: Streamable HTTP Model Context Protocol endpoint so Claude Code, Open WebUI, Cursor and other MCP clients can inspect workspaces, create/edit collections, folders, environments and requests, execute single requests, run collections with iteration data, and import/export specs.
 - **Command-line runner**: `postbox-cli run` runs Postman collections headlessly with the same engine (Newman-style).
 - History, cookie manager, command palette (Ctrl+K) and keyboard shortcuts (press `?` in the app).
@@ -192,7 +194,8 @@ Results appear in the response panel's **Test Results** tab. `console.log()` out
 ![Console with script output and network log](docs/screenshots/console.png)
 
 Scripts run in an isolated sandbox with no access to the server's files or network, except through `pm.sendRequest`.
-They have time and memory limits (`SCRIPT_TIMEOUT_MS`, `SCRIPT_MEMORY_MB`).
+They have time and memory limits, set under Settings → Request execution (default 5 s and 32 MB). Setting
+`SCRIPT_TIMEOUT_MS` or `SCRIPT_MEMORY_MB` pins the value; out-of-range values are clamped to 60 s and 512 MB.
 
 ### 5. Run a collection with iteration data
 
@@ -281,7 +284,9 @@ docker compose run --rm -v "$PWD/docs/demo:/work" postbox \
 ```
 
 Options include `-g` (globals), `-n` (iterations), `--delay`, `--bail`, `--insecure`, `--timeout` and the
-`json`, `junit` and `html` reporters. The exit code is non-zero when a request or assertion fails, so it can be used in CI.
+`json`, `junit` and `html` reporters. The CLI does not read server settings; pass request defaults as flags:
+`-H "Name: value"` (repeatable default header), `--user-agent <value>` (`""` sends none), `--no-accept-headers`,
+`--script-timeout <ms>` and `--script-memory <mb>`. The exit code is non-zero when a request or assertion fails, so it can be used in CI.
 
 ## Development
 
@@ -318,8 +323,8 @@ Chromium binary (otherwise run `npx playwright-core install chromium` once).
 | `POSTBOX_SESSION_DAYS` | `30` | Session lifetime |
 | `PROXY_ALLOW_HOSTS` | _(all)_ | Comma list of hosts, `*.wildcards` or CIDRs requests may target |
 | `PROXY_DENY_HOSTS` | _(none)_ | Comma list that is always blocked (wins over allow) |
-| `SCRIPT_TIMEOUT_MS` | `5000` | Per-script time limit |
-| `SCRIPT_MEMORY_MB` | `32` | Per-script memory limit |
+| `SCRIPT_TIMEOUT_MS` | _(setting)_ | Pins the script time limit (100–60000 ms; otherwise set in Settings) |
+| `SCRIPT_MEMORY_MB` | _(setting)_ | Pins the script memory limit (8–512 MB; otherwise set in Settings) |
 | `RESPONSE_MAX_BYTES` | `52428800` | Encoded response bytes are truncated at this limit; decompression exceeding the limit at any stage is rejected |
 | `API_BODY_LIMIT_MB` | `25` | Largest JSON body the REST API and `/api/mcp` accept (file uploads travel inline as base64); larger bodies get `413` |
 | `MCP_ALLOWED_ORIGINS` | _(none)_ | Extra browser origins allowed to call `/api/mcp` (cross-origin browser requests are rejected otherwise) |
@@ -512,7 +517,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the design. Planned work is tracked a
 - [x] Scheduled runs
 - [x] GitHub Actions CI and multi-platform images on GHCR
 - [x] Settings page (appearance, layout, editor and behaviour defaults)
-- [ ] Server-side settings: script limits, global default headers, User-Agent
+- [x] Server-side settings: script limits, global default headers, User-Agent
 - [ ] Settings: history retention, full backup/restore, notifications, locale
 - [ ] Settings: outbound proxy, CA/client certificates, MCP controls, shortcut rebinding
 - [ ] OAuth 2.0 authorization-code + PKCE flow
