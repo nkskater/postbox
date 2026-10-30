@@ -2,7 +2,7 @@
  * Repository layer: maps SQLite rows to core domain types and back.
  * All functions are synchronous (better-sqlite3).
  */
-import { and, asc, desc, eq, inArray, isNull, lt } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lt, max } from "drizzle-orm";
 import type {
   CookieInfo,
   Environment,
@@ -193,8 +193,8 @@ export function getFolder(id: string) {
 
 function nextSort(workspaceId: string, parentId: string | null): number {
   const db = getDb();
-  const f = db
-    .select({ sort: folders.sort })
+  const folderMax = db
+    .select({ sort: max(folders.sort) })
     .from(folders)
     .where(
       and(
@@ -202,11 +202,15 @@ function nextSort(workspaceId: string, parentId: string | null): number {
         parentId ? eq(folders.parentId, parentId) : isNull(folders.parentId),
       ),
     )
-    .all();
-  const r = parentId
-    ? db.select({ sort: requests.sort }).from(requests).where(eq(requests.folderId, parentId)).all()
-    : [];
-  return Math.max(-1, ...f.map((x) => x.sort), ...r.map((x) => x.sort)) + 1;
+    .get()?.sort;
+  const requestMax = parentId
+    ? db
+        .select({ sort: max(requests.sort) })
+        .from(requests)
+        .where(eq(requests.folderId, parentId))
+        .get()?.sort
+    : null;
+  return Math.max(-1, folderMax ?? -1, requestMax ?? -1) + 1;
 }
 
 export function createFolder(workspaceId: string, parentId: string | null, partial: Partial<FolderDef> = {}) {
