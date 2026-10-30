@@ -27,6 +27,7 @@ export interface Outcome {
   name?: string;
   requests?: number;
   variables?: number;
+  warnings?: string[];
 }
 
 export interface FileImportLike {
@@ -60,6 +61,7 @@ export interface ImportDialogState {
   batchSummary: BatchImportSummary | null;
   textError: string | null;
   linkError: string | null;
+  warnings: string[];
 }
 
 export interface ImportControllerDeps {
@@ -79,7 +81,10 @@ export interface ImportControllerDeps {
 
 export function formatOutcomeSummary(o: Outcome): string {
   if (o.kind === "collection") {
-    return `Imported collection "${o.name}" (${o.requests} requests)`;
+    return (
+      `Imported collection "${o.name}" (${o.requests} requests)` +
+      (o.warnings?.length ? ` (${o.warnings.length} import warnings)` : "")
+    );
   }
   if (o.kind === "environment") {
     return `Imported environment "${o.name}" (${o.variables} variables)`;
@@ -91,10 +96,7 @@ export function formatOutcomeSummary(o: Outcome): string {
  * Stateful controller for ImportDialog workflows (multi-file batches, partial failure
  * recovery, retry-failed-only, text/cURL paste, link import, and busy concurrency lock).
  */
-export function createImportController(
-  deps: ImportControllerDeps,
-  initial: Partial<ImportDialogState> = {},
-) {
+export function createImportController(deps: ImportControllerDeps, initial: Partial<ImportDialogState> = {}) {
   const fetchFn = deps.fetchImpl ?? fetch;
   const notify = deps.toastImpl ?? toast;
 
@@ -107,6 +109,7 @@ export function createImportController(
     batchSummary: initial.batchSummary ?? null,
     textError: initial.textError ?? null,
     linkError: initial.linkError ?? null,
+    warnings: initial.warnings ?? [],
   };
   let inFlight = false;
 
@@ -137,6 +140,7 @@ export function createImportController(
     if (!data || !data.kind) {
       throw new Error("Invalid import response");
     }
+    if (data.warnings?.length) emit({ warnings: [...state.warnings, ...data.warnings] });
     return data as Outcome;
   };
 
@@ -161,6 +165,10 @@ export function createImportController(
   };
 
   const resetAndClose = () => {
+    if (state.warnings.length) {
+      emit({ text: "", link: "" });
+      return;
+    }
     emit({
       open: false,
       text: "",
@@ -185,7 +193,7 @@ export function createImportController(
     if (filesToRun.length === 0) return null;
 
     inFlight = true;
-    emit({ busy: true, drag: false });
+    emit({ busy: true, drag: false, warnings: [] });
 
     const newEntries: FileImportEntry[] = [];
     let anyNewlyPersisted = false;
@@ -308,6 +316,7 @@ export function createImportController(
       if (!nextOpen) {
         emit({
           open: false,
+          warnings: [],
           drag: false,
           batchSummary: null,
           textError: null,
@@ -330,9 +339,7 @@ export function createImportController(
     retryFailedFiles: async () => {
       const currentSummary = state.batchSummary;
       if (!currentSummary) return null;
-      const failedFiles = currentSummary.entries
-        .filter((e) => e.status === "failed")
-        .map((e) => e.file);
+      const failedFiles = currentSummary.entries.filter((e) => e.status === "failed").map((e) => e.file);
       if (failedFiles.length === 0) return null;
       const succeededEntries = currentSummary.entries.filter((e) => e.status === "succeeded");
       return runFileBatch(failedFiles, succeededEntries);
@@ -344,7 +351,7 @@ export function createImportController(
       if (!raw.trim()) return false;
 
       inFlight = true;
-      emit({ busy: true, textError: null });
+      emit({ busy: true, textError: null, warnings: [] });
       try {
         if (/^\s*curl(?:\s|$)/i.test(raw)) {
           const summary = importCurlContent(raw);
@@ -373,7 +380,7 @@ export function createImportController(
       if (!rawUrl) return false;
 
       inFlight = true;
-      emit({ busy: true, linkError: null });
+      emit({ busy: true, linkError: null, warnings: [] });
       try {
         const outcome = await sendImportRequest({ url: rawUrl });
         notify.success(formatOutcomeSummary(outcome));
@@ -407,6 +414,7 @@ export function ImportDialog() {
     batchSummary: null,
     textError: null,
     linkError: null,
+    warnings: [],
   }));
 
   const latestDepsRef = useRef({
@@ -442,7 +450,7 @@ export function ImportDialog() {
     return controllerRef.current;
   };
 
-  const { text, link, busy, drag, batchSummary, textError, linkError } = uiState;
+  const { text, link, busy, drag, batchSummary, textError, linkError, warnings } = uiState;
 
   return (
     <Dialog open={open} onOpenChange={(next) => getController().handleOpenChange(next)}>
@@ -450,8 +458,8 @@ export function ImportDialog() {
         <DialogHeader>
           <DialogTitle>Import</DialogTitle>
           <DialogDescription>
-            Postman collection (v2.0/v2.1) or environment, OpenAPI 3 / Swagger 2 (JSON or YAML), or a cURL
-            command.
+            Postman collection (v2.0/v2.1) or environment, OpenAPI 3 / Swagger 2 (JSON or YAML), HAR 1.2
+            recording, or a cURL command.
           </DialogDescription>
         </DialogHeader>
         <Tabs defaultValue="file">
@@ -492,12 +500,12 @@ export function ImportDialog() {
             >
               {busy ? <Loader2 className="size-6 animate-spin" /> : <FileUp className="size-6" />}
               <span>{busy ? "Importing files…" : "Drop files here or click to choose"}</span>
-              <span className="text-xs">.json, .yaml, .yml, .txt (multiple allowed)</span>
+              <span className="text-xs">.json, .har, .yaml, .yml, .txt (multiple allowed)</span>
               <input
                 type="file"
                 multiple
                 disabled={busy}
-                accept=".json,.yaml,.yml,.txt,.sh"
+                accept=".json,.har,.yaml,.yml,.txt,.sh"
                 className="hidden"
                 onChange={(e) => {
                   const selected = e.currentTarget.files ? Array.from(e.currentTarget.files) : [];
@@ -580,17 +588,14 @@ export function ImportDialog() {
               className="h-56 font-mono text-xs"
               disabled={busy}
               placeholder={
-                "curl https://api.example.com/users -H 'Accept: application/json'\n\n— or paste Postman / OpenAPI JSON or YAML —"
+                "curl https://api.example.com/users -H 'Accept: application/json'\n\n— or paste Postman / HAR / OpenAPI JSON or YAML —"
               }
               value={text}
               onChange={(e) => getController().setText(e.target.value)}
             />
             {textError && <p className="text-xs text-destructive">{textError}</p>}
             <div className="flex justify-end">
-              <Button
-                disabled={!text.trim() || busy}
-                onClick={() => void getController().importText()}
-              >
+              <Button disabled={!text.trim() || busy} onClick={() => void getController().importText()}>
                 {busy && <Loader2 className="size-4 animate-spin" />} Import
               </Button>
             </div>
@@ -607,15 +612,26 @@ export function ImportDialog() {
             </p>
             {linkError && <p className="text-xs text-destructive">{linkError}</p>}
             <div className="flex justify-end">
-              <Button
-                disabled={!link.trim() || busy}
-                onClick={() => void getController().importLink()}
-              >
+              <Button disabled={!link.trim() || busy} onClick={() => void getController().importLink()}>
                 {busy && <Loader2 className="size-4 animate-spin" />} Import
               </Button>
             </div>
           </TabsContent>
         </Tabs>
+        {warnings.length > 0 && (
+          <section
+            role="region"
+            aria-label="Import warnings"
+            className="max-h-48 overflow-auto rounded border p-3 text-xs"
+          >
+            <h3 className="mb-2 font-medium">Import warnings ({warnings.length})</h3>
+            <ul className="list-disc space-y-1 pl-4">
+              {warnings.map((warning, index) => (
+                <li key={index}>{warning}</li>
+              ))}
+            </ul>
+          </section>
+        )}
       </DialogContent>
     </Dialog>
   );

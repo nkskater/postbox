@@ -416,3 +416,55 @@ describe("completed run execution details", () => {
     }
   });
 });
+
+describe("HAR import authorization and persistence", () => {
+  it("supports REST and MCP imports with saved examples, sanitized credentials and workspace isolation", async () => {
+    const { POST } = await import("@/app/api/import/route");
+    const content = JSON.stringify({
+      log: {
+        version: "1.2",
+        creator: { name: "Fixture", version: "1" },
+        entries: [
+          {
+            request: { method: "GET", url: "https://example.test/echo?token=har-secret&public=yes" },
+            response: {
+              status: 200,
+              statusText: "OK",
+              headers: [
+                { name: "X-Repeat", value: "a" },
+                { name: "X-Repeat", value: "b" },
+              ],
+              content: { mimeType: "application/json", text: '{"token":"har-secret","ok":true}' },
+            },
+          },
+        ],
+      },
+    });
+    expect((await POST(request("POST", "/api/import", outsider, { workspaceId, content }))).status).toBe(404);
+    expect((await POST(request("POST", "/api/import", viewer, { workspaceId, content }))).status).toBe(403);
+    const response = await POST(request("POST", "/api/import", editor, { workspaceId, content }));
+    expect(response.status).toBe(201);
+    const outcome = await response.json();
+    expect(outcome).toMatchObject({ source: "har", kind: "collection", requests: 1 });
+    expect(outcome.warnings.join(" ")).toContain("Credentials redacted");
+    const tree = repo.getFolderTree(outcome.id)!;
+    expect(JSON.stringify(tree)).not.toContain("har-secret");
+    expect(tree.children[0]).toMatchObject({
+      examples: [{ status: 200, headers: [{ value: "a" }, { value: "b" }] }],
+    });
+    const rpc = await mcpRoute.POST(
+      request("POST", "/api/mcp", editor, {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "import_spec", arguments: { workspaceId, content } },
+      }),
+    );
+    const body = await rpc.json();
+    expect(JSON.parse(body.result.content[0].text)).toMatchObject({
+      kind: "collection",
+      source: "har",
+      requests: 1,
+    });
+  });
+});
