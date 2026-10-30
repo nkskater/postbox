@@ -1374,16 +1374,20 @@ export function createPostboxMcpServer(): McpServer {
   server.registerTool(
     "import_spec",
     {
-      title: "Import Postman / OpenAPI Spec",
+      title: "Import API Collections and Specifications",
       description:
-        "Import a Postman Collection (v2.0/v2.1), Postman Environment, or OpenAPI 3.x / Swagger 2.0 specification (JSON or YAML) from raw text or a URL into a workspace.",
+        "Import a Postman Collection (v2.0/v2.1), Postman Environment, or OpenAPI 3.x / Swagger 2.0 specification (JSON or YAML) HAR 1.2 recordings, or Hoppscotch exports from raw text or a URL into a workspace. Hoppscotch requires explicit includeCredentials consent.",
       inputSchema: {
         workspaceId: z.string().optional().describe("Workspace ID (defaults to primary workspace)"),
+        includeCredentials: z
+          .boolean()
+          .optional()
+          .describe("Explicitly allow credentials in Hoppscotch exports"),
         content: z.string().optional().describe("Raw JSON or YAML specification content"),
         url: z.string().url().optional().describe("URL to fetch the specification from"),
       },
     },
-    async ({ workspaceId, content, url }) => {
+    async ({ workspaceId, content, url, includeCredentials }) => {
       try {
         if (!content && !url) throw new Error("Provide either `content` or `url`");
         const wsId = resolveWorkspaceId(workspaceId);
@@ -1403,7 +1407,7 @@ export function createPostboxMcpServer(): McpServer {
           }
           raw = res.bodyText;
         }
-        const outcome = importContent(wsId, raw, url);
+        const outcome = importContent(wsId, raw, url, { includeCredentials });
         return okJson(outcome);
       } catch (err) {
         return errResult(err);
