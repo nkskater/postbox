@@ -109,19 +109,55 @@ jobs:
           }
 
           Start-Sleep -Seconds 1
-          # Restart and verify automatic daily backup is created in Backups\
+          # Restart and verify automatic daily backup is created in Backups\ and scripted CLI runs
           $p2 = Start-App
           try {
             if (-not (Get-ChildItem (Join-Path $data 'Backups') -Filter 'postbox-*.db')) {
               throw 'Daily backup was not created in Backups\'
             }
+            $colPath = Join-Path $root 'smoke-collection.json'
+            $colJson = @{
+              info = @{
+                name = 'Windows CLI Smoke'
+                schema = 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json'
+              }
+              item = @(
+                @{
+                  name = 'Health Check With QuickJS'
+                  request = @{
+                    method = 'GET'
+                    url = "$base/api/health"
+                  }
+                  event = @(
+                    @{
+                      listen = 'prerequest'
+                      script = @{ exec = @('pm.variables.set("fromScript", "ok");') }
+                    },
+                    @{
+                      listen = 'test'
+                      script = @{
+                        exec = @(
+                          'pm.test("status 200 and QuickJS variable set", function () {'
+                          '  pm.response.to.have.status(200);'
+                          '  pm.expect(pm.variables.get("fromScript")).to.eql("ok");'
+                          '});'
+                        )
+                      }
+                    }
+                  )
+                }
+              )
+            } | ConvertTo-Json -Depth 10
+            Set-Content -Path $colPath -Value $colJson -Encoding utf8
+            & cmd.exe /c ('"' + (Join-Path $root 'Postbox CLI.cmd') + '" run "' + $colPath + '" --bail')
+            if ($LASTEXITCODE -ne 0) { throw "Postbox CLI.cmd scripted collection run failed with $LASTEXITCODE" }
           } finally {
             & taskkill.exe /T /F /PID $p2.Id | Out-Null
           }
 
-          # Bundled CLI works via Postbox CLI.cmd
+          # Bundled CLI --version works via Postbox CLI.cmd
           $cliVer = & cmd.exe /c ('"' + (Join-Path $root 'Postbox CLI.cmd') + '" --version')
-          if ($LASTEXITCODE -ne 0) { throw 'Postbox CLI.cmd failed' }
+          if ($LASTEXITCODE -ne 0) { throw 'Postbox CLI.cmd --version failed' }
 
           # Desktop shortcut creator works
           'x' | cmd.exe /c ('"' + (Join-Path $root 'Create desktop shortcut.cmd') + '"')

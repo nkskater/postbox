@@ -56,33 +56,35 @@ async function download(url, dest) {
   return buf;
 }
 
-async function fetchNodeExe() {
-  const base = `https://nodejs.org/dist/v${NODE_VERSION}`;
-  const cachedExe = path.join(CACHE, `node-v${NODE_VERSION}-win-x64.exe`);
-  const cachedSums = path.join(CACHE, `node-v${NODE_VERSION}-SHASUMS256.txt`);
-  try {
-    const exe = await download(`${base}/win-x64/node.exe`, cachedExe);
-    const sums = (await download(`${base}/SHASUMS256.txt`, cachedSums)).toString("utf8");
-    const line = sums.split("\n").find((l) => l.trim().endsWith(" win-x64/node.exe"));
-    if (!line) throw new Error("win-x64/node.exe is missing from SHASUMS256.txt");
-    const expected = line.trim().split(/\s+/)[0];
-    const actual = crypto.createHash("sha256").update(exe).digest("hex");
-    if (actual !== expected) {
-      throw new Error(
-        `node.exe checksum mismatch (expected ${expected}, got ${actual}) — delete dist/.cache and retry`,
-      );
-    }
-    assertWindowsBinary(exe, "node.exe");
-    return exe;
-  } catch (err) {
-    if (process.platform === "win32" && process.arch === "x64" && fs.existsSync(process.execPath)) {
-      log(`Using local Windows Node.js binary (${process.execPath}) after download error: ${err.message}`);
-      const exe = fs.readFileSync(process.execPath);
-      assertWindowsBinary(exe, "node.exe");
-      return exe;
-    }
-    throw err;
+export function verifyNodeExe(exeBuf, sumsText, entryName = "win-x64/node.exe") {
+  assertWindowsBinary(exeBuf, "node.exe");
+  const line = String(sumsText)
+    .split("\n")
+    .find((l) => l.trim().endsWith(` ${entryName}`));
+  if (!line) throw new Error(`${entryName} is missing from SHASUMS256.txt`);
+  const expected = line.trim().split(/\s+/)[0];
+  const actual = crypto.createHash("sha256").update(exeBuf).digest("hex");
+  if (actual !== expected) {
+    throw new Error(
+      `node.exe checksum mismatch (expected ${expected}, got ${actual}) — delete dist/.cache and retry`,
+    );
   }
+  return exeBuf;
+}
+
+export async function fetchNodeExe({
+  nodeVersion = NODE_VERSION,
+  cacheDir = CACHE,
+  downloadFn = download,
+} = {}) {
+  const base = `https://nodejs.org/dist/v${nodeVersion}`;
+  const cachedExe = path.join(cacheDir, `node-v${nodeVersion}-win-x64.exe`);
+  const cachedSums = path.join(cacheDir, `node-v${nodeVersion}-SHASUMS256.txt`);
+  const [exe, sumsBuf] = await Promise.all([
+    downloadFn(`${base}/win-x64/node.exe`, cachedExe),
+    downloadFn(`${base}/SHASUMS256.txt`, cachedSums),
+  ]);
+  return verifyNodeExe(exe, sumsBuf.toString("utf8"), "win-x64/node.exe");
 }
 
 // Pulls one file out of a .tar.gz (ustar), by path suffix.

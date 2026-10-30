@@ -10,11 +10,12 @@
 //     network stack (including active corporate VPN tunnels and allowlisted IPs)
 //   - keeps its SQLite database in DATA_DIR (default: the "Data" folder next to
 //     Postbox.cmd when launched from the Windows package, or %LOCALAPPDATA%\Postbox)
-//   - takes an automatic daily SQLite backup in <DATA_DIR>\Backups\ (keeping the
-//     newest BACKUP_KEEP copies, default 30)
+//   - acquires an exclusive per-database startup/lifetime lock so concurrent
+//     launches never start two servers against the same SQLite file
+//   - takes an automatic consistent daily SQLite backup in <DATA_DIR>\Backups\
+//     using SQLite `VACUUM INTO` (capturing committed WAL frames even if a
+//     reader pins the WAL checkpoint)
 //   - opens the default web browser once the server is ready
-//   - if Postbox is already running for the same database on this PC, opens a
-//     new browser tab at the running instance instead of starting a second copy
 //
 // Environment overrides (via Settings.cmd or environment variables):
 //   DATA_DIR           folder where postbox.db and Backups\ live
@@ -23,6 +24,7 @@
 //                      OS-assigned free port if taken or excluded by Hyper-V/VPN)
 //   NO_BROWSER=1       do not open a browser window automatically
 //   BACKUP_KEEP        daily backups kept (default 30; 0 disables daily backups)
+import { spawn } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
@@ -30,7 +32,6 @@ import { createRequire } from "node:module";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const APP_ID = "postbox";
@@ -51,15 +52,33 @@ export function defaultDataDir(
   return path.join(homedir, ".postbox");
 }
 
+function databaseKeyHash(databasePath) {
+  const normalized = path.resolve(databasePath).toLowerCase();
+  return crypto.createHash("sha1").update(normalized).digest("hex").slice(0, 12);
+}
+
 export function runningFilePath(
   databasePath,
   platform = process.platform,
   env = process.env,
   homedir = os.homedir(),
 ) {
-  const normalized = path.resolve(databasePath).toLowerCase();
-  const hash = crypto.createHash("sha1").update(normalized).digest("hex").slice(0, 12);
-  return path.join(defaultDataDir(platform, env, homedir), `running-${hash}.json`);
+  return path.join(
+    defaultDataDir(platform, env, homedir),
+    `running-${databaseKeyHash(databasePath)}.json`,
+  );
+}
+
+export function lockFilePath(
+  databasePath,
+  platform = process.platform,
+  env = process.env,
+  homedir = os.homedir(),
+) {
+  return path.join(
+    defaultDataDir(platform, env, homedir),
+    `running-${databaseKeyHash(databasePath)}.lock`,
+  );
 }
 
 export function resolveLocalPaths({
@@ -72,7 +91,72 @@ export function resolveLocalPaths({
   const databasePath = path.resolve(env.DATABASE_PATH || path.join(dataDir, "postbox.db"));
   const migrationsPath = path.resolve(env.MIGRATIONS_PATH || path.join(appDir, "drizzle"));
   const runningFile = runningFilePath(databasePath, platform, env, homedir);
-  return { dataDir, databasePath, migrationsPath, runningFile };
+  const lockFile = lockFilePath(databasePath, platform, env, homedir);
+  return { dataDir, databasePath, migrationsPath, runningFile, lockFile };
+}
+
+export function isProcessAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err.code === "EPERM";
+  }
+}
+
+export function tryAcquireInstanceLock(lockFile, instance, pid = process.pid) {
+  fs.mkdirSync(path.dirname(lockFile), { recursive: true });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const fd = fs.openSync(lockFile, "wx");
+      try {
+        fs.writeFileSync(fd, JSON.stringify({ pid, instance, startedAt: Date.now() }), "utf8");
+      } finally {
+        fs.closeSync(fd);
+      }
+      let released = false;
+      const release = () => {
+        if (released) return;
+        released = true;
+        try {
+          const cur = JSON.parse(fs.readFileSync(lockFile, "utf8"));
+          if (cur && cur.instance === instance) {
+            fs.unlinkSync(lockFile);
+          }
+        } catch {
+          /* already removed */
+        }
+      };
+      return { acquired: true, release };
+    } catch (err) {
+      if (err.code !== "EEXIST") throw err;
+      let holder = null;
+      try {
+        holder = JSON.parse(fs.readFileSync(lockFile, "utf8"));
+      } catch {
+        // If the lock file was just created and is still being written, treat as active.
+        try {
+          const st = fs.statSync(lockFile);
+          if (Date.now() - st.mtimeMs < 2000) {
+            return { acquired: false, holder: null };
+          }
+        } catch {
+          continue;
+        }
+      }
+      if (holder && holder.pid && isProcessAlive(holder.pid)) {
+        return { acquired: false, holder };
+      }
+      // Lock owner is dead or lock file is stale/corrupt; remove and retry once.
+      try {
+        fs.unlinkSync(lockFile);
+      } catch {
+        /* removed by another contender */
+      }
+    }
+  }
+  return { acquired: false, holder: null };
 }
 
 export function healthCheck(port, host = HOST, timeoutMs = 2000) {
@@ -113,6 +197,40 @@ export async function findRunningCopy(runningFile, host = HOST) {
     : null;
 }
 
+/**
+ * Coordinates single-instance startup across concurrent launches.
+ * Either acquires the exclusive per-database lock (returning `{ role: "leader", releaseLock }`)
+ * or waits for the active leader to publish its healthy port in `runningFile`
+ * (returning `{ role: "secondary", port }`).
+ */
+export async function acquireOrJoinInstance({
+  lockFile,
+  runningFile,
+  instance,
+  host = HOST,
+  timeoutMs = 30_000,
+  pollIntervalMs = 100,
+}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const existingPort = await findRunningCopy(runningFile, host);
+    if (existingPort) {
+      return { role: "secondary", port: existingPort };
+    }
+    const lock = tryAcquireInstanceLock(lockFile, instance);
+    if (lock.acquired) {
+      const portAfterLock = await findRunningCopy(runningFile, host);
+      if (portAfterLock) {
+        lock.release();
+        return { role: "secondary", port: portAfterLock };
+      }
+      return { role: "leader", releaseLock: lock.release };
+    }
+    await new Promise((r) => setTimeout(r, pollIntervalMs));
+  }
+  throw new Error("Timed out waiting for another starting Postbox instance to become ready");
+}
+
 function tryBindPort(port, host = HOST) {
   return new Promise((resolve, reject) => {
     const srv = net.createServer();
@@ -143,6 +261,29 @@ export function formatLocalDate(date = new Date()) {
   return `${y}-${m}-${d}`;
 }
 
+function loadBetterSqlite3(appDir) {
+  const candidates = [
+    path.join(appDir, "package.json"),
+    fileURLToPath(import.meta.url),
+  ];
+  for (const base of candidates) {
+    try {
+      const req = createRequire(base);
+      return req("better-sqlite3");
+    } catch {
+      /* try next */
+    }
+  }
+  throw new Error("Could not load better-sqlite3 for consistent online backup");
+}
+
+/**
+ * Creates a consistent, standalone SQLite snapshot of `databasePath` using
+ * SQLite's `VACUUM INTO` command. Unlike a raw file copy after `wal_checkpoint`,
+ * `VACUUM INTO` reads through SQLite's WAL index and captures all committed
+ * transactions even when another connection holds an open read snapshot that
+ * pins the WAL checkpoint. Fails closed if a consistent snapshot cannot be created.
+ */
 export function runDailyBackup(
   databasePath,
   { backupKeep = 30, appDir = __dirname, now = new Date() } = {},
@@ -155,7 +296,10 @@ export function runDailyBackup(
   } catch {
     return null;
   }
-  if (!stat.isFile() || stat.size === 0) return null;
+  if (!stat.isFile()) return null;
+  const walPath = `${databasePath}-wal`;
+  const walSize = fs.existsSync(walPath) ? fs.statSync(walPath).size : 0;
+  if (stat.size === 0 && walSize === 0) return null;
 
   const backupsDir = path.join(path.dirname(databasePath), "Backups");
   const baseName = path.basename(databasePath, path.extname(databasePath)) || "postbox";
@@ -164,38 +308,34 @@ export function runDailyBackup(
   if (fs.existsSync(dest)) return dest;
 
   fs.mkdirSync(backupsDir, { recursive: true });
-
-  // Checkpoint WAL frames into the main database file if better-sqlite3 is available.
+  const part = `${dest}.part-${process.pid}-${Date.now()}`;
   try {
-    const req = createRequire(path.join(appDir, "package.json"));
-    const Database = req("better-sqlite3");
-    const sqlite = new Database(databasePath);
+    if (fs.existsSync(part)) fs.unlinkSync(part);
+    const Database = loadBetterSqlite3(appDir);
+    const sqlite = new Database(databasePath, { readonly: true, fileMustExist: true });
     try {
-      sqlite.pragma("wal_checkpoint(TRUNCATE)");
+      sqlite.pragma("busy_timeout = 5000");
+      const verify = sqlite.prepare("SELECT count(*) AS cnt FROM sqlite_schema").get();
+      if (!verify) throw new Error("Database schema unreadable");
+      sqlite.prepare("VACUUM INTO ?").run(part);
     } finally {
       sqlite.close();
     }
-  } catch {
-    // Fallback to raw file copy if better-sqlite3 cannot be loaded here.
-  }
-
-  const part = `${dest}.part-${process.pid}`;
-  fs.copyFileSync(databasePath, part);
-  try {
-    const req = createRequire(path.join(appDir, "package.json"));
-    const Database = req("better-sqlite3");
-    const backupDb = new Database(part);
-    try {
-      backupDb.pragma("journal_mode = DELETE");
-    } finally {
-      backupDb.close();
+    const partStat = fs.statSync(part);
+    if (!partStat.isFile() || partStat.size === 0) {
+      throw new Error("VACUUM INTO produced an empty backup file");
     }
-  } catch {
-    /* ignore */
+    fs.renameSync(part, dest);
+  } catch (err) {
+    try {
+      if (fs.existsSync(part)) fs.unlinkSync(part);
+    } catch {
+      /* ignore cleanup error */
+    }
+    throw err;
   }
-  fs.renameSync(part, dest);
 
-  // Prune older daily backups beyond backupKeep.
+  // Prune older daily backups beyond backupKeep only after today's consistent backup succeeds.
   try {
     const prefix = `${baseName}-`;
     const files = fs
@@ -245,6 +385,9 @@ export function openBrowser(url, env = process.env, platform = process.platform)
 }
 
 function resolveAppDir() {
+  if (process.env.POSTBOX_APP_DIR && fs.existsSync(path.join(process.env.POSTBOX_APP_DIR, "server.js"))) {
+    return path.resolve(process.env.POSTBOX_APP_DIR);
+  }
   // 1. Packaged Windows layout: app/local.mjs sits right next to app/server.js.
   if (fs.existsSync(path.join(__dirname, "server.js"))) {
     return __dirname;
@@ -253,17 +396,16 @@ function resolveAppDir() {
   const root = path.resolve(__dirname, "..");
   const standalone = path.join(root, ".next", "standalone");
   if (fs.existsSync(path.join(standalone, "server.js"))) {
-    // Ensure static assets, public/, and drizzle/ are present in .next/standalone.
     const staticSrc = path.join(root, ".next", "static");
     const staticDest = path.join(standalone, ".next", "static");
     if (fs.existsSync(staticSrc) && !fs.existsSync(staticDest)) {
-      fs.cpSync(staticSrc, staticDest, { recursive: true });
+      fs.cpSync(staticSrc, staticDest, { recursive: true, dereference: true });
     }
     for (const dir of ["public", "drizzle"]) {
       const src = path.join(root, dir);
       const dest = path.join(standalone, dir);
       if (fs.existsSync(src) && !fs.existsSync(dest)) {
-        fs.cpSync(src, dest, { recursive: true });
+        fs.cpSync(src, dest, { recursive: true, dereference: true });
       }
     }
     return standalone;
@@ -285,44 +427,37 @@ async function waitForServerReady(port, instance, timeoutMs = 30_000) {
   throw new Error(`Postbox server did not become ready on http://${HOST}:${port}/api/health`);
 }
 
+const SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK"];
+
 async function main() {
   const appDir = resolveAppDir();
-  const { dataDir, databasePath, migrationsPath, runningFile } = resolveLocalPaths({ appDir });
+  const { dataDir, databasePath, migrationsPath, runningFile, lockFile } = resolveLocalPaths({
+    appDir,
+  });
 
   fs.mkdirSync(dataDir, { recursive: true });
   fs.mkdirSync(path.dirname(databasePath), { recursive: true });
   fs.mkdirSync(path.dirname(runningFile), { recursive: true });
 
-  const runningPort = await findRunningCopy(runningFile);
-  if (runningPort) {
-    const url = `http://${HOST}:${runningPort}/`;
+  const instance = crypto.randomBytes(12).toString("hex");
+  const coord = await acquireOrJoinInstance({
+    lockFile,
+    runningFile,
+    instance,
+    host: HOST,
+    timeoutMs: Number(process.env.POSTBOX_STARTUP_TIMEOUT_MS || 30_000),
+  });
+
+  if (coord.role === "secondary") {
+    const url = `http://${HOST}:${coord.port}/`;
     console.log(`Postbox is already running — opening ${url}`);
     openBrowser(url);
     return;
   }
 
-  const backupKeep = Number(process.env.BACKUP_KEEP ?? 30);
-  try {
-    runDailyBackup(databasePath, { backupKeep, appDir });
-  } catch (err) {
-    console.warn(`  Warning: daily backup skipped (${err.message || err})`);
-  }
-
-  const preferredPort = Number(process.env.PORT || DEFAULT_PREFERRED_PORT);
-  const port = await findFreePort(preferredPort, HOST);
-  const instance = crypto.randomBytes(12).toString("hex");
-
-  process.env.NODE_ENV = "production";
-  process.env.NEXT_TELEMETRY_DISABLED = "1";
-  process.env.HOSTNAME = HOST;
-  process.env.PORT = String(port);
-  process.env.DATA_DIR = dataDir;
-  process.env.DATABASE_PATH = databasePath;
-  process.env.MIGRATIONS_PATH = migrationsPath;
-  process.env.POSTBOX_INSTANCE_ID = instance;
-
+  const releaseLock = coord.releaseLock;
   let cleanedUp = false;
-  function cleanupRunningFile() {
+  function cleanupInstanceFiles() {
     if (cleanedUp) return;
     cleanedUp = true;
     try {
@@ -333,25 +468,147 @@ async function main() {
     } catch {
       /* already removed */
     }
+    releaseLock();
   }
 
+  process.on("exit", cleanupInstanceFiles);
+
+  const backupKeep = Number(process.env.BACKUP_KEEP ?? 30);
+  try {
+    runDailyBackup(databasePath, { backupKeep, appDir });
+  } catch (err) {
+    console.warn(`  Warning: daily backup skipped (${err.message || err})`);
+  }
+
+  const preferredPort = Number(process.env.PORT || DEFAULT_PREFERRED_PORT);
+  const port = await findFreePort(preferredPort, HOST);
+
+  process.env.NODE_ENV = "production";
+  process.env.NEXT_TELEMETRY_DISABLED = "1";
+  process.env.HOSTNAME = HOST;
+  process.env.PORT = String(port);
+  process.env.DATA_DIR = dataDir;
+  process.env.DATABASE_PATH = databasePath;
+  process.env.MIGRATIONS_PATH = migrationsPath;
+  process.env.POSTBOX_INSTANCE_ID = instance;
+
+  // Track HTTP servers and signal handlers registered by server.js so we can
+  // run server cleanup to completion before releasing instance ownership and exiting.
+  const createdServers = new Set();
+  const origCreateServer = http.createServer;
+  http.createServer = function wrappedCreateServer(...args) {
+    const srv = origCreateServer.apply(this, args);
+    createdServers.add(srv);
+    return srv;
+  };
+
+  const serverSignalHandlers = new Map(SIGNALS.map((s) => [s, []]));
+  const origProcessOn = process.on.bind(process);
+  const origProcessOnce = process.once.bind(process);
+  const origProcessAddListener = process.addListener.bind(process);
+
+  function interceptSignalRegistration(origMethod) {
+    return function interceptedOn(event, listener) {
+      if (SIGNALS.includes(event) && typeof listener === "function") {
+        serverSignalHandlers.get(event).push(listener);
+        return process;
+      }
+      return origMethod(event, listener);
+    };
+  }
+
+  process.on = interceptSignalRegistration(origProcessOn);
+  process.once = interceptSignalRegistration(origProcessOnce);
+  process.addListener = interceptSignalRegistration(origProcessAddListener);
+
+  const realProcessExit = process.exit.bind(process);
   let shuttingDown = false;
-  function shutdown() {
+  // If a server signal handler calls process.exit() after finishing its own drain
+  // (e.g. Next.js start-server calling process.exit(143)), ensure instance files
+  // are cleaned up and normalize graceful signal exit to 0.
+  process.exit = function interceptedExit(code) {
+    cleanupInstanceFiles();
+    return realProcessExit(shuttingDown ? 0 : code);
+  };
+
+  async function shutdown(sig) {
     if (shuttingDown) return;
     shuttingDown = true;
     console.log("Stopping Postbox…");
-    cleanupRunningFile();
-    process.exit(0);
+
+    const forceTimer = setTimeout(() => {
+      cleanupInstanceFiles();
+      realProcessExit(0);
+    }, 5000);
+    forceTimer.unref();
+
+    for (const srv of createdServers) {
+      try {
+        srv.closeIdleConnections?.();
+      } catch {
+        /* ignore */
+      }
+    }
+
+    let handlers = serverSignalHandlers.get(sig) || [];
+    if (handlers.length === 0) {
+      handlers =
+        serverSignalHandlers.get("SIGTERM")?.length > 0
+          ? serverSignalHandlers.get("SIGTERM")
+          : serverSignalHandlers.get("SIGINT") || [];
+    }
+
+    const closePromises = [];
+    for (const srv of createdServers) {
+      if (srv.listening) {
+        closePromises.push(
+          new Promise((resolve) => {
+            srv.once("close", () => setImmediate(resolve));
+          }),
+        );
+      }
+    }
+
+    if (handlers.length > 0) {
+      await Promise.allSettled(
+        handlers.map((fn) => {
+          try {
+            return Promise.resolve(fn(sig));
+          } catch (err) {
+            return Promise.reject(err);
+          }
+        }),
+      );
+    }
+
+    for (const srv of createdServers) {
+      if (srv.listening) {
+        try {
+          srv.close();
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+
+    if (closePromises.length > 0) {
+      await Promise.allSettled(closePromises);
+    }
+
+    clearTimeout(forceTimer);
+    cleanupInstanceFiles();
+    realProcessExit(0);
   }
 
-  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK"]) {
+  for (const sig of SIGNALS) {
     try {
-      process.on(sig, shutdown);
+      origProcessOn(sig, () => {
+        void shutdown(sig);
+      });
     } catch {
       /* signal not supported on this platform */
     }
   }
-  process.on("exit", cleanupRunningFile);
 
   // Start the Next.js standalone server in-process.
   await import(pathToFileURL(path.join(appDir, "server.js")).href);
