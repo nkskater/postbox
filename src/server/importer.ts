@@ -1,3 +1,4 @@
+import { importThunderClient, isThunderClient } from "@/core/convert/thunder";
 import { importHar, isHar } from "@/core/convert/har";
 import { importHoppscotch, isHoppscotch } from "@/core/convert/hoppscotch";
 import { getDb } from "./db";
@@ -21,10 +22,10 @@ export type ImportOutcome =
       name: string;
       folders: number;
       requests: number;
-      source: "postman" | "openapi" | "har" | "hoppscotch";
+      source: "postman" | "openapi" | "har" | "hoppscotch" | "thunder-client";
       warnings?: string[];
     }
-  | { kind: "environment"; id: string; name: string; variables: number }
+  | { kind: "environment"; id: string; name: string; variables: number; warnings?: string[] }
   | { kind: "globals"; variables: number }
   | { kind: "batch"; items: ImportOutcome[]; warnings: string[] };
 
@@ -43,6 +44,24 @@ export function importContent(
   if (isHar(data)) {
     const { root, variables, warnings } = importHar(data);
     return { kind: "collection", source: "har", ...repo.importTree(workspaceId, root, variables), warnings };
+  }
+  if (isThunderClient(data)) {
+    const result = importThunderClient(data, options);
+    if (result.kind === "collection")
+      return {
+        kind: "collection",
+        source: "thunder-client",
+        ...repo.importTree(workspaceId, result.root, result.variables),
+        warnings: result.warnings,
+      };
+    const environment = repo.createEnvironment(workspaceId, result.name, result.variables);
+    return {
+      kind: "environment",
+      id: environment.id,
+      name: environment.name,
+      variables: result.variables.length,
+      warnings: result.warnings,
+    };
   }
   if (isPostmanCollection(data)) {
     const { root, variables } = importPostmanCollection(data);
@@ -84,6 +103,6 @@ export function importContent(
     return { kind: "environment", id: created.id, name: created.name, variables: env.variables.length };
   }
   throw new Error(
-    "Unrecognised format. Supported: Postman collection v2.0/v2.1, Postman environment, OpenAPI 3.x, Swagger 2.0, HAR 1.2, Hoppscotch",
+    "Unrecognised format. Supported: Postman collection v2.0/v2.1, Postman environment, OpenAPI 3.x, Swagger 2.0, HAR 1.2, Hoppscotch, Thunder Client",
   );
 }
