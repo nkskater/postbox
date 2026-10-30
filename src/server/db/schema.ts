@@ -5,7 +5,7 @@
  * JSON text columns because they are always read and written as a unit.
  * See ARCHITECTURE.md §3 for the rationale.
  */
-import { sqliteTable, text, integer, index, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, index, uniqueIndex, primaryKey } from "drizzle-orm/sqlite-core";
 import type {
   AuthConfig,
   BodyConfig,
@@ -136,6 +136,7 @@ export const runs = sqliteTable(
     passedTests: integer("passed_tests").notNull().default(0),
     failedTests: integer("failed_tests").notNull().default(0),
     durationMs: integer("duration_ms").notNull().default(0),
+    createdBy: text("created_by").references(() => users.id),
     source: text("source").notNull().default("manual"),
     failedRequests: integer("failed_requests").notNull().default(0),
     error: text("error"),
@@ -185,6 +186,7 @@ export const history = sqliteTable(
     workspaceId: text("workspace_id")
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
+    createdBy: text("created_by").references(() => users.id),
     requestId: text("request_id"),
     method: text("method").notNull(),
     url: text("url").notNull(),
@@ -226,6 +228,7 @@ export const schedules = sqliteTable("schedules", {
   workspaceId: text("workspace_id")
     .notNull()
     .references(() => workspaces.id, { onDelete: "cascade" }),
+  createdBy: text("created_by").references(() => users.id),
   name: text("name").notNull(),
   folderId: text("folder_id").notNull(),
   environmentId: text("environment_id"),
@@ -244,6 +247,51 @@ export const appSettings = sqliteTable("app_settings", {
   updatedAt: integer("updated_at").notNull(),
 });
 
+/** Local accounts. Bumping session_version invalidates every session cookie of the user. */
+export const users = sqliteTable(
+  "users",
+  {
+    id: text("id").primaryKey(),
+    username: text("username").notNull(),
+    displayName: text("display_name").notNull().default(""),
+    passwordHash: text("password_hash").notNull(),
+    isAdmin: integer("is_admin", { mode: "boolean" }).notNull().default(false),
+    disabled: integer("disabled", { mode: "boolean" }).notNull().default(false),
+    sessionVersion: integer("session_version").notNull().default(1),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("users_username_unique").on(t.username)],
+);
+
+/** Personal API tokens. Only a SHA-256 hash of the token is stored. */
+export const apiTokens = sqliteTable(
+  "api_tokens",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    /** First characters of the token, shown so users can tell tokens apart. */
+    prefix: text("prefix").notNull(),
+    lastUsedAt: integer("last_used_at"),
+    expiresAt: integer("expires_at"),
+    revokedAt: integer("revoked_at"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [uniqueIndex("api_tokens_hash_unique").on(t.tokenHash), index("api_tokens_user_idx").on(t.userId)],
+);
+
+/** Server-generated secrets (e.g. the session signing key). Never exported with settings. */
+export const serverSecrets = sqliteTable("server_secrets", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  createdAt: integer("created_at").notNull(),
+});
+
+export type UserRow = typeof users.$inferSelect;
+export type ApiTokenRow = typeof apiTokens.$inferSelect;
 export type WorkspaceRow = typeof workspaces.$inferSelect;
 export type FolderRow = typeof folders.$inferSelect;
 export type RequestRow = typeof requests.$inferSelect;
@@ -254,3 +302,55 @@ export type RunResultRow = typeof runResults.$inferSelect;
 export type HistoryRow = typeof history.$inferSelect;
 export type CookieRow = typeof cookies.$inferSelect;
 export type ScheduleRow = typeof schedules.$inferSelect;
+
+export const workspaceMembers = sqliteTable(
+  "workspace_members",
+  {
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: text("role").$type<"owner" | "editor" | "viewer">().notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.workspaceId, t.userId] }),
+    index("workspace_members_user_idx").on(t.userId),
+  ],
+);
+
+export const userSettings = sqliteTable(
+  "user_settings",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    value: text("value", { mode: "json" }).$type<unknown>().notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.key] })],
+);
+
+export const invites = sqliteTable(
+  "invites",
+  {
+    id: text("id").primaryKey(),
+    tokenHash: text("token_hash").notNull(),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => users.id),
+    workspaceId: text("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }),
+    role: text("role").$type<"owner" | "editor" | "viewer">(),
+    expiresAt: integer("expires_at").notNull(),
+    usedAt: integer("used_at"),
+    revokedAt: integer("revoked_at"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("invites_token_unique").on(t.tokenHash),
+    index("invites_workspace_idx").on(t.workspaceId),
+  ],
+);

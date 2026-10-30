@@ -8,29 +8,24 @@
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import type {
-  AuthConfig,
-  BodyConfig,
-  DataTable,
-  FolderDef,
-  KeyValue,
-  RequestDef,
-  RequestSettings,
-  Variable,
-} from "@/core/types";
+import type { DataTable, FolderDef, KeyValue, RequestDef, RequestSettings, Variable } from "@/core/types";
 import { DEFAULT_SETTINGS } from "@/core/types";
 import { parseCurl } from "@/core/convert/curl";
 import { generateSnippet, type CodegenLanguage } from "@/core/convert/codegen";
 import { exportPostmanCollection, exportPostmanEnvironment } from "@/core/convert/postman";
 import { prepareRequest } from "@/core/http/prepare";
 import { sendRequest } from "@/core/http/engine";
-import { parseCsv, parseJsonData } from "@/core/runner/data";
+import { DataValidationError, formatIssue, parseJsonData, readCsv } from "@/core/runner/data";
 import { renderReport, type ReportFormat } from "@/core/runner/reporters";
+import { authSchema, bodySchema, keyValueSchema, settingsPatchSchema, variableSchema } from "@/core/schemas";
 import { Resolver } from "@/core/variables/resolver";
 import { getPolicy, loadScopes, runSingleRequest } from "./context";
 import { defaultRequest } from "./defaults";
 import { importContent } from "./importer";
 import * as repo from "./repo";
+import { currentCaller } from "./access-context";
+import { describeCaller } from "./caller";
+import { workspaceRole } from "./authorize";
 import * as runs from "./runs";
 
 const SECRET_MASK = "••••••••";
@@ -47,7 +42,14 @@ function errResult(err: unknown): CallToolResult {
   const message = err instanceof Error ? err.message : String(err);
   return {
     isError: true,
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify(
+          err instanceof DataValidationError ? { error: message, issues: err.issues } : { error: message },
+        ),
+      },
+    ],
   };
 }
 
@@ -68,115 +70,7 @@ function maskVariables(vars: Variable[], includeSecrets = false): Variable[] {
 
 // ------------------------------------------------------------------ schemas
 
-const keyValueSchema = z.object({
-  key: z.string(),
-  value: z.string().default(""),
-  enabled: z.boolean().default(true),
-  description: z.string().optional(),
-});
-
-const formDataFieldSchema = z.object({
-  key: z.string(),
-  value: z.string().default(""),
-  enabled: z.boolean().default(true),
-  type: z.enum(["text", "file"]).default("text"),
-  fileName: z.string().optional(),
-  contentType: z.string().optional(),
-  data: z.string().optional(),
-  description: z.string().optional(),
-});
-
-const bodySchema: z.ZodType<BodyConfig> = z.discriminatedUnion("mode", [
-  z.object({ mode: z.literal("none") }),
-  z.object({
-    mode: z.literal("raw"),
-    raw: z.string(),
-    language: z.enum(["json", "xml", "text", "html", "javascript"]).default("json"),
-  }),
-  z.object({
-    mode: z.literal("urlencoded"),
-    urlencoded: z.array(keyValueSchema),
-  }),
-  z.object({
-    mode: z.literal("formdata"),
-    formdata: z.array(formDataFieldSchema),
-  }),
-  z.object({
-    mode: z.literal("binary"),
-    binary: z
-      .object({
-        fileName: z.string(),
-        contentType: z.string().optional(),
-        data: z.string(),
-      })
-      .nullable(),
-  }),
-  z.object({
-    mode: z.literal("graphql"),
-    graphql: z.object({
-      query: z.string(),
-      variables: z.string().default("{}"),
-      operationName: z.string().optional(),
-    }),
-  }),
-]);
-
-const authSchema: z.ZodType<AuthConfig> = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("inherit") }),
-  z.object({ type: z.literal("none") }),
-  z.object({
-    type: z.literal("bearer"),
-    bearer: z.object({ token: z.string(), prefix: z.string().optional() }),
-  }),
-  z.object({
-    type: z.literal("basic"),
-    basic: z.object({ username: z.string(), password: z.string() }),
-  }),
-  z.object({
-    type: z.literal("apikey"),
-    apikey: z.object({
-      key: z.string(),
-      value: z.string(),
-      in: z.enum(["header", "query"]).default("header"),
-    }),
-  }),
-  z.object({
-    type: z.literal("digest"),
-    digest: z.object({ username: z.string(), password: z.string() }),
-  }),
-  z.object({
-    type: z.literal("oauth2"),
-    oauth2: z.object({
-      grantType: z.enum(["client_credentials", "password", "manual"]),
-      accessTokenUrl: z.string().default(""),
-      clientId: z.string().default(""),
-      clientSecret: z.string().default(""),
-      scope: z.string().default(""),
-      username: z.string().optional(),
-      password: z.string().optional(),
-      clientAuthentication: z.enum(["header", "body"]).default("header"),
-      accessToken: z.string().default(""),
-      tokenType: z.string().optional(),
-      expiresAt: z.number().optional(),
-      headerPrefix: z.string().default("Bearer"),
-    }),
-  }),
-]);
-
-const settingsPatchSchema = z.object({
-  followRedirects: z.boolean().optional(),
-  maxRedirects: z.number().int().min(0).max(50).optional(),
-  timeoutMs: z.number().int().min(100).max(300_000).optional(),
-  verifySsl: z.boolean().optional(),
-  useCookieJar: z.boolean().optional(),
-});
-
-const variableInputSchema = z.object({
-  key: z.string().min(1),
-  value: z.string().default(""),
-  type: z.enum(["default", "secret"]).default("default"),
-  enabled: z.boolean().default(true),
-});
+const variableInputSchema = variableSchema.extend({ key: z.string().min(1) });
 
 // ------------------------------------------------------------------ server factory
 
@@ -334,6 +228,26 @@ export function createPostboxMcpServer(): McpServer {
         ],
       };
     },
+  );
+
+  server.registerTool(
+    "whoami",
+    {
+      title: "Current identity",
+      description: "The authenticated caller and their accessible workspace roles.",
+      inputSchema: {},
+    },
+    async () =>
+      okJson({
+        ...describeCaller(currentCaller() ?? null),
+        workspaces: repo
+          .listWorkspaces()
+          .map((workspace) => ({
+            id: workspace.id,
+            name: workspace.name,
+            role: workspaceRole(currentCaller(), workspace.id),
+          })),
+      }),
   );
 
   // ================================================================ WORKSPACES
@@ -1030,11 +944,18 @@ export function createPostboxMcpServer(): McpServer {
           });
         }
 
+        if (folderId) repo.requireFolderIn(wsId, folderId);
         const chain = folderId ? repo.getFolderChain(folderId) : [];
         const collectionId = chain[0]?.id ?? null;
         const ctx = loadScopes(wsId, input.environmentId ?? null, collectionId);
         const resolver = new Resolver(ctx.scopes);
-        const { prepared } = await prepareRequest(reqDef, chain, resolver, { policy: getPolicy() });
+        const { prepared } = await prepareRequest(
+          reqDef,
+          chain,
+          resolver,
+          { policy: getPolicy() },
+          { offline: true },
+        );
         const snippet = generateSnippet(input.language as CodegenLanguage, {
           method: prepared.method,
           url: prepared.url,
@@ -1100,8 +1021,11 @@ export function createPostboxMcpServer(): McpServer {
         if (!folder) throw new Error(`Folder not found: ${input.folderId}`);
 
         let data: DataTable | null = null;
+        let dataWarnings: string[] = [];
         if (input.dataCsv) {
-          data = parseCsv(input.dataCsv);
+          const parsed = readCsv(input.dataCsv);
+          data = parsed.table;
+          dataWarnings = parsed.warnings.map(formatIssue);
         } else if (input.dataJson) {
           data = parseJsonData(input.dataJson);
         } else if (input.dataRows?.length) {
@@ -1126,7 +1050,7 @@ export function createPostboxMcpServer(): McpServer {
           source: "mcp",
         });
 
-        return okJson({ runId, summary });
+        return okJson(dataWarnings.length ? { runId, summary, dataWarnings } : { runId, summary });
       } catch (err) {
         return errResult(err);
       }

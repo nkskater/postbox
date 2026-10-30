@@ -42,6 +42,9 @@ export function loadScopes(
   environmentId: string | null,
   collectionId: string | null,
 ): ScopeContext {
+  repo.requireWorkspace(workspaceId);
+  if (environmentId) repo.requireEnvironmentIn(workspaceId, environmentId);
+  if (collectionId) repo.requireCollectionIn(workspaceId, collectionId);
   const globals = repo.listVariables(workspaceId, "global", null);
   const env = environmentId ? repo.listVariables(workspaceId, "environment", environmentId) : [];
   const col = collectionId ? repo.listVariables(workspaceId, "collection", collectionId) : [];
@@ -151,6 +154,9 @@ export interface RunSingleResult extends ExecuteResult {
 
 /** Execute one request with full persistence (used by /api/proxy and MCP). */
 export async function runSingleRequest(input: RunSingleInput): Promise<RunSingleResult> {
+  // Inherited auth, headers and scripts must come from the caller's workspace.
+  if (input.folderId) repo.requireFolderIn(input.workspaceId, input.folderId);
+  if (input.requestId) repo.requireRequestIn(input.workspaceId, input.requestId);
   const chain: FolderDef[] = input.folderId ? repo.getFolderChain(input.folderId) : [];
   const collectionId = chain[0]?.id ?? null;
   const ctx = loadScopes(input.workspaceId, input.environmentId, collectionId);
@@ -173,7 +179,7 @@ export async function runSingleRequest(input: RunSingleInput): Promise<RunSingle
   persistOAuth2Token(input.workspaceId, input.request, chain, result.oauth2Token, input.requestId);
   const secrets = persistenceSecrets(ctx, result.scopes);
   const warnings = persistScopes(ctx, result.scopes);
-  if (jar) repo.saveCookies(input.workspaceId, await jar.list());
+  if (jar) repo.saveCookies(input.workspaceId, jar.getChanges());
 
   let historyId: string | undefined;
   if (input.saveHistory !== false && !result.skipped) {

@@ -3,11 +3,11 @@
  * and return the response, test results, console output and timing.
  */
 import { z } from "zod";
-import type { RequestDef } from "@/core/types";
 import { DEFAULT_SETTINGS } from "@/core/types";
 import { runSingleRequest } from "@/server/context";
 import { json, parseBody, route } from "@/server/http";
 import { defaultRequest } from "@/server/defaults";
+import { requestInputSchema } from "@/core/schemas";
 
 export const dynamic = "force-dynamic";
 
@@ -16,16 +16,13 @@ const schema = z.object({
   environmentId: z.string().nullish(),
   folderId: z.string().nullish(),
   requestId: z.string().nullish(),
-  request: z.record(z.string(), z.unknown()),
+  request: requestInputSchema,
 });
 
 export const POST = route(async (req: Request) => {
   const input = await parseBody(req, schema);
-  const r = input.request as unknown as Partial<RequestDef>;
-  const request = defaultRequest({
-    ...r,
-    settings: { ...DEFAULT_SETTINGS, ...(r.settings ?? {}) },
-  } as Partial<RequestDef>);
+  const r = input.request;
+  const request = defaultRequest({ ...r, settings: { ...DEFAULT_SETTINGS, ...(r.settings ?? {}) } });
   const result = await runSingleRequest({
     workspaceId: input.workspaceId,
     environmentId: input.environmentId ?? null,

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import * as repo from "@/server/repo";
 import { json, notFound, parseBody, route } from "@/server/http";
+import { variableSchema } from "@/core/schemas";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -17,7 +18,7 @@ export const PATCH = route(async (req: Request, { params }: Ctx) => {
   if (!env) throw notFound("Environment");
   const input = await parseBody(
     req,
-    z.object({ name: z.string().min(1).max(200).optional(), variables: z.array(z.any()).optional() }),
+    z.object({ name: z.string().min(1).max(200).optional(), variables: z.array(variableSchema).optional() }),
   );
   if (input.name) repo.renameEnvironment(id, input.name);
   if (input.variables) repo.replaceVariables(env.workspaceId, "environment", id, input.variables);

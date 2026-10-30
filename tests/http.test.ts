@@ -60,7 +60,7 @@ describe("API error responses", () => {
     const schema = z.object({ count: z.number() });
     const handler = route(async (req: Request) => json(await parseBody(req, schema)));
     const response = await handler(
-      new Request("http://postbox.test/api/example", {
+      new Request("http://postbox.test/api/auth/login", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ count: "private-value" }),
@@ -79,7 +79,7 @@ describe("API error responses", () => {
   it("returns a deliberate 400 for malformed JSON", async () => {
     const handler = route(async (req: Request) => json(await parseBody(req, z.object({}))));
     const response = await handler(
-      new Request("http://postbox.test/api/example", {
+      new Request("http://postbox.test/api/auth/login", {
         method: "POST",
         body: "{invalid",
       }),

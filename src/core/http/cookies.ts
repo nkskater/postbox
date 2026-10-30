@@ -5,7 +5,15 @@
 import { Cookie, CookieJar, MemoryCookieStore } from "tough-cookie";
 import type { CookieInfo } from "../types";
 
+export type CookieKey = Pick<CookieInfo, "domain" | "path" | "name">;
+export interface CookieChanges {
+  upserts: CookieInfo[];
+  deletions: CookieKey[];
+}
+const cookieKey = (c: CookieKey) => JSON.stringify([c.domain, c.path, c.name]);
+
 export class CookieJarStore {
+  private readonly changes = new Map<string, CookieInfo>();
   readonly jar: CookieJar;
 
   constructor(initial: CookieInfo[] = []) {
@@ -20,7 +28,7 @@ export class CookieJarStore {
       value: c.value,
       domain: c.domain.replace(/^\./, ""),
       path: c.path || "/",
-      expires: c.expires ? new Date(c.expires) : "Infinity",
+      expires: c.expires != null ? new Date(c.expires) : "Infinity",
       httpOnly: c.httpOnly,
       secure: c.secure,
       sameSite: c.sameSite ?? undefined,
@@ -44,7 +52,11 @@ export class CookieJarStore {
     for (const header of setCookies) {
       try {
         const c = await this.jar.setCookie(header, url, { ignoreError: true });
-        if (c) stored.push(toInfo(c));
+        if (c) {
+          const info = toInfo(c);
+          stored.push(info);
+          this.changes.set(cookieKey(info), info);
+        }
       } catch {
         /* ignore malformed cookies */
       }
@@ -55,15 +67,42 @@ export class CookieJarStore {
   async list(): Promise<CookieInfo[]> {
     const all = await this.jar.store.getAllCookies();
     const now = Date.now();
-    return all.filter((c) => !(c.expires instanceof Date) || c.expires.getTime() > now).map(toInfo);
+    return all.filter((c) => (c.expiryTime() ?? Infinity) > now).map(toInfo);
+  }
+
+  /** Only explicit writes/deletions are persisted; reads and expiry cleanup are not writes. */
+  getChanges(): CookieChanges {
+    const upserts: CookieInfo[] = [];
+    const deletions: CookieKey[] = [];
+    for (const c of this.changes.values()) {
+      if (c.expires != null && c.expires <= Date.now())
+        deletions.push({ domain: c.domain, path: c.path, name: c.name });
+      else upserts.push({ ...c });
+    }
+    return { upserts, deletions };
   }
 
   async remove(domain: string, path: string, name: string): Promise<void> {
+    domain = domain.replace(/^\./, "");
+    path ||= "/";
     await this.jar.store.removeCookie(domain, path, name);
+    const c: CookieInfo = {
+      domain,
+      path,
+      name,
+      value: "",
+      expires: 0,
+      httpOnly: false,
+      secure: false,
+      sameSite: null,
+      hostOnly: true,
+    };
+    this.changes.set(cookieKey(c), c);
   }
 
   async clear(): Promise<void> {
-    await this.jar.removeAllCookies();
+    const all = await this.jar.store.getAllCookies();
+    for (const c of all) await this.remove(c.domain ?? "", c.path ?? "/", c.key);
   }
 }
 
@@ -73,7 +112,7 @@ export function toInfo(c: Cookie): CookieInfo {
     value: c.value,
     domain: c.domain ?? "",
     path: c.path ?? "/",
-    expires: c.expires instanceof Date ? c.expires.getTime() : null,
+    expires: Number.isFinite(c.expiryTime()) ? c.expiryTime() : c.expiryTime() === -Infinity ? 0 : null,
     httpOnly: !!c.httpOnly,
     secure: !!c.secure,
     sameSite: c.sameSite ?? null,

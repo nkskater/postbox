@@ -6,7 +6,9 @@ import {
   dedupeRows,
   deleteColumn,
   filterRows,
+  DataValidationError,
   parseCsv,
+  readCsv,
   parseDataFile,
   parseJsonData,
   renameColumn,
@@ -279,6 +281,78 @@ describe("iteration data", () => {
         { asn_id: "A2", qty: "7" },
       ],
     });
+  });
+
+  it("parses quoted CSV and TSV", () => {
+    expect(parseCsv('id,note\n1,"a, ""quoted"" value"\n2,"multi\nline"\n')).toEqual({
+      columns: ["id", "note"],
+      rows: [
+        { id: "1", note: 'a, "quoted" value' },
+        { id: "2", note: "multi\nline" },
+      ],
+    });
+    expect(parseCsv("id\tname\n1\tAlice\n")).toEqual({
+      columns: ["id", "name"],
+      rows: [{ id: "1", name: "Alice" }],
+    });
+  });
+
+  const issuesOf = (fn: () => unknown) => {
+    try {
+      fn();
+    } catch (err) {
+      expect(err).toBeInstanceOf(DataValidationError);
+      return (err as DataValidationError).issues;
+    }
+    throw new Error("expected a DataValidationError");
+  };
+
+  it("rejects CSV that would lose cells", () => {
+    expect(issuesOf(() => parseCsv("id,name\n1,Alice,unexpected\n"))).toEqual([
+      { row: 2, message: "3 fields but the header has 2; extra values would be lost" },
+    ]);
+    expect(issuesOf(() => parseCsv('id,name\n1,"Al"ice"\n2,"open\n')).map((i) => i.row)).toEqual([2, 3]);
+    expect(issuesOf(() => parseCsv("id,id\n1,2\n"))).toEqual([
+      { column: "id", message: "duplicate header (columns 1 and 2)" },
+    ]);
+    expect(issuesOf(() => parseCsv("id, id \nfirst,second\n"))[0].column).toBe("id");
+    expect(issuesOf(() => parseCsv("id,\n1,orphan\n"))).toEqual([
+      { row: 2, message: "column 2 has values but no header" },
+    ]);
+    expect(() => parseCsv("id,name\n1,Alice,unexpected\n")).toThrow(/row 2: 3 fields/);
+  });
+
+  it("pads short rows with a warning and ignores empty trailing columns", () => {
+    expect(readCsv("id,name\n1,Alice\n2\n")).toEqual({
+      table: {
+        columns: ["id", "name"],
+        rows: [
+          { id: "1", name: "Alice" },
+          { id: "2", name: "" },
+        ],
+      },
+      warnings: [{ row: 3, message: "1 field but the header has 2; missing cells left empty" }],
+    });
+    expect(readCsv("id,name,\n1,Alice,\n2,Bob,,\n")).toEqual({
+      table: {
+        columns: ["id", "name"],
+        rows: [
+          { id: "1", name: "Alice" },
+          { id: "2", name: "Bob" },
+        ],
+      },
+      warnings: [],
+    });
+  });
+
+  it("refuses to trim headers into collisions without touching the table", () => {
+    const t = { columns: ["id", " id ", "  "], rows: [{ id: "first", " id ": "second", "  ": "x" }] };
+    const before = structuredClone(t);
+    expect(issuesOf(() => trimWhitespace(t)).map((i) => i.message)).toEqual([
+      'headers "id" and " id " would collide',
+      "header would be empty after trimming",
+    ]);
+    expect(t).toEqual(before);
   });
 
   it("supports grid operations", () => {

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import * as repo from "@/server/repo";
 import { json, parseBody, requireParam, route } from "@/server/http";
+import { variableSchema } from "@/core/schemas";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,7 @@ export const POST = route(async (req: Request) => {
     z.object({
       workspaceId: z.string(),
       name: z.string().min(1).max(200),
-      variables: z.array(z.any()).optional(),
+      variables: z.array(variableSchema).optional(),
     }),
   );
   return json(repo.createEnvironment(input.workspaceId, input.name, input.variables ?? []), 201);
