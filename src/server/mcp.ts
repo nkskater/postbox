@@ -926,7 +926,13 @@ export function createPostboxMcpServer(): McpServer {
         const collectionId = chain[0]?.id ?? null;
         const ctx = loadScopes(wsId, input.environmentId ?? null, collectionId);
         const resolver = new Resolver(ctx.scopes);
-        const { prepared } = await prepareRequest(reqDef, chain, resolver, { policy: getPolicy() });
+        const { prepared } = await prepareRequest(
+          reqDef,
+          chain,
+          resolver,
+          { policy: getPolicy() },
+          { offline: true },
+        );
         const snippet = generateSnippet(input.language as CodegenLanguage, {
           method: prepared.method,
           url: prepared.url,

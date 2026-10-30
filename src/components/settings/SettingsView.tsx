@@ -36,11 +36,13 @@ import { Input } from "@/components/ui/input";
 import { ConfirmDialog } from "@/components/dialogs/ConfirmDialog";
 import { cn } from "@/lib/utils";
 import { SettingControl } from "./SettingControl";
+import { WorkspaceSharing } from "./WorkspaceSharing";
 import { AppearancePreview } from "./AppearancePreview";
 
-type Section = SettingCategory | "environment" | "elsewhere";
+type Section = SettingCategory | "environment" | "elsewhere" | "sharing";
 
 const EXTRA_SECTIONS: { id: Section; label: string; icon: typeof Server }[] = [
+  { id: "sharing", label: "Workspace sharing", icon: Globe },
   { id: "environment", label: "Server (environment)", icon: Server },
   { id: "elsewhere", label: "Other settings", icon: Wrench },
 ];
@@ -233,6 +235,8 @@ export function SettingsView() {
               {section === "appearance" && <AppearancePreview />}
               {renderSettings(sectionDefs)}
             </>
+          ) : section === "sharing" ? (
+            <WorkspaceSharing />
           ) : section === "environment" ? (
             <EnvironmentSection />
           ) : (

@@ -6,6 +6,10 @@
  */
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { HttpError, readBodyText } from "@/server/http";
+import { callerOf } from "@/server/caller";
+import { withCaller } from "@/server/access-context";
+import { authorizeTool, resourceWorkspace } from "@/server/access-policy";
+import { authorize } from "@/server/authorize";
 import { createPostboxMcpServer } from "@/server/mcp";
 
 export const dynamic = "force-dynamic";
@@ -67,17 +71,56 @@ export async function POST(req: Request): Promise<Response> {
     if (err instanceof HttpError) return jsonRpcError(err.status, err.message);
     throw err;
   }
-  const server = createPostboxMcpServer();
-  const transport = new WebStandardStreamableHTTPServerTransport({
-    sessionIdGenerator: undefined,
-    enableJsonResponse: true,
-  });
-  await server.connect(transport);
+  const caller = callerOf(req);
+  if (!caller) return jsonRpcError(401, "Authentication required");
   try {
-    return await transport.handleRequest(normalizeAccept(req, body));
-  } finally {
-    await server.close();
+    const message = JSON.parse(body);
+    if (Array.isArray(message)) return jsonRpcError(400, "Batch requests are not supported");
+    if (message.method === "tools/call") {
+      try {
+        authorizeTool(caller, message.params?.name, message.params?.arguments ?? {});
+      } catch (error) {
+        if (!(error instanceof HttpError)) throw error;
+        return Response.json({
+          jsonrpc: "2.0",
+          id: message.id ?? null,
+          result: {
+            isError: true,
+            content: [{ type: "text", text: JSON.stringify({ error: error.message, status: error.status }) }],
+          },
+        });
+      }
+    } else if (message.method === "resources/read") {
+      const uri = new URL(message.params?.uri);
+      if (uri.protocol !== "postbox:") throw new HttpError(403, "Unknown resource");
+      const parts = uri.pathname.split("/").filter(Boolean);
+      const kinds = {
+        workspaces: "workspace",
+        folders: "folder",
+        requests: "request",
+        environments: "environment",
+      } as const;
+      const kind = kinds[uri.hostname as keyof typeof kinds];
+      if (!kind) throw new HttpError(403, "Unknown resource");
+      if (parts[0]) authorize(caller, resourceWorkspace(kind, parts[0]), "read");
+    }
+  } catch (error) {
+    if (error instanceof HttpError) return jsonRpcError(error.status, error.message);
+    return jsonRpcError(400, "Invalid MCP request");
   }
+  return withCaller(caller, async () => {
+    const server = createPostboxMcpServer();
+    const transport = new WebStandardStreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+      enableJsonResponse: true,
+    });
+    await server.connect(transport);
+    try {
+      return await transport.handleRequest(normalizeAccept(req, body));
+    } finally {
+      await server.close();
+    }
+  });
 }
 
 export async function GET(): Promise<Response> {

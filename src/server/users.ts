@@ -133,7 +133,26 @@ export async function createUser(input: {
     createdAt: now,
     updatedAt: now,
   };
-  getDb().insert(users).values(row).run();
+  getDb().transaction((tx) => {
+    const first = tx.select({ id: users.id }).from(users).get() === undefined;
+    tx.insert(users).values(row).run();
+    if (first && row.isAdmin) {
+      const existing = tx.select().from(schema.workspaces).all();
+      for (const ws of existing)
+        tx.insert(schema.workspaceMembers)
+          .values({ workspaceId: ws.id, userId: row.id, role: "owner", createdAt: now })
+          .onConflictDoNothing()
+          .run();
+      tx.update(schema.schedules).set({ createdBy: row.id }).where(isNull(schema.schedules.createdBy)).run();
+    }
+    const workspaceId = newId();
+    tx.insert(schema.workspaces)
+      .values({ id: workspaceId, name: `${row.displayName}'s Workspace`, createdAt: now, updatedAt: now })
+      .run();
+    tx.insert(schema.workspaceMembers)
+      .values({ workspaceId, userId: row.id, role: "owner", createdAt: now })
+      .run();
+  });
   return row;
 }
 

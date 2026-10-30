@@ -4,6 +4,9 @@
 import { NextResponse } from "next/server";
 import { ZodError, type ZodType } from "zod";
 import { HttpError } from "./errors";
+import { callerOf } from "./caller";
+import { withCaller } from "./access-context";
+import { authorizeRest, restPolicy } from "./access-policy";
 
 export { HttpError, notFound } from "./errors";
 
@@ -14,7 +17,26 @@ export const json = (data: unknown, init?: number | ResponseInit) =>
 export function route<A extends unknown[]>(fn: (...args: A) => Promise<Response> | Response) {
   return async (...args: A): Promise<Response> => {
     try {
-      return await fn(...args);
+      const req = args[0];
+      if (!(req instanceof Request)) return await fn(...args);
+      if (restPolicy(req.method, new URL(req.url).pathname)?.source === "public") return await fn(...args);
+      const caller = callerOf(req);
+      if (!caller) throw new HttpError(401, "Authentication required");
+      await authorizeRest(caller, req, async () => {
+        try {
+          const value = JSON.parse(await readBodyText(req.clone()));
+          if (!value || typeof value !== "object" || Array.isArray(value))
+            throw new HttpError(400, "Body must be a JSON object");
+          return value;
+        } catch (error) {
+          if (error instanceof HttpError) {
+            void req.body?.cancel().catch(() => undefined);
+            throw error;
+          }
+          throw new HttpError(400, "Body must be valid JSON");
+        }
+      });
+      return await withCaller(caller, () => fn(...args));
     } catch (err) {
       if (err instanceof HttpError) return json({ error: err.message }, err.status);
       if (err instanceof ZodError) return json({ error: "Invalid input", issues: err.issues }, 400);
@@ -40,7 +62,7 @@ export async function readBodyText(req: Request, limit = bodyLimitBytes()): Prom
     if (done) break;
     total += value.byteLength;
     if (total > limit) {
-      await reader.cancel().catch(() => undefined);
+      void reader.cancel().catch(() => undefined);
       throw tooLarge();
     }
     chunks.push(value);
