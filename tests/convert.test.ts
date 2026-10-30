@@ -1,3 +1,4 @@
+import { execFileSync, spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import { parseCurl, tokenize } from "@/core/convert/curl";
 import {
@@ -246,7 +247,7 @@ describe("code generation", () => {
   };
   it("generates cURL with proper quoting", () => {
     const s = generateSnippet("curl", req);
-    expect(s).toContain("curl --location --request POST 'https://api.test/items?x=1'");
+    expect(s).toContain("curl --location --request 'POST' 'https://api.test/items?x=1'");
     expect(s).toContain(`--header 'Authorization: Bearer it'\\''s'`);
     expect(s).toContain(`--data-raw '{"a":1}'`);
     expect(s).not.toContain("User-Agent");
@@ -255,6 +256,92 @@ describe("code generation", () => {
     expect(back.method).toBe("POST");
     expect(back.headers.find((h) => h.key === "Authorization")?.value).toBe("Bearer it's");
   });
+  it.each([
+    "POST; printf injected",
+    "$(printf injected)",
+    "`printf injected`",
+    "POST' ; printf injected; #",
+    "POST\nNEXT",
+    'POST" \\ $HOME & | < >',
+  ])("passes the cURL method as one literal shell argument: %j", (method) => {
+    const snippet = generateSnippet("curl", { ...req, method });
+    // Stub curl to capture arguments without making a network request.
+    const output = execFileSync("sh", ["-c", `curl() { printf '%s\\0' "$@"; }; ${snippet}`], {
+      encoding: "utf8",
+    });
+    expect(output.split("\0").slice(0, -1)).toEqual([
+      "--location",
+      "--request",
+      method,
+      req.url,
+      "--header",
+      "Content-Type: application/json",
+      "--header",
+      "Authorization: Bearer it's",
+      "--data-raw",
+      req.body.raw,
+    ]);
+  });
+
+  it("keeps normal GET snippets free of an explicit method", () => {
+    expect(generateSnippet("curl", { ...req, method: "GET", body: { mode: "none" } })).toBe(
+      "curl --location 'https://api.test/items?x=1' \\\n  --header 'Content-Type: application/json' \\\n  --header 'Authorization: Bearer it'\\''s'",
+    );
+  });
+
+  const powerShellBodies = [
+    '{"a":1}',
+    "before\n'@\nWrite-Output 'injected'\n@'\nafter",
+    "before\r\n'@; Write-Output 'injected'\r\nafter\r\n",
+    "' \" ` $($env:HOME) \\ \0",
+    "Unicode: café 日本語 🚀 ‘single’ “double”",
+    "\nleading and trailing\n\n",
+  ];
+  it.each(powerShellBodies)("encodes PowerShell bodies as exact UTF-8 bytes: %j", (raw) => {
+    const snippet = generateSnippet("powershell", {
+      ...req,
+      body: { mode: "raw", language: "text", raw },
+    });
+    const match = snippet.match(/^\$body = \[System\.Convert\]::FromBase64String\('([A-Za-z0-9+/=]+)'\)$/m);
+    expect(match).not.toBeNull();
+    expect(Buffer.from(match![1], "base64")).toEqual(Buffer.from(raw, "utf8"));
+    expect(snippet).not.toContain("@'");
+    expect(snippet).toContain("-Body $body");
+  });
+
+  const hasPowerShell =
+    spawnSync("pwsh", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "exit 0"]).status === 0;
+  it.skipIf(!hasPowerShell)("executes PowerShell snippets without evaluating body text", () => {
+    const script = [
+      "$ErrorActionPreference = 'Stop'",
+      // Capture the actual body argument and avoid sending requests.
+      `function Invoke-RestMethod {
+        param($Uri, $Method, $Headers, [byte[]]$Body, $ContentType)
+        [System.Convert]::ToBase64String($Body)
+      }`,
+      ...powerShellBodies.map((raw) =>
+        generateSnippet("powershell", { ...req, body: { mode: "raw", language: "text", raw } }),
+      ),
+    ].join("\n");
+    const output = execFileSync(
+      "pwsh",
+      [
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-EncodedCommand",
+        Buffer.from(script, "utf16le").toString("base64"),
+      ],
+      { encoding: "utf8" },
+    );
+    expect(
+      output
+        .trim()
+        .split(/\r?\n/)
+        .map((line) => JSON.parse(line)),
+    ).toEqual(powerShellBodies.map((raw) => Buffer.from(raw, "utf8").toString("base64")));
+  });
+
   it("generates fetch, Python and PowerShell", () => {
     expect(generateSnippet("fetch", req)).toContain('await fetch("https://api.test/items?x=1"');
     expect(generateSnippet("python", req)).toContain(

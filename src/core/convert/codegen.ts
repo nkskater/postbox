@@ -63,7 +63,9 @@ function rawBody(b: BodyConfig): string | null {
 }
 
 export function generateCurl(r: CodegenRequest): string {
-  const lines = [`curl --location${r.method !== "GET" ? ` --request ${r.method}` : ""} ${shellQuote(r.url)}`];
+  const lines = [
+    `curl --location${r.method !== "GET" ? ` --request ${shellQuote(r.method)}` : ""} ${shellQuote(r.url)}`,
+  ];
   for (const [k, v] of visibleHeaders(r)) lines.push(`--header ${shellQuote(`${k}: ${v}`)}`);
   const b = r.body;
   if (b.mode === "formdata") {
@@ -210,8 +212,11 @@ export function generatePowerShell(r: CodegenRequest): string {
   } else {
     const raw = rawBody(b);
     if (raw) {
-      // Single-quoted here-string: no escaping or interpolation needed.
-      out.push(`$body = @'\n${raw}\n'@`);
+      // Encode UTF-8 bytes so body text can never terminate a PowerShell literal.
+      const base64 = btoa(
+        Array.from(new TextEncoder().encode(raw), (byte) => String.fromCharCode(byte)).join(""),
+      );
+      out.push(`$body = [System.Convert]::FromBase64String('${base64}')`);
       args.push("-Body $body");
     }
   }
