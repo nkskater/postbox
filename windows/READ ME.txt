@@ -1,0 +1,86 @@
+Postbox - Portable Windows Edition
+==================================
+
+Runs on 64-bit Windows 10/11 with no administrator rights, no installer,
+and nothing else to install. Carries its own signed Node.js runtime and
+SQLite database engine.
+
+All outgoing HTTP/HTTPS requests are sent directly from this Windows PC's
+network interface - so when your laptop is connected to a corporate VPN
+(with an allowlisted IP or internal DNS/CA certificates), requests use the
+laptop's VPN connection and Windows system certificate store automatically.
+
+STARTING THE APP
+  Double-click "Postbox" (Postbox.cmd).
+  A console window opens and Postbox opens in your default web browser
+  at http://127.0.0.1:47392/ (or the next free loopback port).
+
+  Keep that console window open while you use Postbox - closing it stops
+  the local server (all saved workspaces, collections, environments, and
+  history remain safely on disk).
+
+  Double-clicking "Postbox" again while it is already running simply opens
+  another browser tab on the running instance.
+
+  Optional: double-click "Create desktop shortcut" once to add a Postbox
+  shortcut to your Desktop and Start menu (configured to start the console
+  window minimized).
+
+COMMAND-LINE RUNNER (CLI)
+  Use "Postbox CLI.cmd" to run collections from Command Prompt, PowerShell,
+  or scheduled tasks using the bundled Node.js runtime:
+    "Postbox CLI.cmd" run collection.json -e environment.json --bail
+
+WHERE YOUR DATA IS KEPT
+  By default, all data lives in the "Data" folder right next to Postbox.cmd
+  (unless overridden in Settings.cmd - see CHANGING SETTINGS below):
+    Data\postbox.db          the SQLite database
+    Data\Backups\            automatic daily backups (newest 30 kept)
+
+  DO NOT DELETE THE "Data" FOLDER - it holds all of your workspaces,
+  collections, environments, cookies, and run history.
+
+  Backups: the first time Postbox starts each day, it checkpoints and copies
+  postbox.db into Data\Backups\postbox-YYYY-MM-DD.db and keeps the newest
+  30 daily backups. You can also export workspaces or collections at any
+  time from the app UI.
+
+UPDATING TO A NEW VERSION
+  Close Postbox, then:
+    1. Delete the "app" and "runtime" folders here.
+    2. Copy the "app" and "runtime" folders and the .cmd and .txt files
+       from the new release zip into this folder (replacing the old files).
+  Your "Data" folder and optional "Settings.cmd" are untouched by updates.
+
+IF WINDOWS SHOWS A SMARTSCREEN WARNING
+  "Windows protected your PC" can appear the first time you run a downloaded
+  script. Click "More info" -> "Run anyway". To avoid it completely,
+  right-click the downloaded Postbox-windows-x64.zip BEFORE unzipping ->
+  Properties -> check "Unblock" -> OK.
+
+  Because Postbox binds exclusively to 127.0.0.1 (localhost), Windows
+  Defender Firewall will NOT prompt for administrator permissions.
+
+CHANGING SETTINGS (optional)
+  Create a file named "Settings.cmd" in this folder next to "Postbox.cmd"
+  (in Notepad, choose "All files" when saving so it is not named
+  Settings.cmd.txt). Never edit "Postbox.cmd" directly because updates
+  replace it.
+
+  Example Settings.cmd lines:
+    set "DATA_DIR=%LOCALAPPDATA%\Postbox"
+    set PORT=47392
+    set BACKUP_KEEP=30
+    set NO_BROWSER=1
+    set "PROXY_ALLOW_HOSTS=*"
+    set "PROXY_DENY_HOSTS="
+
+  Supported settings:
+    DATA_DIR             folder where postbox.db and Backups\ are stored
+                         (default: %~dp0Data)
+    DATABASE_PATH        explicit path to the SQLite file (overrides DATA_DIR)
+    PORT                 preferred loopback port on 127.0.0.1 (default: 47392)
+    BACKUP_KEEP          number of daily backups to keep (default: 30; 0 = off)
+    NO_BROWSER=1         do not open the browser automatically on launch
+    POSTBOX_PASSWORD     optional password to require login on 127.0.0.1
+    POSTBOX_TOKEN        optional Bearer token for API / MCP clients

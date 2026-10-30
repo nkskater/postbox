@@ -36,6 +36,117 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  windows-package:
+    name: Build and smoke test portable Windows package
+    needs: validate
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run build:windows
+      - name: Smoke test packaged Windows app, local proxy execution, CLI, and shortcuts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Expand-Archive dist/Postbox-windows-x64.zip -DestinationPath smoke
+          $root = Join-Path $PWD 'smoke\Postbox'
+          $env:NO_BROWSER = '1'
+          $data = Join-Path $root 'CustomData'
+          Set-Content -Path (Join-Path $root 'Settings.cmd') -Value ('set "DATA_DIR=' + $data + '"' + "`r`nset PORT=47392") -Encoding ascii
+          $base = 'http://127.0.0.1:47392'
+
+          function Start-App {
+            $p = Start-Process -FilePath cmd.exe -ArgumentList '/c', ('"' + (Join-Path $root 'Postbox.cmd') + '"') -PassThru -NoNewWindow
+            for ($i = 0; $i -lt 90; $i++) {
+              try {
+                $h = Invoke-RestMethod "$base/api/health" -TimeoutSec 2
+                if ($h.status -eq 'ok' -and $h.app -eq 'postbox') { return $p }
+              } catch { }
+              Start-Sleep -Milliseconds 500
+            }
+            throw 'Packaged Windows app did not start'
+          }
+
+          $p = Start-App
+          try {
+            if (-not (Test-Path (Join-Path $data 'postbox.db'))) { throw 'Database not created in Settings.cmd DATA_DIR' }
+            $workspaces = Invoke-RestMethod "$base/api/workspaces"
+            $wsId = $workspaces[0].id
+            if (-not $wsId) { throw 'Default workspace was not created' }
+
+            # Execute a request through /api/proxy against the local loopback interface
+            $proxyBody = @{
+              workspaceId = $wsId
+              request = @{
+                id = 'req-smoke'
+                name = 'Local Health Check'
+                method = 'GET'
+                url = "$base/api/health"
+                params = @()
+                headers = @()
+                auth = @{ type = 'none' }
+                body = @{ mode = 'none' }
+              }
+            } | ConvertTo-Json -Depth 6
+            $proxyRes = Invoke-RestMethod -Method Post "$base/api/proxy" -Body $proxyBody -ContentType 'application/json'
+            if ($proxyRes.response.status -ne 200) { throw "Unexpected proxy status: $($proxyRes.response.status)" }
+
+            # Second launch must detect the running copy and exit 0
+            $second = Start-Process -FilePath cmd.exe -ArgumentList '/c', ('"' + (Join-Path $root 'Postbox.cmd') + '"') -PassThru -NoNewWindow
+            if (-not $second.WaitForExit(30000)) { throw 'Second launch did not exit' }
+            if ($second.ExitCode -ne 0) { throw "Second launch failed with $($second.ExitCode)" }
+          } finally {
+            taskkill /T /F /PID $p.Id 2>$null | Out-Null
+          }
+
+          Start-Sleep -Seconds 1
+          # Restart and verify automatic daily backup is created in Backups\
+          $p2 = Start-App
+          try {
+            if (-not (Get-ChildItem (Join-Path $data 'Backups') -Filter 'postbox-*.db')) {
+              throw 'Daily backup was not created in Backups\'
+            }
+          } finally {
+            taskkill /T /F /PID $p2.Id 2>$null | Out-Null
+          }
+
+          # Bundled CLI works via Postbox CLI.cmd
+          $cliVer = & cmd.exe /c ('"' + (Join-Path $root 'Postbox CLI.cmd') + '" --version')
+          if ($LASTEXITCODE -ne 0) { throw 'Postbox CLI.cmd failed' }
+
+          # Desktop shortcut creator works
+          'x' | cmd.exe /c ('"' + (Join-Path $root 'Create desktop shortcut.cmd') + '"')
+          $lnk = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Postbox.lnk'
+          if (-not (Test-Path $lnk)) { throw 'Desktop shortcut was not created' }
+          Write-Host 'Packaged Windows edition OK'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Postbox-windows-x64
+          path: dist/Postbox-windows-x64.zip
+          compression-level: 0
+      - name: Attach Windows zip to GitHub release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag dist/Postbox-windows-x64.zip --clobber
+          } else {
+            gh release create $tag dist/Postbox-windows-x64.zip --title $tag --generate-notes
+          }
+
   docker:
     name: Build and smoke test container
     needs: validate
