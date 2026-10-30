@@ -176,17 +176,26 @@ describe("portable Windows local edition", () => {
 
     const tmp = makeTempDir();
     const stage = path.join(tmp, "stage");
+    const externalTarget = path.join(tmp, "external-pkg");
     fs.mkdirSync(path.join(stage, "sub"), { recursive: true });
+    fs.mkdirSync(externalTarget, { recursive: true });
     fs.writeFileSync(path.join(stage, "hello.txt"), "hello windows world");
     fs.writeFileSync(path.join(stage, "sub", "nested.json"), '{"ok":true}');
+    fs.writeFileSync(path.join(externalTarget, "index.js"), "module.exports = 42;");
+    fs.symlinkSync(
+      externalTarget,
+      path.join(stage, "linked-pkg"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
 
     const zipOut = path.join(tmp, "out.zip");
     const count = writeZip(stage, "Postbox", zipOut);
-    expect(count).toBe(2);
+    expect(count).toBe(3);
     const zipBytes = fs.readFileSync(zipOut);
     expect(zipBytes.readUInt32LE(0)).toBe(0x04034b50);
     expect(zipBytes.includes(Buffer.from("Postbox/hello.txt"))).toBe(true);
     expect(zipBytes.includes(Buffer.from("Postbox/sub/nested.json"))).toBe(true);
+    expect(zipBytes.includes(Buffer.from("Postbox/linked-pkg/index.js"))).toBe(true);
     expect(crc32(Buffer.from("123456789"))).toBe(0xcbf43926);
   });
 

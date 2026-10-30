@@ -156,7 +156,14 @@ export function listFiles(dir, base = dir) {
     .readdirSync(dir, { withFileTypes: true })
     .flatMap((e) => {
       const full = path.join(dir, e.name);
-      return e.isDirectory() ? listFiles(full, base) : [path.relative(base, full)];
+      let stat;
+      try {
+        stat = fs.statSync(full);
+      } catch {
+        return [];
+      }
+      if (stat.isDirectory()) return listFiles(full, base);
+      return stat.isFile() ? [path.relative(base, full)] : [];
     })
     .sort();
 }
@@ -252,18 +259,34 @@ async function main() {
   fs.mkdirSync(APP, { recursive: true });
 
   log("Staging standalone server, static assets, migrations, and CLI");
-  fs.cpSync(path.join(ROOT, ".next", "standalone"), APP, { recursive: true });
+  // Dereference symlinks/junctions (such as Turbopack's .next/node_modules/*
+  // junctions) so the zipped package contains real files and directories that
+  // extract cleanly on any Windows PC without admin/symlink privileges.
+  fs.cpSync(path.join(ROOT, ".next", "standalone"), APP, {
+    recursive: true,
+    dereference: true,
+  });
   fs.cpSync(path.join(ROOT, ".next", "static"), path.join(APP, ".next", "static"), {
     recursive: true,
+    dereference: true,
   });
-  fs.cpSync(path.join(ROOT, "public"), path.join(APP, "public"), { recursive: true });
-  fs.cpSync(path.join(ROOT, "drizzle"), path.join(APP, "drizzle"), { recursive: true });
+  fs.cpSync(path.join(ROOT, "public"), path.join(APP, "public"), {
+    recursive: true,
+    dereference: true,
+  });
+  fs.cpSync(path.join(ROOT, "drizzle"), path.join(APP, "drizzle"), {
+    recursive: true,
+    dereference: true,
+  });
 
   // Bundle the CLI alongside server.js so `Postbox CLI.cmd` shares app/node_modules.
   fs.copyFileSync(path.join(ROOT, "dist", "cli.mjs"), path.join(APP, "cli.mjs"));
   const cliNodeModules = path.join(ROOT, "dist", "node_modules");
   if (fs.existsSync(cliNodeModules)) {
-    fs.cpSync(cliNodeModules, path.join(APP, "node_modules"), { recursive: true });
+    fs.cpSync(cliNodeModules, path.join(APP, "node_modules"), {
+      recursive: true,
+      dereference: true,
+    });
   }
 
   // Strip build-machine paths from app/server.js.
@@ -274,16 +297,28 @@ async function main() {
   // Copy the local Windows server entrypoint.
   fs.copyFileSync(path.join(ROOT, "scripts", "local-server.mjs"), path.join(APP, "local.mjs"));
 
-  // Ensure better-sqlite3 contains only the Windows x64 prebuilt addon (and build/Release fallback)
-  // and drop C/C++ sources and non-Windows prebuilds.
-  const bsq = path.join(APP, "node_modules", "better-sqlite3");
-  for (const dir of ["deps", "src", "build", "prebuilds"]) {
-    fs.rmSync(path.join(bsq, dir), { recursive: true, force: true });
+  // Ensure every better-sqlite3 package copy (both app/node_modules/better-sqlite3
+  // and any Turbopack externalized app/.next/node_modules/better-sqlite3-*) contains
+  // only the Windows x64 prebuilt addon and drops C/C++ sources and non-Windows prebuilds.
+  const bsqDirs = [path.join(APP, "node_modules", "better-sqlite3")];
+  const nextNodeModules = path.join(APP, ".next", "node_modules");
+  if (fs.existsSync(nextNodeModules)) {
+    for (const entry of fs.readdirSync(nextNodeModules)) {
+      if (entry.startsWith("better-sqlite3")) {
+        bsqDirs.push(path.join(nextNodeModules, entry));
+      }
+    }
   }
-  fs.mkdirSync(path.join(bsq, "prebuilds"), { recursive: true });
-  fs.writeFileSync(path.join(bsq, "prebuilds", "win32-x64.node"), binding);
-  fs.mkdirSync(path.join(bsq, "build", "Release"), { recursive: true });
-  fs.writeFileSync(path.join(bsq, "build", "Release", "better_sqlite3.node"), binding);
+  for (const bsq of bsqDirs) {
+    if (!fs.existsSync(bsq)) continue;
+    for (const dir of ["deps", "src", "build", "prebuilds"]) {
+      fs.rmSync(path.join(bsq, dir), { recursive: true, force: true });
+    }
+    fs.mkdirSync(path.join(bsq, "prebuilds"), { recursive: true });
+    fs.writeFileSync(path.join(bsq, "prebuilds", "win32-x64.node"), binding);
+    fs.mkdirSync(path.join(bsq, "build", "Release"), { recursive: true });
+    fs.writeFileSync(path.join(bsq, "build", "Release", "better_sqlite3.node"), binding);
+  }
 
   // Drop non-Windows @img/sharp-* native directories if built on Linux/macOS.
   const imgDir = path.join(APP, "node_modules", "@img");
