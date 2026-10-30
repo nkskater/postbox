@@ -14,6 +14,7 @@ import type { ConsoleEntry, CookieInfo, TestResult } from "../types";
 import type { VariableScopes } from "../variables/resolver";
 import { redactSecrets } from "../variables/resolver";
 import { generateDynamic } from "../variables/dynamic";
+import { CONSOLE_LEVELS, describeIssues, sandboxStateSchema, sendRequestSpecSchema } from "../schemas";
 import { BOOTSTRAP_SOURCE } from "./bootstrap";
 
 export type ScriptEvent = "prerequest" | "test";
@@ -201,7 +202,10 @@ export async function runScript(
 
   try {
     define("__host_log", (levelH, msgH) => {
-      const level = vm.getString(levelH) as ConsoleEntry["level"];
+      const raw = vm.getString(levelH);
+      const level: ConsoleEntry["level"] = (CONSOLE_LEVELS as readonly string[]).includes(raw)
+        ? (raw as ConsoleEntry["level"])
+        : "log";
       const message = redactSecrets(vm.getString(msgH), secrets);
       if (logs.length < 1000) logs.push({ level, message, source, timestamp: Date.now() });
     });
@@ -226,9 +230,19 @@ export async function runScript(
     define("__host_send", (specH) => {
       if (++hostRequests > limits.maxHostRequests)
         throw new Error(`Script exceeded the pm.sendRequest quota of ${limits.maxHostRequests}`);
-      const spec = JSON.parse(vm.getString(specH)) as SendRequestSpec;
       if (!opts.host?.sendRequest)
         return bridge(Promise.reject(new Error("pm.sendRequest is not available here")));
+      let parsed: ReturnType<typeof sendRequestSpecSchema.safeParse>;
+      try {
+        parsed = sendRequestSpecSchema.safeParse(JSON.parse(vm.getString(specH)));
+      } catch {
+        return bridge(Promise.reject(new Error("pm.sendRequest received a request that is not JSON")));
+      }
+      if (!parsed.success)
+        return bridge(
+          Promise.reject(new Error(`Invalid pm.sendRequest request: ${describeIssues(parsed.error)}`)),
+        );
+      const spec: SendRequestSpec = parsed.data;
       return bridge(opts.host.sendRequest(spec, controller.signal).then((r) => JSON.stringify(r)));
     });
 
@@ -301,15 +315,17 @@ export async function runScript(
       fin.error.dispose();
       return { ...base, error: error ?? msg };
     }
-    const state = JSON.parse(vm.getString(fin.value)) as {
-      scopes: VariableScopes;
-      tests: TestResult[];
-      nextRequest?: string | null;
-      nextRequestSet: boolean;
-      skip: boolean;
-      request: SandboxRequest;
-    };
+    let rawState: unknown;
+    try {
+      rawState = JSON.parse(vm.getString(fin.value));
+    } catch {
+      rawState = undefined;
+    }
     fin.value.dispose();
+    const parsed = sandboxStateSchema.safeParse(rawState);
+    if (!parsed.success)
+      return { ...base, error: `Script produced an invalid result: ${describeIssues(parsed.error)}` };
+    const state = parsed.data;
     return {
       scopes: state.scopes,
       request: { ...ctx.request, ...state.request },

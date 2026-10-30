@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { NextRequest } from "next/server";
 import {
   SESSION_COOKIE,
@@ -14,6 +17,9 @@ import {
 import { proxy } from "@/proxy";
 import { POST as login } from "@/app/api/auth/login/route";
 import { POST as logout } from "@/app/api/auth/logout/route";
+
+// The proxy gate checks for user accounts, so it needs a database of its own.
+process.env.DATABASE_PATH = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "postbox-auth-")), "auth.db");
 
 const env = { POSTBOX_PASSWORD: "hunter2", POSTBOX_TOKEN: "tok-123" } as unknown as NodeJS.ProcessEnv;
 

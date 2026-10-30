@@ -1,31 +1,27 @@
 /**
- * Request gate (Next.js 16 "proxy", formerly middleware). Enforces the optional
- * single-user auth for the UI and every API route, including /api/mcp.
+ * Request gate (Next.js 16 "proxy", formerly middleware). Enforces authentication
+ * (env credentials or user accounts) for the UI and every API route, including /api/mcp.
  */
 import { NextResponse, type NextRequest } from "next/server";
-import { SESSION_COOKIE, getAuthConfig, isPublicPath, verifyBearer, verifySession } from "@/server/auth";
+import { SESSION_COOKIE, isPublicPath } from "@/server/auth";
+import { getAuthState, getCaller } from "@/server/caller";
 
 let warned = false;
 
 export function proxy(req: NextRequest) {
-  const cfg = getAuthConfig();
-  if (!cfg) {
+  const state = getAuthState();
+  if (!state.enabled) {
     if (!warned) {
       warned = true;
       console.warn(
-        "[postbox] Authentication is disabled. Set POSTBOX_PASSWORD and/or POSTBOX_TOKEN to require login.",
+        "[postbox] Authentication is disabled. Create an account under Profile, or set POSTBOX_PASSWORD and/or POSTBOX_TOKEN.",
       );
     }
     return NextResponse.next();
   }
   const { pathname, search } = req.nextUrl;
   if (isPublicPath(pathname)) return NextResponse.next();
-  if (
-    verifySession(cfg, req.cookies.get(SESSION_COOKIE)?.value) ||
-    verifyBearer(cfg, req.headers.get("authorization"))
-  ) {
-    return NextResponse.next();
-  }
+  if (getCaller(req.headers, req.cookies.get(SESSION_COOKIE)?.value, state)) return NextResponse.next();
   if (pathname.startsWith("/api/")) {
     return NextResponse.json(
       { error: "Authentication required" },

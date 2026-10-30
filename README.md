@@ -167,7 +167,10 @@ iterations, delay and whether to stop on the first failure.
 
 To run the same requests for many inputs, add **Iteration data** (CSV, JSON or XLSX). Each row is one iteration,
 and each column becomes a variable for that iteration: a column `userId` is available as `{{userId}}` and
-`pm.iterationData.get("userId")`. Before running, you can clean the data in the grid:
+`pm.iterationData.get("userId")`. CSV files are checked on load: a row with more fields than the header,
+malformed quotes, or duplicate or missing headers over data are rejected with the row and column at fault, so no
+value is silently dropped. Short rows are padded with empty cells and reported as a warning. The CLI and MCP server
+apply the same checks. Before running, you can clean the data in the grid:
 
 - edit cells, add or delete rows and columns, and double-click a header to rename it;
 - **Trim** whitespace, **Dedupe** rows, **Drop empty** rows;
@@ -277,15 +280,36 @@ Chromium binary (otherwise run `npx playwright-core install chromium` once).
 | `PORT` | `3000` | HTTP port |
 | `POSTBOX_PASSWORD` | _(none)_ | Enables login with this password |
 | `POSTBOX_TOKEN` | _(none)_ | Enables `Authorization: Bearer` access (API, MCP, automation) |
-| `POSTBOX_SESSION_SECRET` | _(derived)_ | Optional explicit key for signing session cookies |
+| `POSTBOX_SESSION_SECRET` | _(generated)_ | Optional explicit key for signing session cookies (otherwise derived from the env credentials, or generated and stored for accounts) |
 | `POSTBOX_SESSION_DAYS` | `30` | Session lifetime |
 | `PROXY_ALLOW_HOSTS` | _(all)_ | Comma list of hosts, `*.wildcards` or CIDRs requests may target |
 | `PROXY_DENY_HOSTS` | _(none)_ | Comma list that is always blocked (wins over allow) |
 | `SCRIPT_TIMEOUT_MS` | `5000` | Per-script time limit |
 | `SCRIPT_MEMORY_MB` | `32` | Per-script memory limit |
 | `RESPONSE_MAX_BYTES` | `52428800` | Encoded response bytes are truncated at this limit; decompression exceeding the limit at any stage is rejected |
+| `API_BODY_LIMIT_MB` | `25` | Largest JSON body the REST API and `/api/mcp` accept (file uploads travel inline as base64); larger bodies get `413` |
 | `MCP_ALLOWED_ORIGINS` | _(none)_ | Extra browser origins allowed to call `/api/mcp` (cross-origin browser requests are rejected otherwise) |
 | `HISTORY_LIMIT` | `500` | History entries kept per workspace |
+
+### Outbound host policy and redirects
+
+`PROXY_ALLOW_HOSTS` and `PROXY_DENY_HOSTS` accept comma-separated ASCII hostnames
+(use punycode for international names), `*.example.com` subdomain patterns, IPv4/IPv6
+addresses, CIDRs, or `*`. Wildcards exclude the apex. Names ignore case and a trailing
+DNS dot. An empty setting disables that list; malformed entries, empty comma-separated
+entries, URLs, ports and invalid CIDR prefixes reject the policy when it is loaded.
+Deny rules win, and hostnames and resolved addresses are checked at every redirect hop.
+
+HTTPS-to-HTTP redirects are rejected with `EREDIRECTDOWNGRADE`, even with SSL verification
+disabled. Disable redirect following to inspect the original redirect response.
+Same-origin redirects retain request headers. Across origins (including a port change),
+only `Accept`, `Accept-Encoding`, `Accept-Language`, `Content-Type`, `Content-Length`, and
+`User-Agent` are forwarded. All other headers, including custom API keys, authorization,
+explicit cookies, proxy authorization and referrers, are removed and stay removed on later
+hops. Host is regenerated for the destination; applicable destination cookies are loaded
+from the cookie jar. Digest credentials are never reused across origins. Normal redirect
+method/body rules still apply; 307/308 preserve the body, so use trusted redirect targets
+and the host policy for requests carrying sensitive bodies.
 
 ### Container resource limits
 
@@ -311,14 +335,73 @@ After editing `.env`, apply the limits with `docker compose up -d`. Check the re
 
 ### Authentication
 
-Set either or both of these to require authentication for the UI and every API route, including `/api/mcp`.
-`/api/health` and `/login` stay public.
+Postbox is open until you turn on one of the options below. Once auth is on, the UI and every API route, including
+`/api/mcp`, require it. `/api/health`, `/login` and `/api/auth/*` stay public.
+
+**User accounts (recommended).** Open **Profile** (the person icon in the top bar) and create the administrator
+account. From then on everyone signs in with a username and password, and each person creates their own API tokens
+under Profile for the CLI, scripts and MCP clients (`Authorization: Bearer pbx_…`). Tokens are shown once, can expire,
+and can be revoked at any time. Changing your password signs out your other sessions. In open mode, whoever reaches
+Profile first can create the administrator, so do this before exposing Postbox. To control that step, set
+`POSTBOX_PASSWORD` or `POSTBOX_TOKEN` first: the first account can then only be created after signing in with them.
+Each account receives a private workspace. Existing workspaces are assigned to the first administrator.
+Under **Settings → Workspace sharing**, owners can add existing accounts and assign viewer, editor or owner
+roles. Viewers can read/export; editors can also modify and execute requests; owners can manage membership and
+delete the workspace. Administrators can access every workspace. Hidden workspaces return 404; actions disallowed
+by a visible workspace's role return 403. REST and MCP enforce the same roles, including history, cookies and exports.
+Scheduled runs use their creator's identity and stop when that account is disabled or loses execution access.
+See [Users and sharing](#users-and-sharing) for user administration and invite links.
+
+**Single-user mode.** Without accounts, these environment variables work as before:
 
 - `POSTBOX_PASSWORD`: enables the `/login` page, which issues a signed, HTTP-only session cookie (default 30 days).
-- `POSTBOX_TOKEN`: accepted as `Authorization: Bearer <token>` for scripts and MCP clients (and on the login form).
+  Once an account exists, the password login is replaced by username and password, and old password sessions end.
+- `POSTBOX_TOKEN`: accepted as `Authorization: Bearer <token>`. It keeps working after accounts exist, as an
+  administrator recovery login, so keep it secret or unset it.
 
 Put them in the git-ignored `.env` file (see `.env.example`), not in `docker-compose.yml`, which is tracked in git.
-Anyone with Docker access on the host can still read them with `docker inspect`. Changing either value signs everyone out. With neither set, Postbox is open. Only run it that way on a trusted network.
+Anyone with Docker access on the host can still read them with `docker inspect`. Changing either value signs out
+single-user sessions; account sessions are signed with `POSTBOX_SESSION_SECRET` or a key Postbox generates and keeps in
+its database. Failed logins are rate limited per client address and per account. Only run Postbox without auth on a
+trusted network.
+
+### Users and sharing
+
+Administrators open **Settings → Users** to create accounts, disable or enable users, reset passwords,
+promote or demote administrators, and revoke a user's sessions and API tokens. Password changes and account
+management invalidate existing sessions. The last active administrator cannot be disabled or demoted.
+Accounts are disabled rather than deleted, preserving history and run attribution.
+
+![User administration](docs/screenshots/users.png)
+
+Owners open **Settings → Workspace sharing** to add existing users and assign viewer, editor or owner roles.
+Viewers read and export; editors also edit and execute; owners manage sharing and delete the workspace.
+Administrators have access to every workspace. The top bar shows your signed-in account and effective workspace
+role; MCP clients can inspect their identity and accessible roles with `whoami`.
+
+![Workspace members and invite links](docs/screenshots/workspace-sharing.png)
+
+Administrators can create account-only invite links from Users. Workspace owners can create invites that also
+grant access to their workspace. Copy a newly created link and share it privately: it is displayed once,
+expires after 24 hours by default (configurable from 1 to 168 hours), and can create exactly one account.
+The database stores only its hash. Links can be revoked, and accepting rechecks the inviter's current permission.
+Every new account receives its own private workspace. Invites never grant instance administrator privileges.
+
+All settings marked **browser** in the registry—including appearance, layout, editors, request/response/tab,
+variable display, console and runner defaults—are private to the signed-in account, including imports, exports
+and resets. Settings marked **server** are instance-wide and only administrators may change them; environment
+variables still override them. On upgrade, legacy shared browser preferences move to the first active
+administrator; other accounts start with defaults. Open/single-user installations retain their existing shared
+preferences until the initial administrator is created. Collection configuration, environment variables and
+workspace history remain workspace data and follow membership roles.
+
+Regenerate these two screenshots against a fresh throwaway instance (no external target requests):
+
+```bash
+DATABASE_PATH=/tmp/postbox-users-demo.db npm run dev -- --port 3124
+# In another terminal, with Chromium installed:
+SCREENSHOT_SET=users BASE_URL=http://localhost:3124 npm run screenshots
+```
 
 ## Running behind a reverse proxy
 
@@ -354,15 +437,18 @@ location / {
 
 ## MCP Server (`/api/mcp`)
 
-> Set `POSTBOX_TOKEN` so MCP clients must authenticate. Without auth, anyone who can reach Postbox can use its MCP
-> tools (including deletes). Requests from foreign browser origins are always rejected.
+> Turn on authentication (see [Authentication](#authentication)) so MCP clients must present a token. Without auth,
+> anyone who can reach Postbox can use its MCP tools (including deletes). Requests from foreign browser origins are
+> always rejected.
 
 Postbox exposes a Streamable HTTP MCP endpoint at `/api/mcp` backed by the same server-side execution engine, collection runner, variable resolver, and SQLite database as the web UI.
 
 **Claude Code**
 ```bash
 claude mcp add --transport http postbox http://localhost:3000/api/mcp
-# with POSTBOX_TOKEN set:
+# with accounts: create a personal token under Profile → API tokens
+claude mcp add --transport http postbox http://localhost:3000/api/mcp --header "Authorization: Bearer pbx_..."
+# single-user mode:
 claude mcp add --transport http postbox http://localhost:3000/api/mcp --header "Authorization: Bearer $POSTBOX_TOKEN"
 ```
 
@@ -385,6 +471,8 @@ Ask your assistant things like *"list my Postbox collections"*, *"send the Get u
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the design. Planned work is tracked as stories in Jira; highlights:
 
 - [x] Optional single-user auth (`POSTBOX_PASSWORD` / `POSTBOX_TOKEN`)
+- [x] User accounts with personal API tokens
+- [ ] Workspace roles and sharing (owner/editor/viewer), admin user management and invites
 - [x] MCP server endpoint (`/api/mcp`)
 - [x] Headless CLI runner (`postbox-cli`)
 - [x] Scheduled runs

@@ -12,6 +12,7 @@ import { getDb, schema } from "./db";
 import * as repo from "./repo";
 import { getPolicy, loadScopes, persistScopes, persistOAuth2Token, persistenceSecrets } from "./context";
 import { newId } from "./defaults";
+import { actorId } from "./authorize";
 import { redactStoredValue } from "@/core/variables/resolver";
 
 const { runs, runResults } = schema;
@@ -34,6 +35,7 @@ export interface StartRunInput {
 }
 
 export async function startRun(input: StartRunInput): Promise<{ runId: string; summary: RunSummary }> {
+  repo.requireFolderIn(input.workspaceId, input.folderId);
   const tree = repo.getFolderTree(input.folderId);
   if (!tree) throw new Error("Folder not found");
   const chain = repo.getFolderChain(input.folderId);
@@ -49,6 +51,7 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
   db.insert(runs)
     .values({
       id: runId,
+      createdBy: actorId(),
       workspaceId: input.workspaceId,
       folderId: input.folderId,
       name: tree.name,
@@ -127,7 +130,7 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
       },
     });
     if (options.persistVariables !== false) persistScopes(ctx, scopes);
-    repo.saveCookies(input.workspaceId, await jar.list());
+    repo.saveCookies(input.workspaceId, jar.getChanges());
     db.update(runs)
       .set({
         status: summary.status,

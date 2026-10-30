@@ -4,6 +4,7 @@
  * GET  /api/runs?workspaceId=&folderId= — list recent runs.
  */
 import { z } from "zod";
+import * as repo from "@/server/repo";
 import { startRun, listRuns } from "@/server/runs";
 import { json, parseBody, requireParam, route } from "@/server/http";
 import { createEventStream } from "@/server/event-stream";
@@ -35,6 +36,9 @@ export const GET = route((req: Request) => {
 
 export const POST = route(async (req: Request) => {
   const input = await parseBody(req, schema);
+  // Reject foreign references with a status code before the response turns into a stream.
+  repo.requireFolderIn(input.workspaceId, input.folderId);
+  if (input.environmentId) repo.requireEnvironmentIn(input.workspaceId, input.environmentId);
   const events = createEventStream();
   // Runs persist results even if the subscriber disconnects or falls behind.
   void startRun({

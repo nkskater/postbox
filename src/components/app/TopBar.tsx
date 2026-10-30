@@ -14,9 +14,11 @@ import {
   Upload,
   Mailbox,
   LogOut,
+  UserRound,
 } from "lucide-react";
 import { useApp } from "@/stores/app";
 import { useDialogs } from "@/stores/dialogs";
+import { useIdentity } from "@/components/settings/useIdentity";
 import { useSettings } from "@/stores/settings";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -35,6 +37,7 @@ import { Input } from "@/components/ui/input";
 /** Header: workspace switcher, environment selector with quick look, global actions. */
 export function TopBar({ authEnabled }: { authEnabled: boolean }) {
   const router = useRouter();
+  const identity = useIdentity();
   const {
     workspaces,
     workspaceId,
@@ -87,6 +90,20 @@ export function TopBar({ authEnabled }: { authEnabled: boolean }) {
         <kbd className="ml-auto rounded border px-1 text-[10px]">Ctrl K</kbd>
       </button>
 
+      {identity?.user && (
+        <span
+          className="flex max-w-48 flex-col text-[10px] leading-tight text-muted-foreground"
+          title={identity.user.displayName}
+        >
+          <span className="truncate">@{identity.user.username}</span>
+          <span className="truncate">
+            {identity.isAdmin
+              ? "administrator"
+              : (identity.workspaces.find((ws) => ws.id === workspaceId)?.role ?? "no access")}{" "}
+            · {identity.workspaces.find((ws) => ws.id === workspaceId)?.memberCount ?? 0} members
+          </span>
+        </span>
+      )}
       <Select
         value={environmentId ?? "__none"}
         onValueChange={(v) => setEnvironment(v === "__none" ? null : v)}
@@ -198,6 +215,15 @@ export function TopBar({ authEnabled }: { authEnabled: boolean }) {
         }
       >
         {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-7"
+        title={authEnabled ? "Profile and API tokens" : "Set up user accounts"}
+        onClick={() => router.push("/profile")}
+      >
+        <UserRound className="size-4" />
       </Button>
       {authEnabled && (
         <Button

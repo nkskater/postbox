@@ -26,6 +26,7 @@ import { useSetting } from "@/stores/settings";
 import { readNdjson } from "@/lib/ndjson";
 import { DataGrid } from "./DataGrid";
 import { Schedules } from "./Schedules";
+import { RunComparison } from "./RunComparison";
 
 interface RunState {
   runId: string | null;
@@ -128,23 +129,27 @@ export function RunnerView({ folderId }: { folderId: string }) {
   const loadPast = useCallback(() => {
     if (workspaceId)
       fetch(`/api/runs?workspaceId=${workspaceId}&folderId=${folderId}`)
-        .then((r) => r.json())
-        .then(setPast)
+        .then((r) => (r.ok ? r.json() : []))
+        .then((rows) => setPast(Array.isArray(rows) ? rows : []))
         .catch(() => undefined);
   }, [workspaceId, folderId]);
   useEffect(loadPast, [loadPast]);
 
   const onFile = async (file: File) => {
     try {
-      const { parseDataFile } = await import("@/core/runner/data");
+      const { readDataFile, formatIssue } = await import("@/core/runner/data");
       const buf = new Uint8Array(await file.arrayBuffer());
-      const table = parseDataFile(file.name, buf);
+      const { table, warnings } = readDataFile(file.name, buf);
       if (!table.columns.length) throw new Error("No columns found");
       setData(table);
       setDataName(file.name);
       setFilter("");
       setAutoIterations(true);
       toast.success(`Loaded ${table.rows.length} rows × ${table.columns.length} columns`);
+      if (warnings.length)
+        toast.warning(`${warnings.length} row(s) were short and padded with empty cells`, {
+          description: warnings.slice(0, 3).map(formatIssue).join("\n"),
+        });
     } catch (err) {
       toast.error(`Could not read data file: ${(err as Error).message}`);
     }
@@ -502,6 +507,14 @@ export function RunnerView({ folderId }: { folderId: string }) {
             {run.error && <div className="text-destructive">{run.error}</div>}
           </div>
           <div className="min-h-0 flex-1 overflow-auto">
+            {workspaceId && (
+              <RunComparison
+                key={`${workspaceId}:${folderId}`}
+                runs={past}
+                workspaceId={workspaceId}
+                folderId={folderId}
+              />
+            )}
             {run.results.length === 0 && !run.running && (
               <div className="p-4">
                 <p className="mb-3 text-muted-foreground">Run the collection to see results here.</p>

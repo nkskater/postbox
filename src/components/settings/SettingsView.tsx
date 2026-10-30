@@ -36,17 +36,22 @@ import { Input } from "@/components/ui/input";
 import { ConfirmDialog } from "@/components/dialogs/ConfirmDialog";
 import { cn } from "@/lib/utils";
 import { SettingControl } from "./SettingControl";
+import { UsersSettings } from "./UsersSettings";
+import { useIdentity } from "./useIdentity";
+import { WorkspaceSharing } from "./WorkspaceSharing";
 import { AppearancePreview } from "./AppearancePreview";
 
-type Section = SettingCategory | "environment" | "elsewhere";
+type Section = SettingCategory | "environment" | "elsewhere" | "sharing" | "users";
 
 const EXTRA_SECTIONS: { id: Section; label: string; icon: typeof Server }[] = [
+  { id: "sharing", label: "Workspace sharing", icon: Globe },
   { id: "environment", label: "Server (environment)", icon: Server },
   { id: "elsewhere", label: "Other settings", icon: Wrench },
 ];
 
 export function SettingsView() {
   const { values, saved, envLocked, query, setQuery, reset, importFile } = useSettings();
+  const identity = useIdentity();
   const [section, setSection] = useState<Section>("appearance");
   const [confirmAll, setConfirmAll] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -86,7 +91,11 @@ export function SettingsView() {
             <p className="mt-0.5 text-xs text-muted-foreground">{def.description}</p>
           </div>
           <div className="flex items-start gap-2 md:justify-end">
-            <SettingControl def={def} value={values[def.key]} disabled={!!envLocked[def.key]} />
+            <SettingControl
+              def={def}
+              value={values[def.key]}
+              disabled={!!envLocked[def.key] || (def.scope === "server" && !identity?.isAdmin)}
+            />
             <Button
               variant="ghost"
               size="icon"
@@ -130,7 +139,10 @@ export function SettingsView() {
           </button>
         ))}
         <div className="my-2 border-t" />
-        {EXTRA_SECTIONS.map((s) => (
+        {[
+          ...EXTRA_SECTIONS,
+          ...(identity?.isAdmin ? [{ id: "users" as Section, label: "Users", icon: Globe }] : []),
+        ].map((s) => (
           <button
             key={s.id}
             onClick={() => {
@@ -233,6 +245,10 @@ export function SettingsView() {
               {section === "appearance" && <AppearancePreview />}
               {renderSettings(sectionDefs)}
             </>
+          ) : section === "users" && identity?.isAdmin ? (
+            <UsersSettings />
+          ) : section === "sharing" ? (
+            <WorkspaceSharing />
           ) : section === "environment" ? (
             <EnvironmentSection />
           ) : (

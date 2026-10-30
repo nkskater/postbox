@@ -8,6 +8,10 @@ import { newId } from "./defaults";
 import { HttpError, notFound } from "./http";
 import * as repo from "./repo";
 import { startRun } from "./runs";
+import { actorId, authorize } from "./authorize";
+import { withCaller } from "./access-context";
+import { countUsers, getUser } from "./users";
+import type { Caller } from "./caller";
 
 const { schedules, runs } = schema;
 interface SchedulerState {
@@ -69,6 +73,18 @@ function row(id: string): ScheduleRow {
   return found;
 }
 
+function scheduleCaller(schedule: ScheduleRow): Caller {
+  if (!schedule.createdBy) {
+    if (countUsers()) throw new HttpError(403, "Schedule has no account owner");
+    return { kind: "env" };
+  }
+  const user = getUser(schedule.createdBy);
+  if (!user || user.disabled) throw new HttpError(403, "Schedule owner is unavailable");
+  const caller: Caller = { kind: "user", user, via: "session" };
+  authorize(caller, schedule.workspaceId, "run");
+  return caller;
+}
+
 function validateReferences(schedule: Pick<ScheduleRow, "workspaceId" | "folderId" | "environmentId">) {
   if (!repo.getWorkspace(schedule.workspaceId)) throw notFound("Workspace");
   const folder = repo.getFolder(schedule.folderId);
@@ -93,6 +109,7 @@ function register(schedule: ScheduleRow) {
   if (!schedule.enabled) return;
   if (!validCron(schedule.cron)) throw new HttpError(400, "Invalid cron expression");
   validateReferences(schedule);
+  scheduleCaller(schedule);
   state.jobs.set(
     schedule.id,
     new Cron(schedule.cron, { timezone: "UTC", unref: true }, () => {
@@ -164,6 +181,7 @@ export function createSchedule(input: z.input<typeof scheduleInput>) {
   const schedule: ScheduleRow = {
     ...parsed,
     id: newId(),
+    createdBy: actorId(),
     environmentId: parsed.environmentId ?? null,
     options: { ...DEFAULT_RUN_OPTIONS, ...parsed.options },
     enabled: parsed.enabled ?? true,
@@ -213,6 +231,7 @@ export async function runSchedule(id: string): Promise<{ runId: string }> {
   if (state.active.has(id)) throw new HttpError(409, "This schedule is already running");
   try {
     validateReferences(schedule);
+    scheduleCaller(schedule);
   } catch (error) {
     unregister(id);
     getDb()
@@ -224,30 +243,43 @@ export async function runSchedule(id: string): Promise<{ runId: string }> {
   }
   const controller = new AbortController();
   state.active.set(id, controller);
+  const monitor = setInterval(() => {
+    try {
+      scheduleCaller(schedule);
+    } catch {
+      controller.abort();
+      unregister(id);
+      getDb().update(schedules).set({ enabled: false }).where(eq(schedules.id, id)).run();
+    }
+  }, 1000);
+  monitor.unref();
   return new Promise((resolve, reject) => {
-    void startRun({
-      workspaceId: schedule.workspaceId,
-      folderId: schedule.folderId,
-      environmentId: schedule.environmentId,
-      options: schedule.options,
-      source: "schedule",
-      retainResults: false,
-      signal: controller.signal,
-      onEvent: (event) => {
-        if (event.type !== "start") return;
-        getDb()
-          .update(schedules)
-          .set({ lastRunId: event.runId, lastRunAt: event.startedAt })
-          .where(eq(schedules.id, id))
-          .run();
-        resolve({ runId: event.runId });
-      },
-    })
+    void withCaller(scheduleCaller(schedule), () =>
+      startRun({
+        workspaceId: schedule.workspaceId,
+        folderId: schedule.folderId,
+        environmentId: schedule.environmentId,
+        options: schedule.options,
+        source: "schedule",
+        retainResults: false,
+        signal: controller.signal,
+        onEvent: (event) => {
+          if (event.type !== "start") return;
+          getDb()
+            .update(schedules)
+            .set({ lastRunId: event.runId, lastRunAt: event.startedAt })
+            .where(eq(schedules.id, id))
+            .run();
+          resolve({ runId: event.runId });
+        },
+      }),
+    )
       .catch((error: unknown) => {
         reject(error);
         console.error(`[postbox] scheduled run ${id} failed: ${(error as Error).message}`);
       })
       .finally(() => {
+        clearInterval(monitor);
         state.active.delete(id);
       });
   });

@@ -3,12 +3,12 @@
  * active environment/collection variables.
  */
 import { z } from "zod";
-import type { OAuth2Config } from "@/core/types";
 import { fetchOAuth2Token, resolveAuth } from "@/core/http/auth";
 import { Resolver } from "@/core/variables/resolver";
 import * as repo from "@/server/repo";
 import { getPolicy, loadScopes } from "@/server/context";
 import { HttpError, json, parseBody, route } from "@/server/http";
+import { oauth2ConfigSchema } from "@/core/schemas";
 
 export const POST = route(async (req: Request) => {
   const input = await parseBody(
@@ -17,15 +17,13 @@ export const POST = route(async (req: Request) => {
       workspaceId: z.string(),
       environmentId: z.string().nullish(),
       folderId: z.string().nullish(),
-      config: z.record(z.string(), z.unknown()),
+      config: oauth2ConfigSchema,
     }),
   );
+  if (input.folderId) repo.requireFolderIn(input.workspaceId, input.folderId);
   const collectionId = input.folderId ? (repo.getFolderChain(input.folderId)[0]?.id ?? null) : null;
   const ctx = loadScopes(input.workspaceId, input.environmentId ?? null, collectionId);
-  const resolved = resolveAuth(
-    { type: "oauth2", oauth2: input.config as unknown as OAuth2Config },
-    new Resolver(ctx.scopes),
-  );
+  const resolved = resolveAuth({ type: "oauth2", oauth2: input.config }, new Resolver(ctx.scopes));
   if (resolved.type !== "oauth2") throw new HttpError(400, "Invalid OAuth2 config");
   try {
     const token = await fetchOAuth2Token(resolved.oauth2, {

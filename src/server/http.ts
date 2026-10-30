@@ -3,26 +3,40 @@
  */
 import { NextResponse } from "next/server";
 import { ZodError, type ZodType } from "zod";
+import { HttpError } from "./errors";
+import { callerOf } from "./caller";
+import { withCaller } from "./access-context";
+import { authorizeRest, restPolicy } from "./access-policy";
 
-export class HttpError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-  ) {
-    super(message);
-  }
-}
+export { HttpError, notFound } from "./errors";
 
 export const json = (data: unknown, init?: number | ResponseInit) =>
   NextResponse.json(data, typeof init === "number" ? { status: init } : init);
-
-export const notFound = (what = "Resource") => new HttpError(404, `${what} not found`);
 
 /** Wrap a handler: converts thrown errors into JSON error responses. */
 export function route<A extends unknown[]>(fn: (...args: A) => Promise<Response> | Response) {
   return async (...args: A): Promise<Response> => {
     try {
-      return await fn(...args);
+      const req = args[0];
+      if (!(req instanceof Request)) return await fn(...args);
+      if (restPolicy(req.method, new URL(req.url).pathname)?.source === "public") return await fn(...args);
+      const caller = callerOf(req);
+      if (!caller) throw new HttpError(401, "Authentication required");
+      await authorizeRest(caller, req, async () => {
+        try {
+          const value = JSON.parse(await readBodyText(req.clone()));
+          if (!value || typeof value !== "object" || Array.isArray(value))
+            throw new HttpError(400, "Body must be a JSON object");
+          return value;
+        } catch (error) {
+          if (error instanceof HttpError) {
+            void req.body?.cancel().catch(() => undefined);
+            throw error;
+          }
+          throw new HttpError(400, "Body must be valid JSON");
+        }
+      });
+      return await withCaller(caller, () => fn(...args));
     } catch (err) {
       if (err instanceof HttpError) return json({ error: err.message }, err.status);
       if (err instanceof ZodError) return json({ error: "Invalid input", issues: err.issues }, 400);
@@ -32,10 +46,35 @@ export function route<A extends unknown[]>(fn: (...args: A) => Promise<Response>
   };
 }
 
+/** Largest JSON body the API accepts (API_BODY_LIMIT_MB, default 25 MB; uploads travel inline as base64). */
+export const bodyLimitBytes = () => (Number(process.env.API_BODY_LIMIT_MB) || 25) * 1024 * 1024;
+
+/** Read a request body as text, failing with 413 as soon as it exceeds `limit` bytes. */
+export async function readBodyText(req: Request, limit = bodyLimitBytes()): Promise<string> {
+  const tooLarge = () => new HttpError(413, `Request body exceeds ${Math.round(limit / 1048576)} MB`);
+  if (Number(req.headers.get("content-length")) > limit) throw tooLarge();
+  if (!req.body) return "";
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > limit) {
+      void reader.cancel().catch(() => undefined);
+      throw tooLarge();
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
 export async function parseBody<T>(req: Request, schema: ZodType<T>): Promise<T> {
+  const text = await readBodyText(req);
   let data: unknown;
   try {
-    data = await req.json();
+    data = JSON.parse(text);
   } catch {
     throw new HttpError(400, "Body must be valid JSON");
   }
