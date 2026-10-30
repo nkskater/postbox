@@ -10,6 +10,7 @@ import {
 } from "@/core/convert/postman";
 import { importOpenApi } from "@/core/convert/openapi";
 import { generateSnippet } from "@/core/convert/codegen";
+import { Resolver, emptyScopes, variablesToRecord } from "@/core/variables/resolver";
 import type { FolderNode, RequestNode } from "@/core/types";
 
 describe("cURL import", () => {
@@ -231,6 +232,242 @@ paths:
       url: "{{baseUrl}}/pets/{{petId}}",
       auth: { type: "none" },
     });
+  });
+
+  it("honors operation > path > root server precedence across multiple hosts", () => {
+    const { root, variables } = importOpenApi({
+      openapi: "3.0.3",
+      info: { title: "MultiHost", version: "1.0.0" },
+      servers: [
+        { url: "https://root.test/v1/" },
+        { url: "https://root-backup.test/v1" },
+      ],
+      paths: {
+        "/root-default": {
+          get: { operationId: "getRootDefault" },
+        },
+        "/orders": {
+          servers: [
+            { url: "https://orders.test/api/" },
+            { url: "https://orders-secondary.test/api" },
+          ],
+          get: {
+            operationId: "listOrders",
+            // Empty servers array should fall back to path server.
+            servers: [],
+          },
+          post: {
+            operationId: "createOrder",
+            servers: [{ url: "https://write-orders.test/v2/" }],
+          },
+          delete: {
+            operationId: "purgeOrders",
+            // Reuses the same override URL to verify variable deduplication.
+            servers: [{ url: "https://write-orders.test/v2" }],
+          },
+        },
+      },
+    });
+
+    expect(variables).toEqual([
+      { key: "baseUrl", value: "https://root.test/v1", type: "default", enabled: true },
+      { key: "baseUrl_2", value: "https://orders.test/api", type: "default", enabled: true },
+      { key: "baseUrl_3", value: "https://write-orders.test/v2", type: "default", enabled: true },
+    ]);
+
+    const requests = Object.fromEntries(
+      (root.children as RequestNode[]).map((r) => [r.name, r]),
+    );
+    expect(requests.getRootDefault.url).toBe("{{baseUrl}}/root-default");
+    expect(requests.listOrders.url).toBe("{{baseUrl_2}}/orders");
+    expect(requests.createOrder.url).toBe("{{baseUrl_3}}/orders");
+    expect(requests.purgeOrders.url).toBe("{{baseUrl_3}}/orders");
+
+    const resolver = new Resolver({
+      ...emptyScopes(),
+      collection: variablesToRecord(variables),
+    });
+    expect(resolver.resolve(requests.getRootDefault.url)).toBe(
+      "https://root.test/v1/root-default",
+    );
+    expect(resolver.resolve(requests.listOrders.url)).toBe(
+      "https://orders.test/api/orders",
+    );
+    expect(resolver.resolve(requests.createOrder.url)).toBe(
+      "https://write-orders.test/v2/orders",
+    );
+  });
+
+  it("resolves relative path and operation server URLs against sourceUrl or root server", () => {
+    const specWithRelativeOverrides = {
+      openapi: "3.0.3",
+      info: { title: "RelativeOverrides", version: "1.0.0" },
+      servers: [{ url: "https://api.example.com/v1" }],
+      paths: {
+        "/items": {
+          servers: [{ url: "/v2" }],
+          get: { operationId: "listItemsV2" },
+          post: {
+            operationId: "createItemAdmin",
+            servers: [{ url: "/admin/v3/" }],
+          },
+        },
+      },
+    };
+
+    // Without sourceUrl, relative overrides resolve against the root server's origin.
+    const withoutSource = importOpenApi(specWithRelativeOverrides);
+    expect(withoutSource.variables).toEqual([
+      { key: "baseUrl", value: "https://api.example.com/v1", type: "default", enabled: true },
+      { key: "baseUrl_2", value: "https://api.example.com/v2", type: "default", enabled: true },
+      { key: "baseUrl_3", value: "https://api.example.com/admin/v3", type: "default", enabled: true },
+    ]);
+
+    // With sourceUrl, relative servers resolve against sourceUrl.
+    const withSource = importOpenApi(
+      {
+        openapi: "3.0.3",
+        info: { title: "RelativeWithSource", version: "1.0.0" },
+        servers: [{ url: "/v1" }],
+        paths: {
+          "/items": {
+            servers: [{ url: "/v2" }],
+            get: { operationId: "listItems" },
+            post: {
+              operationId: "createItem",
+              servers: [{ url: "../internal/v3" }],
+            },
+          },
+        },
+      },
+      { sourceUrl: "https://docs.example.com/specs/openapi/petstore.yaml" },
+    );
+    expect(withSource.variables).toEqual([
+      { key: "baseUrl", value: "https://docs.example.com/v1", type: "default", enabled: true },
+      { key: "baseUrl_2", value: "https://docs.example.com/v2", type: "default", enabled: true },
+      {
+        key: "baseUrl_3",
+        value: "https://docs.example.com/specs/internal/v3",
+        type: "default",
+        enabled: true,
+      },
+    ]);
+  });
+
+  it("populates templated server variables from defaults/enums and preserves unresolved variables without collision", () => {
+    const { root, variables } = importOpenApi({
+      openapi: "3.0.3",
+      info: { title: "TemplatedServers", version: "1.0.0" },
+      servers: [
+        {
+          url: "https://{region}.{env}.example.com/{env}",
+          variables: {
+            region: { enum: ["us-east", "eu-west"] },
+            env: { default: "prod" },
+          },
+        },
+      ],
+      paths: {
+        "/tenants/{baseUrl_2}/resources": {
+          servers: [
+            {
+              url: "https://{tenant}.api.example.com:{port}/{basePath}",
+              variables: {
+                port: { default: "8443" },
+                basePath: { enum: ["v2", "v1"] },
+                // `tenant` is intentionally omitted from `variables` to test unresolved placeholder preservation.
+              },
+            },
+          ],
+          get: {
+            operationId: "getTenantResources",
+          },
+          post: {
+            operationId: "createTenantResource",
+            servers: [
+              {
+                url: "https://{tenant}.ingest.example.com/{stage}",
+                variables: {
+                  stage: { default: "live" },
+                },
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    // `baseUrl_2` is a path parameter on `/tenants/{baseUrl_2}/resources`, so the server
+    // override variable skips `baseUrl_2` and uses `baseUrl_3` / `baseUrl_4` instead.
+    expect(variables).toEqual([
+      {
+        key: "baseUrl",
+        value: "https://us-east.prod.example.com/prod",
+        type: "default",
+        enabled: true,
+      },
+      { key: "tenant", value: "", type: "default", enabled: true },
+      {
+        key: "baseUrl_3",
+        value: "https://{{tenant}}.api.example.com:8443/v2",
+        type: "default",
+        enabled: true,
+      },
+      {
+        key: "baseUrl_4",
+        value: "https://{{tenant}}.ingest.example.com/live",
+        type: "default",
+        enabled: true,
+      },
+    ]);
+
+    const [getReq, postReq] = root.children as RequestNode[];
+    expect(getReq.url).toBe("{{baseUrl_3}}/tenants/{{baseUrl_2}}/resources");
+    expect(postReq.url).toBe("{{baseUrl_4}}/tenants/{{baseUrl_2}}/resources");
+
+    const resolver = new Resolver({
+      ...emptyScopes(),
+      collection: {
+        ...variablesToRecord(variables),
+        tenant: "acme",
+        baseUrl_2: "t-42",
+      },
+    });
+    expect(resolver.resolve(getReq.url)).toBe(
+      "https://acme.api.example.com:8443/v2/tenants/t-42/resources",
+    );
+    expect(resolver.resolve(postReq.url)).toBe(
+      "https://acme.ingest.example.com/live/tenants/t-42/resources",
+    );
+  });
+
+  it("honors Swagger 2.0 operation-level schemes override", () => {
+    const { root, variables } = importOpenApi({
+      swagger: "2.0",
+      info: { title: "SwaggerSchemes", version: "1.0" },
+      host: "legacy.example.com",
+      basePath: "/v1",
+      schemes: ["https"],
+      paths: {
+        "/secure": {
+          get: { operationId: "getSecure" },
+        },
+        "/health": {
+          get: {
+            operationId: "getHealthPlain",
+            schemes: ["http"],
+          },
+        },
+      },
+    });
+
+    expect(variables).toEqual([
+      { key: "baseUrl", value: "https://legacy.example.com/v1", type: "default", enabled: true },
+      { key: "baseUrl_2", value: "http://legacy.example.com/v1", type: "default", enabled: true },
+    ]);
+    const [secureReq, healthReq] = root.children as RequestNode[];
+    expect(secureReq.url).toBe("{{baseUrl}}/secure");
+    expect(healthReq.url).toBe("{{baseUrl_2}}/health");
   });
 });
 
