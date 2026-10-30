@@ -115,6 +115,7 @@ export function verifyLoginSecret(cfg: AuthConfig, secret: string): boolean {
 export function isPublicPath(pathname: string): boolean {
   return (
     pathname === "/login" ||
+    pathname === "/invite" ||
     pathname === "/api/health" ||
     pathname.startsWith("/api/auth/") ||
     pathname.startsWith("/_next/") ||

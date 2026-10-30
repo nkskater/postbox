@@ -320,3 +320,37 @@ export const workspaceMembers = sqliteTable(
     index("workspace_members_user_idx").on(t.userId),
   ],
 );
+
+export const userSettings = sqliteTable(
+  "user_settings",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    value: text("value", { mode: "json" }).$type<unknown>().notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.key] })],
+);
+
+export const invites = sqliteTable(
+  "invites",
+  {
+    id: text("id").primaryKey(),
+    tokenHash: text("token_hash").notNull(),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => users.id),
+    workspaceId: text("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }),
+    role: text("role").$type<"owner" | "editor" | "viewer">(),
+    expiresAt: integer("expires_at").notNull(),
+    usedAt: integer("used_at"),
+    revokedAt: integer("revoked_at"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("invites_token_unique").on(t.tokenHash),
+    index("invites_workspace_idx").on(t.workspaceId),
+  ],
+);

@@ -8,6 +8,8 @@ import { createHash, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { getDb, schema } from "./db";
 import type { ApiTokenRow, UserRow } from "./db/schema";
+import { BROWSER_SETTING_KEYS } from "@/lib/settings/registry";
+import { inArray } from "drizzle-orm";
 import { newId } from "./defaults";
 import { HttpError } from "./errors";
 
@@ -109,7 +111,7 @@ export function listUsers() {
   return getDb().select().from(users).orderBy(asc(users.createdAt)).all();
 }
 
-export async function createUser(input: {
+export async function prepareUser(input: {
   username: string;
   password: string;
   displayName?: string;
@@ -133,7 +135,14 @@ export async function createUser(input: {
     createdAt: now,
     updatedAt: now,
   };
+  return row;
+}
+
+export type PreparedUser = Awaited<ReturnType<typeof prepareUser>>;
+export function insertPreparedUser(row: PreparedUser): UserRow {
+  const now = row.createdAt;
   getDb().transaction((tx) => {
+    if (getUserByUsername(row.username)) throw new HttpError(409, "That username is taken");
     const first = tx.select({ id: users.id }).from(users).get() === undefined;
     tx.insert(users).values(row).run();
     if (first && row.isAdmin) {
@@ -144,6 +153,16 @@ export async function createUser(input: {
           .onConflictDoNothing()
           .run();
       tx.update(schema.schedules).set({ createdBy: row.id }).where(isNull(schema.schedules.createdBy)).run();
+      const preferences = tx
+        .select()
+        .from(schema.appSettings)
+        .where(inArray(schema.appSettings.key, BROWSER_SETTING_KEYS))
+        .all();
+      for (const pref of preferences)
+        tx.insert(schema.userSettings)
+          .values({ ...pref, userId: row.id })
+          .run();
+      tx.delete(schema.appSettings).where(inArray(schema.appSettings.key, BROWSER_SETTING_KEYS)).run();
     }
     const workspaceId = newId();
     tx.insert(schema.workspaces)
@@ -154,6 +173,58 @@ export async function createUser(input: {
       .run();
   });
   return row;
+}
+
+export async function createUser(input: Parameters<typeof prepareUser>[0]): Promise<UserRow> {
+  return insertPreparedUser(await prepareUser(input));
+}
+
+export async function updateManagedUser(
+  id: string,
+  patch: { displayName?: string; disabled?: boolean; isAdmin?: boolean; password?: string },
+) {
+  if (patch.password !== undefined) checkPasswordPolicy(patch.password);
+  const passwordHash = patch.password !== undefined ? await hashPassword(patch.password) : undefined;
+  return getDb().transaction((tx) => {
+    const existing = getUser(id);
+    if (!existing) throw new HttpError(404, "User not found");
+    const next = { ...existing, ...patch };
+    if (existing.isAdmin && !existing.disabled && (!next.isAdmin || next.disabled)) {
+      const admins = tx
+        .select({ id: users.id })
+        .from(users)
+        .where(and(eq(users.isAdmin, true), eq(users.disabled, false)))
+        .all();
+      if (admins.length <= 1)
+        throw new HttpError(409, "Cannot disable or demote the last active administrator");
+    }
+    tx.update(users)
+      .set({
+        ...(patch.displayName !== undefined
+          ? { displayName: patch.displayName.trim() || existing.username }
+          : {}),
+        ...(patch.disabled !== undefined ? { disabled: patch.disabled } : {}),
+        ...(patch.isAdmin !== undefined ? { isAdmin: patch.isAdmin } : {}),
+        ...(passwordHash ? { passwordHash } : {}),
+        sessionVersion: existing.sessionVersion + 1,
+        updatedAt: Date.now(),
+      })
+      .where(eq(users.id, id))
+      .run();
+    return getUser(id)!;
+  });
+}
+
+export function revokeUserAccess(id: string) {
+  const db = getDb();
+  db.transaction((tx) => {
+    if (!getUser(id)) throw new HttpError(404, "User not found");
+    tx.update(users)
+      .set({ sessionVersion: sql`${users.sessionVersion} + 1`, updatedAt: Date.now() })
+      .where(eq(users.id, id))
+      .run();
+    revokeAllTokens(id);
+  });
 }
 
 /** Change the password and end every existing session of the user. */
@@ -170,6 +241,14 @@ export async function setPassword(userId: string, password: string) {
 
 /** Disabling ends sessions immediately; tokens stop working while the user is disabled. */
 export function setDisabled(userId: string, disabled: boolean) {
+  const existing = getUser(userId);
+  if (
+    disabled &&
+    existing?.isAdmin &&
+    !existing.disabled &&
+    listUsers().filter((u) => u.isAdmin && !u.disabled).length <= 1
+  )
+    throw new HttpError(409, "Cannot disable the last active administrator");
   getDb()
     .update(users)
     .set({ disabled, sessionVersion: sql`${users.sessionVersion} + 1`, updatedAt: Date.now() })

@@ -21,11 +21,15 @@ const ROOT = path.resolve(import.meta.dirname, "..");
 const OUT = path.join(ROOT, "docs", "screenshots");
 const DEMO = path.join(ROOT, "docs", "demo");
 const VIEWPORT = { width: 1440, height: 860 };
+let sessionCookie = "";
 
 async function api(method, url, body) {
   const res = await fetch(`${BASE}${url}`, {
     method,
-    headers: body ? { "Content-Type": "application/json" } : undefined,
+    headers: {
+      ...(body ? { "Content-Type": "application/json" } : {}),
+      ...(sessionCookie ? { Cookie: sessionCookie } : {}),
+    },
     body: body ? JSON.stringify(body) : undefined,
   });
   const text = await res.text();
@@ -60,8 +64,63 @@ async function seed() {
   await api("POST", "/api/settings/import", { settings: { "tabs.previewOnClick": false } });
 }
 
+/** Uses a fresh throwaway instance, without external API traffic. */
+async function usersScreenshots() {
+  const status = await api("GET", "/api/auth/status");
+  if (status.hasUsers) throw new Error("Users screenshots require a fresh throwaway account database.");
+  const password = "demo-password-only";
+  await api("POST", "/api/auth/setup", {
+    username: "admin",
+    displayName: "Workspace administrator",
+    password,
+  });
+  const login = await fetch(`${BASE}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: "admin", password }),
+  });
+  if (!login.ok) throw new Error("Screenshot administrator login failed");
+  const value = /postbox_session=([^;]+)/.exec(login.headers.get("set-cookie") ?? "")?.[1];
+  if (!value) throw new Error("Missing screenshot session");
+  sessionCookie = `postbox_session=${value}`;
+  await api("POST", "/api/admin/users", { username: "alex", displayName: "Alex Chen", password });
+  await api("POST", "/api/admin/users", { username: "sam", displayName: "Sam Rivera", password });
+  const workspace = await api("POST", "/api/workspaces", { name: "Platform APIs" });
+  for (const [username, role] of [
+    ["alex", "editor"],
+    ["sam", "viewer"],
+  ])
+    await api("PUT", `/api/workspaces/${workspace.id}/members`, { username, role });
+  const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined });
+  try {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 1100 } });
+    await context.addCookies([{ name: "postbox_session", value, url: BASE }]);
+    const page = await context.newPage();
+    await page.goto(BASE, { waitUntil: "networkidle" });
+    await page.locator("header").getByRole("combobox").first().click();
+    await page.getByRole("option", { name: "Platform APIs", exact: true }).click();
+    await page.getByTitle("Settings (Ctrl+,)", { exact: true }).click();
+    await page.getByRole("button", { name: "Workspace sharing", exact: true }).click();
+    await page.getByLabel("Role for alex", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "Create invite link", exact: true }).click();
+    await page.getByLabel("Invite link", { exact: true }).waitFor();
+    // Documentation uses an illustrative link, never the disposable database's live token.
+    await page.getByLabel("Invite link", { exact: true }).evaluate((input) => {
+      input.value = "https://postbox.example/invite?token=example-single-use-invitation-token";
+    });
+    await page.screenshot({ path: path.join(OUT, "workspace-sharing.png"), fullPage: true });
+    await page.getByRole("button", { name: "Users", exact: true }).click();
+    await page.getByRole("button", { name: "Disable alex", exact: true }).waitFor();
+    await page.screenshot({ path: path.join(OUT, "users.png"), fullPage: true });
+    console.log("  ✓ workspace-sharing.png\n  ✓ users.png");
+  } finally {
+    await browser.close();
+  }
+}
+
 async function main() {
   fs.mkdirSync(OUT, { recursive: true });
+  if (process.env.SCREENSHOT_SET === "users") return usersScreenshots();
   await seed();
 
   const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined });

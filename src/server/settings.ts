@@ -1,9 +1,19 @@
 /**
  * Persistence and resolution for app settings (see src/lib/settings/registry.ts).
  */
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
+import { currentCaller } from "./access-context";
+import { requireAdmin } from "./authorize";
+import { isAdmin } from "./caller";
 import { getDb, schema } from "./db";
-import { defaultValues, resolveSettings, sanitizeSettings, type SettingValue } from "@/lib/settings/registry";
+import {
+  BROWSER_SETTING_KEYS,
+  SETTINGS,
+  defaultValues,
+  resolveSettings,
+  sanitizeSettings,
+  type SettingValue,
+} from "@/lib/settings/registry";
 
 const { appSettings } = schema;
 
@@ -45,9 +55,23 @@ export function listEnvSettings(env: NodeJS.ProcessEnv = process.env): EnvSettin
   });
 }
 
+const browserKey = (key: string) => BROWSER_SETTING_KEYS.includes(key);
 export function readSavedSettings(): Record<string, unknown> {
+  const caller = currentCaller();
   const rows = getDb().select().from(appSettings).all();
-  return Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  if (caller?.kind !== "user") return Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  const personal = getDb()
+    .select()
+    .from(schema.userSettings)
+    .where(eq(schema.userSettings.userId, caller.user.id))
+    .all();
+  return Object.fromEntries(
+    [...rows.filter((r) => !browserKey(r.key)), ...personal].map((r) => [r.key, r.value]),
+  );
+}
+const canManageInstance = () => !currentCaller() || isAdmin(currentCaller()!);
+function checkInstanceKeys(keys: string[]) {
+  if (keys.some((key) => SETTINGS.find((def) => def.key === key)?.scope === "server")) requireAdmin();
 }
 
 export interface SettingsPayload {
@@ -61,22 +85,45 @@ export interface SettingsPayload {
 export function getSettings(env: NodeJS.ProcessEnv = process.env): SettingsPayload {
   const saved = readSavedSettings();
   const { values, envLocked } = resolveSettings(saved, env);
-  return { values, saved, defaults: defaultValues(), envLocked, environment: listEnvSettings(env) };
+  return {
+    values,
+    saved: canManageInstance()
+      ? saved
+      : Object.fromEntries(Object.entries(saved).filter(([key]) => browserKey(key))),
+    defaults: defaultValues(),
+    envLocked,
+    environment: canManageInstance() ? listEnvSettings(env) : [],
+  };
 }
 
 /** Apply a partial update; `null` resets a key to its default. Throws on invalid input. */
 export function patchSettings(patch: Record<string, unknown>): SettingsPayload {
   const { valid, errors } = sanitizeSettings(patch);
   if (errors.length) throw new Error(errors.join("; "));
+  checkInstanceKeys(Object.keys(valid));
   const db = getDb();
+  const caller = currentCaller();
   db.transaction((tx) => {
     for (const [key, value] of Object.entries(valid)) {
-      if (value === null) tx.delete(appSettings).where(eq(appSettings.key, key)).run();
-      else
-        tx.insert(appSettings)
-          .values({ key, value, updatedAt: Date.now() })
-          .onConflictDoUpdate({ target: appSettings.key, set: { value, updatedAt: Date.now() } })
-          .run();
+      if (browserKey(key) && caller?.kind === "user") {
+        const where = and(eq(schema.userSettings.userId, caller.user.id), eq(schema.userSettings.key, key));
+        if (value === null) tx.delete(schema.userSettings).where(where).run();
+        else
+          tx.insert(schema.userSettings)
+            .values({ userId: caller.user.id, key, value, updatedAt: Date.now() })
+            .onConflictDoUpdate({
+              target: [schema.userSettings.userId, schema.userSettings.key],
+              set: { value, updatedAt: Date.now() },
+            })
+            .run();
+      } else {
+        if (value === null) tx.delete(appSettings).where(eq(appSettings.key, key)).run();
+        else
+          tx.insert(appSettings)
+            .values({ key, value, updatedAt: Date.now() })
+            .onConflictDoUpdate({ target: appSettings.key, set: { value, updatedAt: Date.now() } })
+            .run();
+      }
     }
   });
   return getSettings();
@@ -88,16 +135,27 @@ export function importSettings(input: Record<string, unknown>): {
   skipped: string[];
 } {
   const { valid, errors } = sanitizeSettings(input);
+  checkInstanceKeys(Object.keys(valid));
   const db = getDb();
+  const caller = currentCaller();
   db.transaction((tx) => {
-    tx.delete(appSettings).run();
-    for (const [key, value] of Object.entries(valid)) {
-      if (value !== null) tx.insert(appSettings).values({ key, value, updatedAt: Date.now() }).run();
-    }
+    if (caller?.kind === "user") {
+      tx.delete(schema.userSettings).where(eq(schema.userSettings.userId, caller.user.id)).run();
+      if (canManageInstance())
+        tx.delete(appSettings)
+          .where(
+            inArray(
+              appSettings.key,
+              SETTINGS.filter((def) => def.scope === "server").map((def) => def.key),
+            ),
+          )
+          .run();
+    } else tx.delete(appSettings).run();
+    patchSettings(valid);
   });
   return { settings: getSettings(), skipped: errors };
 }
 
 export function exportSettings() {
-  return { postboxSettings: 1, exportedAt: new Date().toISOString(), settings: readSavedSettings() };
+  return { postboxSettings: 1, exportedAt: new Date().toISOString(), settings: getSettings().saved };
 }
