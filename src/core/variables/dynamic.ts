@@ -1,58 +1,173 @@
-/**
- * Dynamic variables ({{$guid}}, {{$timestamp}}, ...), compatible with the most
- * commonly used Postman dynamic variables. Each call produces a fresh value.
- */
-// Uses Web Crypto so the module also works in the browser (for UI highlighting).
-const randomUUID = () => globalThis.crypto.randomUUID();
-/** Random integer in [min, max) (or [0, min) when max is omitted). */
-function randomInt(min: number, max?: number): number {
-  if (max === undefined) [min, max] = [0, min];
-  const buf = new Uint32Array(1);
-  globalThis.crypto.getRandomValues(buf);
-  return min + (buf[0] % (max - min));
+/** Synthetic dynamic values shared by interpolation, scripts, runner and CLI. */
+import { Faker, en, base } from "@faker-js/faker";
+import { isDynamicVariable, type DynamicVariableName } from "./dynamic-catalog";
+export { isDynamicVariable } from "./dynamic-catalog";
+
+/** An isolated seeded generator and reference clock make compatibility fixtures reproducible. */
+export function createDynamicVariables(
+  options: { seed?: number; now?: () => number } = {},
+): Record<DynamicVariableName, () => string> {
+  const f = new Faker({ locale: [en, base] });
+  if (options.seed !== undefined) f.seed(options.seed);
+  const now = options.now ?? (() => Date.now());
+  const int = (min: number, max: number) => f.number.int({ min, max });
+  const digits = (length: number) => f.string.numeric({ length, allowLeadingZeros: true });
+  const legacyImage = (category = "") =>
+    `http://lorempixel.com/640/480${category ? `/${category}` : ""}?${int(0, 1_000_000)}`;
+  return {
+    $guid: () => f.string.uuid(),
+    $randomUUID: () => f.string.uuid(),
+    $timestamp: () => String(Math.floor(now() / 1000)),
+    $isoTimestamp: () => new Date(now()).toISOString(),
+    $randomAlphaNumeric: () => f.string.alphanumeric(1),
+    $randomBoolean: () => String(f.datatype.boolean()),
+    $randomInt: () => String(int(0, 1000)),
+    $randomColor: () => f.color.human(),
+    $randomHexColor: () => f.color.rgb({ format: "hex", casing: "lower" }),
+    $randomAbbreviation: () => f.hacker.abbreviation(),
+    $randomIP: () => f.internet.ipv4(),
+    $randomIPV6: () => f.internet.ipv6(),
+    $randomMACAddress: () => f.internet.mac(),
+    $randomPassword: () => f.string.alphanumeric(15),
+    $randomLocale: () =>
+      f.helpers.arrayElement([
+        "en",
+        "fr",
+        "de",
+        "es",
+        "it",
+        "pt",
+        "nl",
+        "sv",
+        "no",
+        "da",
+        "fi",
+        "pl",
+        "cs",
+        "tr",
+        "ar",
+        "he",
+        "hi",
+        "ja",
+        "ko",
+        "zh",
+        "uk",
+        "el",
+        "th",
+        "vi",
+        "id",
+        "sw",
+      ]),
+    $randomUserAgent: () => f.internet.userAgent(),
+    $randomProtocol: () => f.internet.protocol(),
+    $randomSemver: () => f.system.semver(),
+    $randomFirstName: () => f.person.firstName(),
+    $randomLastName: () => f.person.lastName(),
+    $randomFullName: () => `${f.person.firstName()} ${f.person.lastName()}`,
+    $randomNamePrefix: () => f.person.prefix(),
+    $randomNameSuffix: () => f.person.suffix(),
+    $randomJobArea: () => f.person.jobArea(),
+    $randomJobDescriptor: () => f.person.jobDescriptor(),
+    $randomJobTitle: () => f.person.jobTitle(),
+    $randomJobType: () => f.person.jobType(),
+    $randomPhoneNumber: () => `${digits(3)}-${digits(3)}-${digits(4)}`,
+    $randomPhoneNumberExt: () => `${digits(2)}-${digits(3)}-${digits(3)}-${digits(4)}`,
+    $randomCity: () => f.location.city(),
+    $randomStreetName: () => f.location.street(),
+    $randomStreetAddress: () => f.location.streetAddress(),
+    $randomCountry: () => f.location.country(),
+    $randomCountryCode: () => f.location.countryCode(),
+    $randomLatitude: () => String(f.location.latitude({ precision: 4 })),
+    $randomLongitude: () => String(f.location.longitude({ precision: 4 })),
+    $randomAvatarImage: () => f.image.avatarGitHub(),
+    $randomImageUrl: () => legacyImage(),
+    $randomAbstractImage: () => legacyImage("abstract"),
+    $randomAnimalsImage: () => legacyImage("animals"),
+    $randomBusinessImage: () => legacyImage("business"),
+    $randomCatsImage: () => legacyImage("cats"),
+    $randomCityImage: () => legacyImage("city"),
+    $randomFoodImage: () => legacyImage("food"),
+    $randomNightlifeImage: () => legacyImage("nightlife"),
+    $randomFashionImage: () => legacyImage("fashion"),
+    $randomPeopleImage: () => legacyImage("people"),
+    $randomNatureImage: () => legacyImage("nature"),
+    $randomSportsImage: () => legacyImage("sports"),
+    $randomTransportImage: () => legacyImage("transport"),
+    $randomImageDataUri: () => f.image.dataUri({ type: "svg-uri" }),
+    $randomBankAccount: () => digits(8),
+    $randomBankAccountName: () => f.finance.accountName(),
+    $randomCreditCardMask: () => digits(4),
+    $randomBankAccountBic: () => f.finance.bic(),
+    $randomBankAccountIban: () =>
+      f.finance.iban({ countryCode: f.helpers.arrayElement(["GB", "DE", "FR", "NL", "MU"]) }),
+    $randomTransactionType: () => f.finance.transactionType(),
+    $randomCurrencyCode: () => f.finance.currencyCode(),
+    $randomCurrencyName: () => f.finance.currencyName(),
+    $randomCurrencySymbol: () => f.finance.currencySymbol(),
+    $randomBitcoin: () => f.finance.bitcoinAddress(),
+    $randomCompanyName: () => f.company.name(),
+    $randomCompanySuffix: () => f.helpers.arrayElement(["Inc", "LLC", "Group", "and Sons"]),
+    $randomBs: () => f.company.buzzPhrase(),
+    $randomBsAdjective: () => f.company.buzzAdjective(),
+    $randomBsBuzz: () => f.company.buzzVerb(),
+    $randomBsNoun: () => f.company.buzzNoun(),
+    $randomCatchPhrase: () => f.company.catchPhrase(),
+    $randomCatchPhraseAdjective: () => f.company.catchPhraseAdjective(),
+    $randomCatchPhraseDescriptor: () => f.company.catchPhraseDescriptor(),
+    $randomCatchPhraseNoun: () => f.company.catchPhraseNoun(),
+    $randomDatabaseColumn: () => f.database.column(),
+    $randomDatabaseType: () => f.database.type(),
+    $randomDatabaseCollation: () => f.database.collation(),
+    $randomDatabaseEngine: () => f.database.engine(),
+    $randomDateFuture: () => f.date.future({ refDate: now() }).toString(),
+    $randomDatePast: () => f.date.past({ refDate: now() }).toString(),
+    $randomDateRecent: () => f.date.recent({ refDate: now(), days: 7 }).toString(),
+    $randomWeekday: () => f.date.weekday(),
+    $randomMonth: () => f.date.month(),
+    $randomDomainName: () => f.internet.domainName(),
+    $randomDomainSuffix: () => f.internet.domainSuffix(),
+    $randomDomainWord: () => f.internet.domainWord(),
+    $randomEmail: () => f.internet.email(),
+    $randomExampleEmail: () => f.internet.exampleEmail(),
+    $randomUserName: () => f.internet.username(),
+    $randomUrl: () => f.internet.url(),
+    $randomFileName: () => f.system.fileName(),
+    $randomFileType: () => f.system.fileType(),
+    $randomFileExt: () => f.system.fileExt(),
+    $randomCommonFileName: () => f.system.commonFileName(),
+    $randomCommonFileType: () => f.system.commonFileType(),
+    $randomCommonFileExt: () => f.system.commonFileExt(),
+    $randomFilePath: () => f.system.filePath(),
+    $randomDirectoryPath: () => f.system.directoryPath(),
+    $randomMimeType: () => f.system.mimeType(),
+    $randomPrice: () => f.commerce.price({ min: 0, max: 1000, dec: 2 }),
+    $randomProduct: () => f.commerce.product(),
+    $randomProductAdjective: () => f.commerce.productAdjective(),
+    $randomProductMaterial: () => f.commerce.productMaterial(),
+    $randomProductName: () => f.commerce.productName(),
+    $randomDepartment: () => f.commerce.department(),
+    $randomNoun: () => f.hacker.noun(),
+    $randomVerb: () => f.hacker.verb(),
+    $randomIngverb: () => f.hacker.ingverb(),
+    $randomAdjective: () => f.hacker.adjective(),
+    $randomWord: () => f.word.sample(),
+    $randomWords: () => f.word.words({ count: { min: 2, max: 5 } }),
+    $randomPhrase: () => f.hacker.phrase(),
+    $randomLoremWord: () => f.lorem.word(),
+    $randomLoremWords: () => f.lorem.words(3),
+    $randomLoremSentence: () => f.lorem.sentence(),
+    $randomLoremSentences: () => f.lorem.sentences(int(2, 6)),
+    $randomLoremParagraph: () => f.lorem.paragraph(),
+    $randomLoremParagraphs: () => f.lorem.paragraphs(3),
+    $randomLoremText: () => f.lorem.text(),
+    $randomLoremSlug: () => f.lorem.slug(),
+    $randomLoremLines: () => f.lorem.lines(int(1, 5)),
+    $randomHexadecimal: () => int(0, 15).toString(16),
+    $randomPort: () => String(int(1024, 65535)),
+  };
 }
 
-const FIRST_NAMES = ["Ada", "Alan", "Grace", "Linus", "Margaret", "Ken", "Barbara", "Dennis", "Radia", "Tim"];
-const LAST_NAMES = ["Lovelace", "Turing", "Hopper", "Torvalds", "Hamilton", "Thompson", "Liskov", "Ritchie"];
-const WORDS = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel", "india", "juliet"];
-const DOMAINS = ["example.com", "example.org", "example.net"];
-const COLORS = ["red", "green", "blue", "orange", "purple", "teal", "black", "white"];
-const ALNUM = "abcdefghijklmnopqrstuvwxyz0123456789";
-
-const pick = <T>(list: T[]): T => list[randomInt(list.length)];
-const alnum = (n: number) => Array.from({ length: n }, () => ALNUM[randomInt(ALNUM.length)]).join("");
-
-export const DYNAMIC_VARIABLES: Record<string, () => string> = {
-  $guid: () => randomUUID(),
-  $randomUUID: () => randomUUID(),
-  $timestamp: () => String(Math.floor(Date.now() / 1000)),
-  $isoTimestamp: () => new Date().toISOString(),
-  $randomInt: () => String(randomInt(0, 1001)),
-  $randomBoolean: () => String(randomInt(2) === 1),
-  $randomAlphaNumeric: () => alnum(1),
-  $randomHexadecimal: () => randomInt(16).toString(16),
-  $randomFirstName: () => pick(FIRST_NAMES),
-  $randomLastName: () => pick(LAST_NAMES),
-  $randomFullName: () => `${pick(FIRST_NAMES)} ${pick(LAST_NAMES)}`,
-  $randomUserName: () => `${pick(FIRST_NAMES).toLowerCase()}.${alnum(4)}`,
-  $randomEmail: () => `${pick(FIRST_NAMES).toLowerCase()}.${alnum(5)}@${pick(DOMAINS)}`,
-  $randomPassword: () => alnum(15),
-  $randomWord: () => pick(WORDS),
-  $randomWords: () => Array.from({ length: 3 }, () => pick(WORDS)).join(" "),
-  $randomColor: () => pick(COLORS),
-  $randomIP: () => Array.from({ length: 4 }, () => randomInt(1, 255)).join("."),
-  $randomPort: () => String(randomInt(1024, 65536)),
-  $randomPhoneNumber: () => `${randomInt(200, 999)}-${randomInt(200, 999)}-${randomInt(1000, 9999)}`,
-  $randomPrice: () => (randomInt(100, 100000) / 100).toFixed(2),
-  $randomUrl: () => `https://${pick(DOMAINS)}/${pick(WORDS)}`,
-  $randomDateFuture: () => new Date(Date.now() + randomInt(1, 365) * 86400000).toISOString(),
-  $randomDatePast: () => new Date(Date.now() - randomInt(1, 365) * 86400000).toISOString(),
-};
-
-export function isDynamicVariable(name: string): boolean {
-  return name.startsWith("$") && Object.prototype.hasOwnProperty.call(DYNAMIC_VARIABLES, name);
-}
-
+export const DYNAMIC_VARIABLES = createDynamicVariables();
 export function generateDynamic(name: string): string | undefined {
   return isDynamicVariable(name) ? DYNAMIC_VARIABLES[name]() : undefined;
 }
