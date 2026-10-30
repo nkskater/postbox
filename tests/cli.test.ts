@@ -218,6 +218,34 @@ describe("standalone CLI", () => {
     }
   });
 
+  it("applies default headers, User-Agent, Accept and script limit flags", async () => {
+    const file = await fixture(
+      "defaults.json",
+      collection(
+        `${server.url}/echo`,
+        'const h = pm.response.json().headers; ["x-team", "user-agent", "accept"].forEach((k) => console.log(k + "=" + h[k]));',
+      ),
+    );
+    const run = await invoke([
+      "run",
+      file,
+      "-H",
+      "X-Team: qa",
+      "--user-agent",
+      "ci-bot/1",
+      "--no-accept-headers",
+    ]);
+    expect(run.code).toBe(0);
+    expect(run.stdout).toContain("x-team=qa");
+    expect(run.stdout).toContain("user-agent=ci-bot/1");
+    expect(run.stdout).toContain("accept=undefined");
+    expect((await invoke(["run", file, "-H", "bad header"])).code).not.toBe(0);
+    const slow = await fixture("slow-script.json", collection(`${server.url}/echo`, "while (true) {}"));
+    const limited = await invoke(["run", slow, "--script-timeout", "200"]);
+    expect(limited.code).toBe(1);
+    expect(limited.stdout).toContain("time limit of 200 ms");
+  });
+
   it("rejects invalid inputs before execution and provides help/version", async () => {
     const input = await fixture("invalid.json", "{broken");
     const empty = await fixture("empty.json", { info: { name: "Empty" }, item: [] });
