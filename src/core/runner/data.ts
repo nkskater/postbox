@@ -18,14 +18,93 @@ function fromRecords(records: Record<string, unknown>[]): DataTable {
   return { columns, rows: records.map((r) => Object.fromEntries(columns.map((c) => [c, cell(r[c])]))) };
 }
 
-export function parseCsv(text: string): DataTable {
-  const result = Papa.parse<Record<string, string>>(text.replace(/^﻿/, ""), {
-    header: true,
-    skipEmptyLines: "greedy",
-    transformHeader: (h) => h.trim(),
+/** One problem found while reading iteration data. Rows are 1-based and count the header row. */
+export interface DataIssue {
+  row?: number;
+  column?: string;
+  message: string;
+}
+
+/** Iteration data that would be lost or misread if imported as-is. */
+export class DataValidationError extends Error {
+  constructor(readonly issues: DataIssue[]) {
+    const shown = issues.slice(0, 5).map(formatIssue);
+    if (issues.length > shown.length) shown.push(`…and ${issues.length - shown.length} more`);
+    super(`Invalid iteration data: ${shown.join("; ")}`);
+    this.name = "DataValidationError";
+  }
+}
+
+export function formatIssue(issue: DataIssue): string {
+  const where = [issue.row && `row ${issue.row}`, issue.column && `column "${issue.column}"`].filter(Boolean);
+  return where.length ? `${where.join(", ")}: ${issue.message}` : issue.message;
+}
+
+/** A parsed table plus non-lossy oddities the user should know about (e.g. padded short rows). */
+export interface ParsedData {
+  table: DataTable;
+  warnings: DataIssue[];
+}
+
+const fields = (n: number) => `${n} field${n === 1 ? "" : "s"}`;
+const isBlank = (v: string | undefined) => (v ?? "").trim() === "";
+
+/**
+ * Parse CSV/TSV (delimiter auto-detected). Anything that would silently drop or
+ * overwrite a cell (malformed quotes, extra fields, duplicate or blank headers
+ * over non-empty data) throws a DataValidationError instead.
+ */
+export function readCsv(text: string): ParsedData {
+  const result = Papa.parse<string[]>(text.replace(/^\uFEFF/, ""), { skipEmptyLines: "greedy" });
+  const errors: DataIssue[] = result.errors
+    .filter((e) => e.type === "Quotes")
+    .map((e) => ({ row: e.row === undefined ? undefined : e.row + 1, message: e.message }));
+  const warnings: DataIssue[] = [];
+  const [header = [], ...records] = result.data;
+  const names = header.map((h) => h.trim());
+
+  const keep: number[] = [];
+  const seen = new Map<string, number>();
+  names.forEach((name, i) => {
+    if (name === "") {
+      const row = records.findIndex((r) => !isBlank(r[i]));
+      if (row >= 0) errors.push({ row: row + 2, message: `column ${i + 1} has values but no header` });
+      return;
+    }
+    const first = seen.get(name);
+    if (first !== undefined) {
+      errors.push({ column: name, message: `duplicate header (columns ${first + 1} and ${i + 1})` });
+      return;
+    }
+    seen.set(name, i);
+    keep.push(i);
   });
-  const columns = (result.meta.fields ?? []).filter((c) => c !== "");
-  return { columns, rows: result.data.map((r) => Object.fromEntries(columns.map((c) => [c, cell(r[c])]))) };
+
+  records.forEach((r, i) => {
+    const row = i + 2;
+    if (r.length > header.length && r.slice(header.length).some((v) => !isBlank(v))) {
+      errors.push({
+        row,
+        message: `${fields(r.length)} but the header has ${header.length}; extra values would be lost`,
+      });
+    } else if (r.length < header.length) {
+      warnings.push({
+        row,
+        message: `${fields(r.length)} but the header has ${header.length}; missing cells left empty`,
+      });
+    }
+  });
+
+  if (errors.length) throw new DataValidationError(errors.sort((a, b) => (a.row ?? 0) - (b.row ?? 0)));
+  const columns = keep.map((i) => names[i]);
+  return {
+    table: { columns, rows: records.map((r) => Object.fromEntries(keep.map((i) => [names[i], r[i] ?? ""]))) },
+    warnings,
+  };
+}
+
+export function parseCsv(text: string): DataTable {
+  return readCsv(text).table;
 }
 
 export function parseJsonData(text: string): DataTable {
@@ -42,24 +121,39 @@ export function parseXlsx(buf: ArrayBuffer | Uint8Array, sheet?: string): DataTa
   return fromRecords(records);
 }
 
-/** Detect the format from the file name and parse. */
-export function parseDataFile(name: string, content: ArrayBuffer | Uint8Array | string): DataTable {
+/** Detect the format from the file name and parse, keeping CSV warnings. */
+export function readDataFile(name: string, content: ArrayBuffer | Uint8Array | string): ParsedData {
   const lower = name.toLowerCase();
   if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) {
     if (typeof content === "string") throw new Error("XLSX data must be binary");
-    return parseXlsx(content);
+    return { table: parseXlsx(content), warnings: [] };
   }
   const text = typeof content === "string" ? content : new TextDecoder().decode(content);
-  if (lower.endsWith(".json")) return parseJsonData(text);
-  if (lower.endsWith(".csv") || lower.endsWith(".tsv") || lower.endsWith(".txt")) return parseCsv(text);
+  if (lower.endsWith(".json")) return { table: parseJsonData(text), warnings: [] };
+  if (lower.endsWith(".csv") || lower.endsWith(".tsv") || lower.endsWith(".txt")) return readCsv(text);
   const t = text.trimStart();
-  return t.startsWith("[") ? parseJsonData(text) : parseCsv(text);
+  return t.startsWith("[") ? { table: parseJsonData(text), warnings: [] } : readCsv(text);
+}
+
+export function parseDataFile(name: string, content: ArrayBuffer | Uint8Array | string): DataTable {
+  return readDataFile(name, content).table;
 }
 
 // ------------------------------------------------------------------ grid operations (pure)
 
+/** Trim headers and cells. Throws (leaving the table untouched) if trimmed headers would collide or go blank. */
 export function trimWhitespace(t: DataTable): DataTable {
   const columns = t.columns.map((c) => c.trim());
+  const issues: DataIssue[] = [];
+  columns.forEach((c, i) => {
+    if (c === "") issues.push({ column: t.columns[i], message: "header would be empty after trimming" });
+    else if (columns.indexOf(c) !== i)
+      issues.push({
+        column: c,
+        message: `headers "${t.columns[columns.indexOf(c)]}" and "${t.columns[i]}" would collide`,
+      });
+  });
+  if (issues.length) throw new DataValidationError(issues);
   return {
     columns,
     rows: t.rows.map((r) => Object.fromEntries(t.columns.map((c, i) => [columns[i], (r[c] ?? "").trim()]))),

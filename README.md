@@ -167,7 +167,10 @@ iterations, delay and whether to stop on the first failure.
 
 To run the same requests for many inputs, add **Iteration data** (CSV, JSON or XLSX). Each row is one iteration,
 and each column becomes a variable for that iteration: a column `userId` is available as `{{userId}}` and
-`pm.iterationData.get("userId")`. Before running, you can clean the data in the grid:
+`pm.iterationData.get("userId")`. CSV files are checked on load: a row with more fields than the header,
+malformed quotes, or duplicate or missing headers over data are rejected with the row and column at fault, so no
+value is silently dropped. Short rows are padded with empty cells and reported as a warning. The CLI and MCP server
+apply the same checks. Before running, you can clean the data in the grid:
 
 - edit cells, add or delete rows and columns, and double-click a header to rename it;
 - **Trim** whitespace, **Dedupe** rows, **Drop empty** rows;

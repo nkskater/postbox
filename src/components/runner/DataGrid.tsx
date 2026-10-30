@@ -4,6 +4,7 @@
  * rows, trim whitespace, dedupe, drop empty rows and filter before running.
  */
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 import { Columns3, Download, Eraser, Filter, Plus, Rows3, Scissors, Trash2, X } from "lucide-react";
 import type { DataTable } from "@/core/types";
 import {
@@ -63,7 +64,13 @@ export function DataGrid({
           variant="outline"
           size="sm"
           className="h-7 text-xs"
-          onClick={() => onChange(trimWhitespace(table))}
+          onClick={() => {
+            try {
+              onChange(trimWhitespace(table));
+            } catch (err) {
+              toast.error((err as Error).message);
+            }
+          }}
           title="Trim whitespace in headers and cells"
         >
           <Scissors className="size-3.5" /> Trim
