@@ -1,8 +1,22 @@
 /**
  * OpenAPI 3.x / Swagger 2.0 (JSON or YAML) → collection tree.
- * Operations are grouped into folders by their first tag; path parameters
- * become {{variables}} and the first server URL becomes the {{baseUrl}}
- * collection variable.
+ *
+ * - Operations are grouped into folders by their first tag.
+ * - Path parameters (`{id}`) become `{{id}}` variables.
+ * - Server precedence follows the OpenAPI specification:
+ *     `operation.servers` > `pathItem.servers` > `spec.servers`
+ *   (and in Swagger 2.0, `operation.schemes` overrides root `spec.schemes`).
+ * - When a `servers` list contains multiple entries, the first entry with a
+ *   non-empty `url` is chosen deterministically.
+ * - Server template variables (`{var}`) are populated from `server.variables[var].default`
+ *   (falling back to the first `enum` value); any unresolved `{var}` placeholder is
+ *   converted into a `{{var}}` collection variable without overwriting existing variables.
+ * - Relative server URLs are resolved against `opts.sourceUrl` (or against the
+ *   root server's origin when `sourceUrl` is omitted, falling back to `http://localhost`).
+ * - The root server is stored in the `baseUrl` collection variable (`{{baseUrl}}`);
+ *   distinct path/operation server overrides receive dedicated collection variables
+ *   (`baseUrl_2`, `baseUrl_3`, …) so every request resolves to its intended host
+ *   while remaining editable.
  */
 import YAML from "yaml";
 import type { AuthConfig, BodyConfig, FolderNode, KeyValue, RequestNode, Variable } from "../types";
@@ -86,25 +100,140 @@ export function sampleFromSchema(spec: Obj, schemaIn: unknown, depth = 0): unkno
   }
 }
 
-function baseUrlOf(spec: Obj, sourceUrl?: string): string {
-  if (spec.swagger) {
-    const scheme = (spec.schemes as string[] | undefined)?.[0] ?? "https";
-    return `${scheme}://${spec.host ?? "localhost"}${spec.basePath ?? ""}`.replace(/\/$/, "");
-  }
-  const server = (spec.servers as Obj[] | undefined)?.[0];
-  if (!server) return "http://localhost";
-  let url = String(server.url ?? "");
-  for (const [k, v] of Object.entries((server.variables as Record<string, Obj>) ?? {}))
-    url = url.replace(`{${k}}`, String(v.default ?? ""));
-  // Relative server URLs ("/api/v3") are relative to where the spec was loaded from.
-  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) {
-    try {
-      url = new URL(url || "/", sourceUrl ?? "http://localhost").toString();
-    } catch {
-      url = `http://localhost${url.startsWith("/") ? "" : "/"}${url}`;
+/**
+ * Pick the first valid server object from a `servers` array.
+ * Returns `null` when the list is absent, empty, or contains no usable `url`.
+ */
+function pickFirstServer(spec: Obj, serversIn: unknown): Obj | null {
+  if (!Array.isArray(serversIn) || serversIn.length === 0) return null;
+  for (const raw of serversIn) {
+    const s = deref(spec, raw);
+    if (s && typeof s === "object" && typeof s.url === "string" && s.url.trim() !== "") {
+      return s;
     }
   }
-  return url.replace(/\/$/, "");
+  return null;
+}
+
+interface ResolvedServer {
+  url: string;
+  extraVariables: Variable[];
+}
+
+/**
+ * Resolve a single OpenAPI 3.x Server object into a normalized base URL
+ * (without trailing slash), substituting `server.variables` defaults and
+ * resolving relative URLs against `baseDocUrl`.
+ */
+function resolveOpenApiServer(server: Obj | null, baseDocUrl?: string): ResolvedServer {
+  if (!server) {
+    const fallback = resolveRelativeServerUrl("/", baseDocUrl);
+    return { url: fallback, extraVariables: [] };
+  }
+  let rawUrl = String(server.url ?? "").trim() || "/";
+  const serverVars = ((server.variables as Record<string, Obj>) ?? {}) as Record<string, Obj>;
+  const extraVariables: Variable[] = [];
+
+  // Substitute `{var}` placeholders in `server.url` while leaving `{{var}}` intact.
+  const placeholders: { token: string; expr: string }[] = [];
+  let tokenIdx = 0;
+  const protect = (expr: string) => {
+    const token = `__ postbox_tpl_${tokenIdx++}__`.replace(/\s+/g, "");
+    placeholders.push({ token, expr });
+    return token;
+  };
+
+  // Preserve any pre-existing `{{var}}` expressions.
+  rawUrl = rawUrl.replace(/\{\{([^{}]+)\}\}/g, (match) => protect(match));
+
+  // Resolve `{var}` template variables from `server.variables`.
+  rawUrl = rawUrl.replace(/\{([^{}]+)\}/g, (_match, rawName: string) => {
+    const name = rawName.trim();
+    const defObj = serverVars[name];
+    if (defObj && typeof defObj === "object") {
+      if (defObj.default !== undefined && defObj.default !== null && String(defObj.default) !== "") {
+        return String(defObj.default);
+      }
+      if (Array.isArray(defObj.enum) && defObj.enum.length > 0 && defObj.enum[0] !== undefined) {
+        return String(defObj.enum[0]);
+      }
+      if (defObj.default === "") {
+        return "";
+      }
+    }
+    // Unresolved server template variable: preserve as an editable `{{name}}` variable.
+    extraVariables.push({ key: name, value: "", type: "default", enabled: true });
+    return protect(`{{${name}}}`);
+  });
+
+  let resolved = resolveRelativeServerUrl(rawUrl, baseDocUrl);
+  for (const { token, expr } of placeholders) {
+    resolved = resolved.replaceAll(token, expr);
+  }
+  return { url: resolved.replace(/\/+$/, ""), extraVariables };
+}
+
+function resolveRelativeServerUrl(url: string, baseDocUrl?: string): string {
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) {
+    return url.replace(/\/+$/, "");
+  }
+  const base = baseDocUrl ?? "http://localhost";
+  try {
+    return new URL(url || "/", base).toString().replace(/\/+$/, "");
+  } catch {
+    return `http://localhost${url.startsWith("/") ? "" : "/"}${url}`.replace(/\/+$/, "");
+  }
+}
+
+function resolveSwaggerBaseUrl(spec: Obj, op: Obj | undefined, sourceUrl?: string): string {
+  let parsedSource: URL | null = null;
+  if (sourceUrl) {
+    try {
+      parsedSource = new URL(sourceUrl);
+    } catch {
+      parsedSource = null;
+    }
+  }
+  const opSchemes = Array.isArray(op?.schemes) ? (op.schemes as string[]).filter(Boolean) : [];
+  const rootSchemes = Array.isArray(spec.schemes) ? (spec.schemes as string[]).filter(Boolean) : [];
+  const scheme =
+    opSchemes[0] ??
+    rootSchemes[0] ??
+    (parsedSource ? parsedSource.protocol.replace(/:$/, "") : undefined) ??
+    "https";
+  const host =
+    typeof spec.host === "string" && spec.host.trim() !== ""
+      ? spec.host.trim()
+      : (parsedSource?.host ?? "localhost");
+  const basePath = typeof spec.basePath === "string" ? spec.basePath : "";
+  return `${scheme}://${host}${basePath}`.replace(/\/+$/, "");
+}
+
+function effectiveServerForOperation(
+  spec: Obj,
+  item: Obj,
+  op: Obj,
+  sourceUrl: string | undefined,
+  rootBaseUrl: string,
+): ResolvedServer {
+  if (spec.swagger) {
+    return {
+      url: resolveSwaggerBaseUrl(spec, op, sourceUrl),
+      extraVariables: [],
+    };
+  }
+  const opServer = pickFirstServer(spec, op.servers);
+  const pathServer = pickFirstServer(spec, item.servers);
+  const chosen = opServer ?? pathServer;
+  if (!chosen) {
+    return { url: rootBaseUrl, extraVariables: [] };
+  }
+
+  // Relative server overrides resolve against `sourceUrl` when provided;
+  // otherwise against the root server's URL if absolute, or `http://localhost`.
+  const fallbackBase =
+    sourceUrl ?? (/^[a-z][a-z0-9+.-]*:\/\//i.test(rootBaseUrl) ? `${rootBaseUrl}/` : "http://localhost");
+  return resolveOpenApiServer(chosen, fallbackBase);
 }
 
 function securityToAuth(spec: Obj, requirement: unknown): AuthConfig | null {
@@ -284,6 +413,60 @@ export function importOpenApi(input: string | Obj, opts: { sourceUrl?: string } 
     return f;
   };
 
+  // Resolve the root-level server first so `baseUrl` is always the primary collection variable.
+  const rootResolved: ResolvedServer = spec.swagger
+    ? { url: resolveSwaggerBaseUrl(spec, undefined, opts.sourceUrl), extraVariables: [] }
+    : resolveOpenApiServer(pickFirstServer(spec, spec.servers), opts.sourceUrl);
+
+  const variables: Variable[] = [
+    { key: "baseUrl", value: rootResolved.url, type: "default", enabled: true },
+  ];
+  const usedVarKeys = new Set<string>(["baseUrl"]);
+
+  // Reserve path parameter names so generated server variable keys never collide with them.
+  const reservedKeys = new Set<string>([
+    "baseUrl",
+    "token",
+    "username",
+    "password",
+    "apiKey",
+    "clientId",
+    "clientSecret",
+  ]);
+  for (const rawPath of Object.keys((spec.paths as Obj) ?? {})) {
+    for (const m of rawPath.matchAll(/\{([^}]+)\}/g)) {
+      reservedKeys.add(m[1].trim());
+    }
+  }
+
+  const addExtraVariables = (extras: Variable[]) => {
+    for (const v of extras) {
+      if (!usedVarKeys.has(v.key)) {
+        usedVarKeys.add(v.key);
+        reservedKeys.add(v.key);
+        variables.push(v);
+      }
+    }
+  };
+  addExtraVariables(rootResolved.extraVariables);
+
+  const serverVarByUrl = new Map<string, string>([[rootResolved.url, "baseUrl"]]);
+  let nextServerIndex = 2;
+
+  const variableKeyForServerUrl = (serverUrl: string): string => {
+    const existing = serverVarByUrl.get(serverUrl);
+    if (existing) return existing;
+    let candidate = `baseUrl_${nextServerIndex++}`;
+    while (reservedKeys.has(candidate) || usedVarKeys.has(candidate)) {
+      candidate = `baseUrl_${nextServerIndex++}`;
+    }
+    usedVarKeys.add(candidate);
+    reservedKeys.add(candidate);
+    serverVarByUrl.set(serverUrl, candidate);
+    variables.push({ key: candidate, value: serverUrl, type: "default", enabled: true });
+    return candidate;
+  };
+
   for (const [path, itemIn] of Object.entries(spec.paths as Obj)) {
     const item = deref(spec, itemIn);
     const shared = ((item.parameters as unknown[]) ?? []).map((p) => deref(spec, p));
@@ -316,8 +499,14 @@ export function importOpenApi(input: string | Obj, opts: { sourceUrl?: string } 
       const { body, contentType } = buildBody(spec, op, params);
       if (contentType && !headers.some((h) => h.key.toLowerCase() === "content-type"))
         headers.push({ key: "Content-Type", value: contentType, enabled: true });
+
+      const resolvedServer = effectiveServerForOperation(spec, item, op, opts.sourceUrl, rootResolved.url);
+      addExtraVariables(resolvedServer.extraVariables);
+      const serverVarKey = variableKeyForServerUrl(resolvedServer.url);
+
       const qs = query.filter((q) => q.enabled).map((q) => `${q.key}=${q.value}`);
-      const url = `{{baseUrl}}${path.replace(/\{([^}]+)\}/g, "{{$1}}")}${qs.length ? `?${qs.join("&")}` : ""}`;
+      const normPath = path.startsWith("/") ? path : `/${path}`;
+      const url = `{{${serverVarKey}}}${normPath.replace(/\{([^}]+)\}/g, "{{$1}}")}${qs.length ? `?${qs.join("&")}` : ""}`;
       const opAuth =
         op.security !== undefined
           ? (op.security as unknown[]).length === 0
@@ -344,8 +533,5 @@ export function importOpenApi(input: string | Obj, opts: { sourceUrl?: string } 
     }
   }
 
-  const variables: Variable[] = [
-    { key: "baseUrl", value: baseUrlOf(spec, opts.sourceUrl), type: "default", enabled: true },
-  ];
   return { root, variables };
 }
