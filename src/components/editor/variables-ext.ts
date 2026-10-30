@@ -14,18 +14,40 @@ import {
 import { autocompletion, type CompletionContext } from "@codemirror/autocomplete";
 import type { Extension } from "@codemirror/state";
 import { DYNAMIC_VARIABLES } from "@/core/variables/dynamic";
+import { useMemo } from "react";
 import type { KnownVariable } from "@/stores/app";
+import { useSetting } from "@/stores/settings";
 
 const PATTERN = /\{\{\s*([^{}]+?)\s*\}\}/g;
 
+export interface VariableExtOptions {
+  autocomplete?: boolean;
+  /** Underline variables that are not defined (default true). */
+  highlightUnresolved?: boolean;
+  /** Show the current value on hover (default true). */
+  tooltips?: boolean;
+}
+
+/** Variable-related editor options from the user's settings. */
+export function useVariableOptions(): Required<VariableExtOptions> {
+  const autocomplete = useSetting<boolean>("editor.variableAutocomplete");
+  const highlightUnresolved = useSetting<boolean>("editor.highlightUnresolved");
+  const tooltips = useSetting<boolean>("variables.tooltips");
+  return useMemo(
+    () => ({ autocomplete, highlightUnresolved, tooltips }),
+    [autocomplete, highlightUnresolved, tooltips],
+  );
+}
+
 export function variableExtensions(
   vars: Record<string, KnownVariable>,
-  opts: { autocomplete?: boolean } = {},
+  opts: VariableExtOptions = {},
 ): Extension[] {
   const known = (name: string) => name in vars || name in DYNAMIC_VARIABLES;
+  const missingClass = opts.highlightUnresolved === false ? "pb-var-ok" : "pb-var-missing";
   const decorator = new MatchDecorator({
     regexp: PATTERN,
-    decoration: (m) => Decoration.mark({ class: known(m[1].trim()) ? "pb-var-ok" : "pb-var-missing" }),
+    decoration: (m) => Decoration.mark({ class: known(m[1].trim()) ? "pb-var-ok" : missingClass }),
   });
   const plugin = ViewPlugin.fromClass(
     class {
@@ -66,7 +88,7 @@ export function variableExtensions(
     return null;
   });
 
-  const exts: Extension[] = [plugin, tooltip];
+  const exts: Extension[] = opts.tooltips === false ? [plugin] : [plugin, tooltip];
   if (opts.autocomplete !== false) {
     const source = (ctx: CompletionContext) => {
       const before = ctx.matchBefore(/\{\{[^{}]*$/);

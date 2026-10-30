@@ -9,6 +9,7 @@ import { defaultValues, type SettingValue } from "@/lib/settings/registry";
 import { applyAppearance, computeAppearance } from "@/lib/settings/apply";
 import type { EnvSetting, SettingsPayload } from "@/server/settings";
 import { useApp } from "./app";
+import { setRuntimeSettings } from "@/lib/settings/runtime";
 
 interface SettingsState {
   loaded: boolean;
@@ -26,6 +27,7 @@ interface SettingsState {
 }
 
 function apply(values: Record<string, SettingValue>) {
+  setRuntimeSettings(values);
   const computed = computeAppearance(values);
   applyAppearance(computed);
   // Editors, toasts etc. read the resolved theme from the app store.
@@ -78,6 +80,8 @@ export const useSettings = create<SettingsState>()((set, get) => ({
         environment: data.environment,
       });
       apply(data.values);
+      // Tabs were rehydrated from storage before settings loaded; drop them if restore is off.
+      if (data.values["tabs.restore"] === false) useApp.setState({ tabs: [], activeTabId: null });
     } catch {
       set({ loaded: true });
       apply(get().values);

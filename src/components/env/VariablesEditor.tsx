@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { useSetting } from "@/stores/settings";
 
 export function VariablesEditor({
   variables,
@@ -20,6 +21,7 @@ export function VariablesEditor({
   onChange: (v: Variable[]) => void;
 }) {
   const [revealed, setRevealed] = useState<Set<number>>(new Set());
+  const revealSecrets = useSetting<boolean>("variables.revealSecrets");
   const [filter, setFilter] = useState("");
   const rows: Variable[] = [...variables, { key: "", value: "", type: "default", enabled: true }];
 
@@ -51,7 +53,8 @@ export function VariablesEditor({
         {rows.map((v, i) => {
           const isNew = i === variables.length;
           if (q && !isNew && !v.key.toLowerCase().includes(q)) return null;
-          const masked = v.type === "secret" && !revealed.has(i);
+          // The eye button toggles each row relative to the "Show secret values" setting.
+          const masked = v.type === "secret" && (revealSecrets ? revealed.has(i) : !revealed.has(i));
           return (
             <div
               key={i}

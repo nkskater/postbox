@@ -34,6 +34,19 @@ const FONTS: Record<string, string> = {
   mono: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace',
 };
 
+const MONO_FALLBACK =
+  'ui-monospace, "JetBrains Mono", "Cascadia Code", "SFMono-Regular", Menlo, Consolas, monospace';
+const CODE_FONTS: Record<string, string> = {
+  default: MONO_FALLBACK,
+  jetbrains: `"JetBrains Mono", ${MONO_FALLBACK}`,
+  fira: `"Fira Code", ${MONO_FALLBACK}`,
+  cascadia: `"Cascadia Code", "Cascadia Mono", ${MONO_FALLBACK}`,
+  source: `"Source Code Pro", ${MONO_FALLBACK}`,
+  ibm: `"IBM Plex Mono", ${MONO_FALLBACK}`,
+  consolas: `Consolas, ${MONO_FALLBACK}`,
+  menlo: `Menlo, Monaco, ${MONO_FALLBACK}`,
+};
+
 const DENSITY: Record<string, string> = { compact: "0.22rem", comfortable: "0.25rem", spacious: "0.285rem" };
 const RADIUS: Record<string, string> = { sharp: "0.15rem", default: "0.5rem", round: "0.85rem" };
 
@@ -55,6 +68,9 @@ export function computeAppearance(values: Record<string, SettingValue>): Compute
     "--spacing": DENSITY[String(values["appearance.density"])] ?? DENSITY.comfortable,
     // The interface is designed around 14px body text on a 16px root; scale the root.
     "font-size": `${((fontSize / 14) * 100).toFixed(2)}%`,
+    "--code-font-size": `${Number(values["editor.fontSize"]) || 12.5}px`,
+    "--code-line-height": String(Number(values["editor.lineHeight"]) || 1.4),
+    "--code-font": CODE_FONTS[String(values["editor.fontFamily"])] ?? CODE_FONTS.default,
     ...accentCssVars(String(values["appearance.accent"] ?? "apricot"), theme),
   };
   const attrs: string[] = [];

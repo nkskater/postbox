@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import { KeyValueEditor } from "./KeyValueEditor";
 import { cn } from "@/lib/utils";
+import { getSetting } from "@/lib/settings/runtime";
 import { formatXml } from "@/lib/format";
 
 const MODES: { mode: BodyMode; label: string }[] = [
@@ -39,7 +40,10 @@ export function switchBodyMode(body: BodyConfig, mode: BodyMode): BodyConfig {
       return {
         mode: "raw",
         raw: body.mode === "raw" ? body.raw : "",
-        language: body.mode === "raw" ? body.language : "json",
+        language:
+          body.mode === "raw"
+            ? body.language
+            : getSetting<RawLanguage>("requests.defaultRawLanguage") || "json",
       };
     case "urlencoded":
       return {
