@@ -34,6 +34,7 @@ export interface StartRunInput {
 }
 
 export async function startRun(input: StartRunInput): Promise<{ runId: string; summary: RunSummary }> {
+  repo.requireFolderIn(input.workspaceId, input.folderId);
   const tree = repo.getFolderTree(input.folderId);
   if (!tree) throw new Error("Folder not found");
   const chain = repo.getFolderChain(input.folderId);

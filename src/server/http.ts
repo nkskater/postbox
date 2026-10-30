@@ -3,20 +3,12 @@
  */
 import { NextResponse } from "next/server";
 import { ZodError, type ZodType } from "zod";
+import { HttpError } from "./errors";
 
-export class HttpError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-  ) {
-    super(message);
-  }
-}
+export { HttpError, notFound } from "./errors";
 
 export const json = (data: unknown, init?: number | ResponseInit) =>
   NextResponse.json(data, typeof init === "number" ? { status: init } : init);
-
-export const notFound = (what = "Resource") => new HttpError(404, `${what} not found`);
 
 /** Wrap a handler: converts thrown errors into JSON error responses. */
 export function route<A extends unknown[]>(fn: (...args: A) => Promise<Response> | Response) {
@@ -32,10 +24,35 @@ export function route<A extends unknown[]>(fn: (...args: A) => Promise<Response>
   };
 }
 
+/** Largest JSON body the API accepts (API_BODY_LIMIT_MB, default 25 MB; uploads travel inline as base64). */
+export const bodyLimitBytes = () => (Number(process.env.API_BODY_LIMIT_MB) || 25) * 1024 * 1024;
+
+/** Read a request body as text, failing with 413 as soon as it exceeds `limit` bytes. */
+export async function readBodyText(req: Request, limit = bodyLimitBytes()): Promise<string> {
+  const tooLarge = () => new HttpError(413, `Request body exceeds ${Math.round(limit / 1048576)} MB`);
+  if (Number(req.headers.get("content-length")) > limit) throw tooLarge();
+  if (!req.body) return "";
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > limit) {
+      await reader.cancel().catch(() => undefined);
+      throw tooLarge();
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
 export async function parseBody<T>(req: Request, schema: ZodType<T>): Promise<T> {
+  const text = await readBodyText(req);
   let data: unknown;
   try {
-    data = await req.json();
+    data = JSON.parse(text);
   } catch {
     throw new HttpError(400, "Body must be valid JSON");
   }
