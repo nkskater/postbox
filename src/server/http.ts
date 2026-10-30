@@ -26,8 +26,8 @@ export function route<A extends unknown[]>(fn: (...args: A) => Promise<Response>
     } catch (err) {
       if (err instanceof HttpError) return json({ error: err.message }, err.status);
       if (err instanceof ZodError) return json({ error: "Invalid input", issues: err.issues }, 400);
-      console.error("[postbox] unhandled API error:", (err as Error).message);
-      return json({ error: (err as Error).message ?? "Internal error" }, 500);
+      console.error("[postbox] unhandled API error:", err);
+      return json({ error: "Internal error" }, 500);
     }
   };
 }

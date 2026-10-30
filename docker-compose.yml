@@ -6,6 +6,10 @@ services:
     image: postbox:local
     container_name: postbox
     restart: unless-stopped
+    # Runtime limits for the whole app, including scripts and collection runs.
+    mem_limit: ${POSTBOX_MEMORY_LIMIT:-1g}
+    cpus: ${POSTBOX_CPU_LIMIT:-2.0}
+    pids_limit: ${POSTBOX_PIDS_LIMIT:-256}
     ports:
       - "${POSTBOX_PORT:-3000}:3000"
     volumes:
