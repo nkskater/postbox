@@ -61,6 +61,10 @@ beforeAll(async () => {
       res.writeHead(200, { "Content-Encoding": "gzip", "Content-Type": "text/plain" });
       return res.end("invalid gzip");
     }
+    if (path === "large") {
+      res.writeHead(200, ["X-Repeat", "first", "X-Repeat", "second", "Content-Type", "text/plain"]);
+      return res.end("x".repeat(1024));
+    }
     const encoding = path === "raw" ? "deflate" : path === "stacked" ? "gzip, br" : path;
     res.writeHead(200, { "Content-Encoding": encoding, "Content-Type": "text/plain" });
     res.end(compressed[path]);
@@ -320,6 +324,16 @@ describe("HTTP security boundaries", () => {
     });
     const res = await sendRequest(request("/" + encoding), { maxBodyBytes: decoded.length });
     expect(res.bodyText).toBe(decoded.toString());
+  });
+
+  it("marks captured response bodies as truncated and preserves repeated response headers", async () => {
+    const res = await sendRequest(request("/large"), { maxBodyBytes: 128 });
+    expect(res.bodyText).toBe("x".repeat(128));
+    expect(res.truncated).toBe(true);
+    expect(res.headers.filter(([name]) => name.toLowerCase() === "x-repeat")).toEqual([
+      ["X-Repeat", "first"],
+      ["X-Repeat", "second"],
+    ]);
   });
 
   it("preserves the existing fallback for malformed compressed responses", async () => {

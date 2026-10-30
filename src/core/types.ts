@@ -205,6 +205,8 @@ export interface HttpResponse {
   contentType: string;
   /** decoded body size in bytes */
   size: number;
+  /** True when the response exceeded the configured capture limit. */
+  truncated: boolean;
   /** headers size in bytes (approximate) */
   headersSize: number;
   timings: Timings;

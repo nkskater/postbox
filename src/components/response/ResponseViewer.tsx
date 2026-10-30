@@ -159,6 +159,12 @@ export function ResponseViewer({
 
   const isImage = res?.contentType.startsWith("image/");
   const isPdf = res?.contentType.includes("pdf");
+  const previewCsp =
+    "default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none';";
+  const escapeHtml = (value: string) =>
+    value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const previewDocument = (content: string) =>
+    `<!doctype html><meta http-equiv="Content-Security-Policy" content="${previewCsp}"><meta name="referrer" content="no-referrer">${content}`;
 
   return (
     <Tabs value={tab} onValueChange={setTab} className="flex h-full min-h-0 flex-col gap-0">
@@ -281,6 +287,16 @@ export function ResponseViewer({
           </div>
         ) : (
           <>
+            {res.truncated && (
+              <div
+                role="status"
+                className="flex items-center gap-2 border-b bg-warning/10 px-3 py-1.5 text-xs text-warning"
+              >
+                <AlertTriangle className="size-3.5 shrink-0" />
+                Response capture was truncated at the configured size limit. Download contains only the
+                captured portion.
+              </div>
+            )}
             <div className="flex items-center gap-1 px-3 py-1">
               {(["pretty", "raw", "preview"] as const).map((v) => (
                 <Button
@@ -317,17 +333,20 @@ export function ResponseViewer({
             <div className="min-h-0 flex-1 overflow-hidden">
               {view === "preview" ? (
                 isImage ? (
-                  <div className="flex h-full items-center justify-center overflow-auto p-4">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={`data:${res.contentType};base64,${res.bodyBase64}`}
-                      alt="Response preview"
-                      className="max-h-full max-w-full"
-                    />
-                  </div>
+                  <iframe
+                    title="Image response preview"
+                    sandbox=""
+                    referrerPolicy="no-referrer"
+                    className="h-full w-full bg-white"
+                    srcDoc={previewDocument(
+                      `<style>body{margin:0;display:grid;place-items:center;height:100vh}img{max-width:100%;max-height:100vh;object-fit:contain}</style><img alt="Response preview" src="data:${res.contentType};base64,${res.bodyBase64}">`,
+                    )}
+                  />
                 ) : isPdf ? (
                   <iframe
                     title="PDF preview"
+                    sandbox=""
+                    referrerPolicy="no-referrer"
                     className="h-full w-full"
                     src={`data:application/pdf;base64,${res.bodyBase64}`}
                   />
@@ -336,9 +355,9 @@ export function ResponseViewer({
                     title="Response preview"
                     sandbox=""
                     className="h-full w-full bg-white"
-                    srcDoc={
-                      lang === "html" ? res.bodyText : `<pre>${res.bodyText.replace(/</g, "&lt;")}</pre>`
-                    }
+                    srcDoc={previewDocument(
+                      lang === "html" ? res.bodyText : `<pre>${escapeHtml(res.bodyText)}</pre>`,
+                    )}
                   />
                 )
               ) : res.isBinary ? (
