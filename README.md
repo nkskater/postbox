@@ -1,8 +1,8 @@
 # Postbox
 
-A self-hosted, lightweight, open-source alternative to Postman. It runs as a Docker web app on your LAN.
-Requests, scripts and collection runs all execute on the server, so you get no CORS problems and
-secrets stay on the server.
+A self-hosted, lightweight, open-source alternative to Postman. Run it as a Docker web app on your LAN,
+or use the portable Windows edition for a local, zero-install app. Requests, scripts and collection runs
+execute on the machine running Postbox, so VPN-connected Windows users can reach services from their PC.
 
 ![Postbox: a request with its JSON response, collection sidebar and environment selector](docs/screenshots/request-response.png)
 
@@ -21,6 +21,7 @@ secrets stay on the server.
 
 - [Features](#features)
 - [Quick start (Docker)](#quick-start-docker)
+- [Portable Windows edition](#portable-windows-edition)
 - [Usage guide](#usage-guide)
   1. [Send your first request](#1-send-your-first-request)
   2. [Collections, folders and inheritance](#2-collections-folders-and-inheritance)
@@ -72,6 +73,39 @@ docker compose up -d --build
 
 Data lives in the `postbox-data` volume (`/data/postbox.db`). To use a bind mount instead, replace the volume with
 `./data:/data` and make the directory writable by UID 1001.
+
+## Portable Windows edition
+
+The portable x64 bundle runs on Windows 10/11 without an installer or administrator rights. Download
+`Postbox-windows-x64.zip` from the [latest GitHub release](https://github.com/nkskater/postbox/releases/latest),
+extract it, and double-click **Postbox.cmd**. Postbox opens in your browser at `http://127.0.0.1:47392/`;
+keep the console window open while using it. If that port is unavailable, Postbox selects another free local port.
+It binds only to loopback, so it does not expose the app to your network or require a Windows Firewall rule.
+
+The bundle includes its Node.js runtime and SQLite native module. By default, the `Data` folder beside
+`Postbox.cmd` stores the database and daily backups. Keep this folder when updating: replace the `app` and
+`runtime` folders and launcher files from the new zip, leaving `Data` in place. For a data directory outside
+the extracted bundle, create `Settings.cmd` beside `Postbox.cmd`, for example:
+
+```bat
+set "DATA_DIR=%LOCALAPPDATA%\Postbox"
+set BACKUP_KEEP=30
+```
+
+`Settings.cmd` can also set `DATABASE_PATH`, `PORT`, `NO_BROWSER=1`, `POSTBOX_PASSWORD`, and `POSTBOX_TOKEN`.
+The launchers use the Windows system certificate store for HTTPS, which can help when accessing services through
+a corporate VPN. Requests originate from the Windows PC, using its active network and VPN connection.
+
+Use **Postbox CLI.cmd** to run a collection from Command Prompt or PowerShell, for example:
+
+```bat
+"Postbox CLI.cmd" run collection.json -e environment.json --bail
+```
+
+Run **Create desktop shortcut.cmd** to add shortcuts to the Desktop and Start menu. For screenshots and more
+details, see the [Windows edition guide](windows/READ%20ME.txt). Developers can build the bundle on a supported
+build host with `npm run build:windows`; this writes `dist/Postbox-windows-x64.zip`. The hosted Windows package
+workflow also attaches the zip to tagged GitHub releases.
 
 > **Try the demo.** Everything in the guide below uses the files in [`docs/demo/`](docs/demo): a collection for the
 > free [JSONPlaceholder](https://jsonplaceholder.typicode.com) API, a matching environment and a CSV of test data.
