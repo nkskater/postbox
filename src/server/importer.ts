@@ -1,6 +1,8 @@
 import { importHar, isHar } from "@/core/convert/har";
+import { importHoppscotch, isHoppscotch } from "@/core/convert/hoppscotch";
+import { getDb } from "./db";
 /**
- * Detects and imports Postman collections/environments, OpenAPI specs and HAR recordings.
+ * Detects and imports Postman collections/environments and OpenAPI specs.
  * Shared by /api/import and the MCP server.
  */
 import { importOpenApi, isOpenApi, parseSpec } from "@/core/convert/openapi";
@@ -19,13 +21,19 @@ export type ImportOutcome =
       name: string;
       folders: number;
       requests: number;
-      source: "postman" | "openapi" | "har";
+      source: "postman" | "openapi" | "har" | "hoppscotch";
       warnings?: string[];
     }
   | { kind: "environment"; id: string; name: string; variables: number }
-  | { kind: "globals"; variables: number };
+  | { kind: "globals"; variables: number }
+  | { kind: "batch"; items: ImportOutcome[]; warnings: string[] };
 
-export function importContent(workspaceId: string, content: string, sourceUrl?: string): ImportOutcome {
+export function importContent(
+  workspaceId: string,
+  content: string,
+  sourceUrl?: string,
+  options: { includeCredentials?: boolean } = {},
+): ImportOutcome {
   let data: unknown;
   try {
     data = parseSpec(content);
@@ -39,6 +47,23 @@ export function importContent(workspaceId: string, content: string, sourceUrl?: 
   if (isPostmanCollection(data)) {
     const { root, variables } = importPostmanCollection(data);
     return { kind: "collection", source: "postman", ...repo.importTree(workspaceId, root, variables) };
+  }
+  if (isHoppscotch(data)) {
+    const converted = importHoppscotch(data, options);
+    return getDb().transaction(() => {
+      const items: ImportOutcome[] = converted.items.map((item) => {
+        if (item.kind === "collection")
+          return {
+            kind: "collection",
+            source: "hoppscotch",
+            ...repo.importTree(workspaceId, item.root, item.variables),
+            warnings: converted.warnings,
+          };
+        const created = repo.createEnvironment(workspaceId, item.name, item.variables);
+        return { kind: "environment", id: created.id, name: created.name, variables: item.variables.length };
+      });
+      return items.length === 1 ? items[0] : { kind: "batch", items, warnings: converted.warnings };
+    });
   }
   if (isOpenApi(data)) {
     const { root, variables } = importOpenApi(data, { sourceUrl });
@@ -59,6 +84,6 @@ export function importContent(workspaceId: string, content: string, sourceUrl?: 
     return { kind: "environment", id: created.id, name: created.name, variables: env.variables.length };
   }
   throw new Error(
-    "Unrecognised format. Supported: Postman collection v2.0/v2.1, Postman environment, OpenAPI 3.x, Swagger 2.0, HAR 1.2",
+    "Unrecognised format. Supported: Postman collection v2.0/v2.1, Postman environment, OpenAPI 3.x, Swagger 2.0, HAR 1.2, Hoppscotch",
   );
 }

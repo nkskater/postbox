@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { useApp, type RequestDraft } from "@/stores/app";
 import { useDialogs } from "@/stores/dialogs";
@@ -23,11 +24,12 @@ import { paramsFromUrl } from "@/lib/url-params";
 import { DEFAULT_SETTINGS } from "@/core/types";
 
 export interface Outcome {
-  kind: "collection" | "environment" | "globals";
+  kind: "collection" | "environment" | "globals" | "batch";
+  items?: Outcome[];
+  warnings?: string[];
   name?: string;
   requests?: number;
   variables?: number;
-  warnings?: string[];
 }
 
 export interface FileImportLike {
@@ -61,6 +63,7 @@ export interface ImportDialogState {
   batchSummary: BatchImportSummary | null;
   textError: string | null;
   linkError: string | null;
+  includeCredentials: boolean;
   warnings: string[];
 }
 
@@ -80,6 +83,8 @@ export interface ImportControllerDeps {
 }
 
 export function formatOutcomeSummary(o: Outcome): string {
+  if (o.kind === "batch")
+    return `Imported ${o.items?.length ?? 0} items: ${o.items?.map(formatOutcomeSummary).join("; ")}`;
   if (o.kind === "collection") {
     return (
       `Imported collection "${o.name}" (${o.requests} requests)` +
@@ -109,7 +114,8 @@ export function createImportController(deps: ImportControllerDeps, initial: Part
     batchSummary: initial.batchSummary ?? null,
     textError: initial.textError ?? null,
     linkError: initial.linkError ?? null,
-    warnings: initial.warnings ?? [],
+    includeCredentials: initial.includeCredentials ?? false,
+    warnings: [],
   };
   let inFlight = false;
 
@@ -126,7 +132,11 @@ export function createImportController(deps: ImportControllerDeps, initial: Part
     const res = await fetchFn("/api/import", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ workspaceId: deps.getWorkspaceId(), ...body }),
+      body: JSON.stringify({
+        workspaceId: deps.getWorkspaceId(),
+        ...body,
+        includeCredentials: state.includeCredentials,
+      }),
     });
     let data: (Partial<Outcome> & { error?: string }) | null = null;
     try {
@@ -171,6 +181,7 @@ export function createImportController(deps: ImportControllerDeps, initial: Part
     }
     emit({
       open: false,
+      includeCredentials: false,
       text: "",
       link: "",
       drag: false,
@@ -290,6 +301,9 @@ export function createImportController(deps: ImportControllerDeps, initial: Part
 
   return {
     getState: () => state,
+    setIncludeCredentials: (includeCredentials: boolean) => {
+      if (!inFlight) emit({ includeCredentials });
+    },
 
     setText: (text: string) => {
       if (inFlight || state.busy) return;
@@ -316,6 +330,7 @@ export function createImportController(deps: ImportControllerDeps, initial: Part
       if (!nextOpen) {
         emit({
           open: false,
+          includeCredentials: false,
           warnings: [],
           drag: false,
           batchSummary: null,
@@ -414,6 +429,7 @@ export function ImportDialog() {
     batchSummary: null,
     textError: null,
     linkError: null,
+    includeCredentials: false,
     warnings: [],
   }));
 
@@ -450,7 +466,8 @@ export function ImportDialog() {
     return controllerRef.current;
   };
 
-  const { text, link, busy, drag, batchSummary, textError, linkError, warnings } = uiState;
+  const { text, link, busy, drag, batchSummary, textError, linkError, includeCredentials, warnings } =
+    uiState;
 
   return (
     <Dialog open={open} onOpenChange={(next) => getController().handleOpenChange(next)}>
@@ -458,10 +475,18 @@ export function ImportDialog() {
         <DialogHeader>
           <DialogTitle>Import</DialogTitle>
           <DialogDescription>
-            Postman collection (v2.0/v2.1) or environment, OpenAPI 3 / Swagger 2 (JSON or YAML), HAR 1.2
-            recording, or a cURL command.
+            Postman collection (v2.0/v2.1) or environment, OpenAPI 3 / Swagger 2 (JSON or YAML), Hoppscotch
+            exports, or a cURL command.
           </DialogDescription>
         </DialogHeader>
+        <label className="flex items-center gap-2 text-xs">
+          <Checkbox
+            checked={includeCredentials}
+            disabled={busy}
+            onCheckedChange={(value) => getController().setIncludeCredentials(value === true)}
+          />
+          Include authentication and secret values from Hoppscotch exports
+        </label>
         <Tabs defaultValue="file">
           <TabsList>
             <TabsTrigger value="file" disabled={busy}>
@@ -588,7 +613,7 @@ export function ImportDialog() {
               className="h-56 font-mono text-xs"
               disabled={busy}
               placeholder={
-                "curl https://api.example.com/users -H 'Accept: application/json'\n\n— or paste Postman / HAR / OpenAPI JSON or YAML —"
+                "curl https://api.example.com/users -H 'Accept: application/json'\n\n— or paste Postman / HAR / Hoppscotch / OpenAPI JSON or YAML —"
               }
               value={text}
               onChange={(e) => getController().setText(e.target.value)}
@@ -624,10 +649,10 @@ export function ImportDialog() {
             aria-label="Import warnings"
             className="max-h-48 overflow-auto rounded border p-3 text-xs"
           >
-            <h3 className="mb-2 font-medium">Import warnings ({warnings.length})</h3>
+            <h3 className="mb-2 font-medium">Import warnings</h3>
             <ul className="list-disc space-y-1 pl-4">
-              {warnings.map((warning, index) => (
-                <li key={index}>{warning}</li>
+              {warnings.map((warning, i) => (
+                <li key={i}>{warning}</li>
               ))}
             </ul>
           </section>

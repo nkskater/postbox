@@ -468,3 +468,71 @@ describe("HAR import authorization and persistence", () => {
     });
   });
 });
+
+describe("Hoppscotch import boundaries", () => {
+  it("requires consent, persists batch exports atomically, and supports REST/MCP authorization", async () => {
+    const { POST } = await import("@/app/api/import/route");
+    const content = JSON.stringify([
+      {
+        v: 12,
+        name: "Migrated",
+        folders: [],
+        requests: [
+          {
+            v: "17",
+            name: "One",
+            method: "GET",
+            endpoint: "https://example.test/",
+            auth: { authType: "bearer", authActive: true, token: "consented-token" },
+            body: { contentType: null, body: null },
+          },
+        ],
+      },
+      {
+        v: 2,
+        name: "Imported env",
+        variables: [{ key: "secret", initialValue: "", currentValue: "consented-value", secret: true }],
+      },
+    ]);
+    const send = (user: UserRow, includeCredentials = false) =>
+      POST(request("POST", "/api/import", user, { workspaceId, content, includeCredentials }));
+    expect((await send(editor)).status).toBe(400);
+    expect((await send(outsider, true)).status).toBe(404);
+    expect((await send(viewer, true)).status).toBe(403);
+    const response = await send(editor, true);
+    expect(response.status).toBe(201);
+    const result = await response.json();
+    expect(result).toMatchObject({
+      kind: "batch",
+      items: [
+        { source: "hoppscotch", requests: 1 },
+        { kind: "environment", variables: 1 },
+      ],
+    });
+    expect(repo.getFolderTree(result.items[0].id)?.children[0]).toMatchObject({
+      auth: { type: "bearer", bearer: { token: "consented-token" } },
+    });
+    const rpc = await mcpRoute.POST(
+      request("POST", "/api/mcp", editor, {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "import_spec", arguments: { workspaceId, content, includeCredentials: true } },
+      }),
+    );
+    expect(JSON.parse((await rpc.json()).result.content[0].text).kind).toBe("batch");
+    const before = repo.listEnvironments(workspaceId).length;
+    const invalid = JSON.stringify([
+      { v: 2, name: "Would be imported", variables: [] },
+      { v: 99, name: "Invalid", variables: [] },
+    ]);
+    expect(
+      (
+        await POST(
+          request("POST", "/api/import", editor, { workspaceId, content: invalid, includeCredentials: true }),
+        )
+      ).status,
+    ).toBe(400);
+    expect(repo.listEnvironments(workspaceId)).toHaveLength(before);
+  });
+});
