@@ -22,6 +22,7 @@ export const POST = route(async (req: Request) => {
       }),
     }),
   );
+  repo.requireWorkspace(input.workspaceId);
   repo.saveCookies(input.workspaceId, {
     upserts: [{ ...input.cookie, hostOnly: true }],
     deletions: [],

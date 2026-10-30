@@ -8,16 +8,7 @@
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import type {
-  AuthConfig,
-  BodyConfig,
-  DataTable,
-  FolderDef,
-  KeyValue,
-  RequestDef,
-  RequestSettings,
-  Variable,
-} from "@/core/types";
+import type { DataTable, FolderDef, KeyValue, RequestDef, RequestSettings, Variable } from "@/core/types";
 import { DEFAULT_SETTINGS } from "@/core/types";
 import { parseCurl } from "@/core/convert/curl";
 import { generateSnippet, type CodegenLanguage } from "@/core/convert/codegen";
@@ -26,6 +17,7 @@ import { prepareRequest } from "@/core/http/prepare";
 import { sendRequest } from "@/core/http/engine";
 import { DataValidationError, formatIssue, parseJsonData, readCsv } from "@/core/runner/data";
 import { renderReport, type ReportFormat } from "@/core/runner/reporters";
+import { authSchema, bodySchema, keyValueSchema, settingsPatchSchema, variableSchema } from "@/core/schemas";
 import { Resolver } from "@/core/variables/resolver";
 import { getPolicy, loadScopes, runSingleRequest } from "./context";
 import { defaultRequest } from "./defaults";
@@ -75,115 +67,7 @@ function maskVariables(vars: Variable[], includeSecrets = false): Variable[] {
 
 // ------------------------------------------------------------------ schemas
 
-const keyValueSchema = z.object({
-  key: z.string(),
-  value: z.string().default(""),
-  enabled: z.boolean().default(true),
-  description: z.string().optional(),
-});
-
-const formDataFieldSchema = z.object({
-  key: z.string(),
-  value: z.string().default(""),
-  enabled: z.boolean().default(true),
-  type: z.enum(["text", "file"]).default("text"),
-  fileName: z.string().optional(),
-  contentType: z.string().optional(),
-  data: z.string().optional(),
-  description: z.string().optional(),
-});
-
-const bodySchema: z.ZodType<BodyConfig> = z.discriminatedUnion("mode", [
-  z.object({ mode: z.literal("none") }),
-  z.object({
-    mode: z.literal("raw"),
-    raw: z.string(),
-    language: z.enum(["json", "xml", "text", "html", "javascript"]).default("json"),
-  }),
-  z.object({
-    mode: z.literal("urlencoded"),
-    urlencoded: z.array(keyValueSchema),
-  }),
-  z.object({
-    mode: z.literal("formdata"),
-    formdata: z.array(formDataFieldSchema),
-  }),
-  z.object({
-    mode: z.literal("binary"),
-    binary: z
-      .object({
-        fileName: z.string(),
-        contentType: z.string().optional(),
-        data: z.string(),
-      })
-      .nullable(),
-  }),
-  z.object({
-    mode: z.literal("graphql"),
-    graphql: z.object({
-      query: z.string(),
-      variables: z.string().default("{}"),
-      operationName: z.string().optional(),
-    }),
-  }),
-]);
-
-const authSchema: z.ZodType<AuthConfig> = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("inherit") }),
-  z.object({ type: z.literal("none") }),
-  z.object({
-    type: z.literal("bearer"),
-    bearer: z.object({ token: z.string(), prefix: z.string().optional() }),
-  }),
-  z.object({
-    type: z.literal("basic"),
-    basic: z.object({ username: z.string(), password: z.string() }),
-  }),
-  z.object({
-    type: z.literal("apikey"),
-    apikey: z.object({
-      key: z.string(),
-      value: z.string(),
-      in: z.enum(["header", "query"]).default("header"),
-    }),
-  }),
-  z.object({
-    type: z.literal("digest"),
-    digest: z.object({ username: z.string(), password: z.string() }),
-  }),
-  z.object({
-    type: z.literal("oauth2"),
-    oauth2: z.object({
-      grantType: z.enum(["client_credentials", "password", "manual"]),
-      accessTokenUrl: z.string().default(""),
-      clientId: z.string().default(""),
-      clientSecret: z.string().default(""),
-      scope: z.string().default(""),
-      username: z.string().optional(),
-      password: z.string().optional(),
-      clientAuthentication: z.enum(["header", "body"]).default("header"),
-      accessToken: z.string().default(""),
-      tokenType: z.string().optional(),
-      expiresAt: z.number().optional(),
-      headerPrefix: z.string().default("Bearer"),
-    }),
-  }),
-]);
-
-const settingsPatchSchema = z.object({
-  followRedirects: z.boolean().optional(),
-  maxRedirects: z.number().int().min(0).max(50).optional(),
-  timeoutMs: z.number().int().min(100).max(300_000).optional(),
-  verifySsl: z.boolean().optional(),
-  useCookieJar: z.boolean().optional(),
-});
-
-const variableInputSchema = z.object({
-  key: z.string().min(1),
-  value: z.string().default(""),
-  type: z.enum(["default", "secret"]).default("default"),
-  enabled: z.boolean().default(true),
-});
+const variableInputSchema = variableSchema.extend({ key: z.string().min(1) });
 
 // ------------------------------------------------------------------ server factory
 
@@ -1037,6 +921,7 @@ export function createPostboxMcpServer(): McpServer {
           });
         }
 
+        if (folderId) repo.requireFolderIn(wsId, folderId);
         const chain = folderId ? repo.getFolderChain(folderId) : [];
         const collectionId = chain[0]?.id ?? null;
         const ctx = loadScopes(wsId, input.environmentId ?? null, collectionId);

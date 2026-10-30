@@ -25,6 +25,7 @@ const ENV_SETTINGS: { name: string; description: string; secret?: boolean; fallb
   { name: "MCP_ALLOWED_ORIGINS", description: "Extra browser origins allowed to call /api/mcp" },
   { name: "SCRIPT_TIMEOUT_MS", description: "Script time limit", fallback: "5000" },
   { name: "SCRIPT_MEMORY_MB", description: "Script memory limit", fallback: "32" },
+  { name: "API_BODY_LIMIT_MB", description: "Largest API/MCP request body", fallback: "25" },
   { name: "RESPONSE_MAX_BYTES", description: "Maximum response size", fallback: "52428800" },
   { name: "HISTORY_LIMIT", description: "History entries kept per workspace", fallback: "500" },
 ];

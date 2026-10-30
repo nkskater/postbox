@@ -3,7 +3,7 @@
  * applying inherited headers/auth and (optionally) resolving variables.
  */
 import { z } from "zod";
-import type { RequestDef } from "@/core/types";
+import { DEFAULT_SETTINGS } from "@/core/types";
 import { generateSnippet, type CodegenLanguage } from "@/core/convert/codegen";
 import { prepareRequest } from "@/core/http/prepare";
 import { Resolver, emptyScopes } from "@/core/variables/resolver";
@@ -11,6 +11,7 @@ import { defaultRequest } from "@/server/defaults";
 import * as repo from "@/server/repo";
 import { loadScopes } from "@/server/context";
 import { json, parseBody, route } from "@/server/http";
+import { requestInputSchema } from "@/core/schemas";
 
 /** Resolver that leaves every {{variable}} untouched. */
 class PassthroughResolver extends Resolver {
@@ -29,13 +30,17 @@ export const POST = route(async (req: Request) => {
       workspaceId: z.string(),
       environmentId: z.string().nullish(),
       folderId: z.string().nullish(),
-      request: z.record(z.string(), z.unknown()),
+      request: requestInputSchema,
       language: z.enum(["curl", "fetch", "python", "powershell"]),
       resolveVariables: z.boolean().default(true),
     }),
   );
+  if (input.folderId) repo.requireFolderIn(input.workspaceId, input.folderId);
   const chain = input.folderId ? repo.getFolderChain(input.folderId) : [];
-  const request = defaultRequest(input.request as Partial<RequestDef>);
+  const request = defaultRequest({
+    ...input.request,
+    settings: { ...DEFAULT_SETTINGS, ...(input.request.settings ?? {}) },
+  });
   const resolver = input.resolveVariables
     ? new Resolver(loadScopes(input.workspaceId, input.environmentId ?? null, chain[0]?.id ?? null).scopes)
     : new PassthroughResolver();

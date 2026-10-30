@@ -18,6 +18,7 @@ import { paramsFromUrl } from "@/lib/url-params";
 import { getDb, schema } from "./db";
 import type { FolderRow, RequestRow } from "./db/schema";
 import { defaultFolder, defaultRequest, newId } from "./defaults";
+import { HttpError, notFound } from "./errors";
 
 const { workspaces, folders, requests, environments, variables, history, cookies } = schema;
 const now = () => Date.now();
@@ -88,6 +89,56 @@ export function ensureDefaultWorkspace() {
   if (list.length) return list;
   const ws = createWorkspace("My Workspace");
   return [ws];
+}
+
+// ------------------------------------------------------------------ ownership
+//
+// Every write that combines a workspace with other IDs checks that they belong
+// together. A foreign ID is reported exactly like a missing one, so callers
+// cannot probe other workspaces. better-sqlite3 is synchronous, so a check and
+// the write that follows it cannot interleave with another request.
+
+export function requireWorkspace(id: string) {
+  const ws = getWorkspace(id);
+  if (!ws) throw notFound("Workspace");
+  return ws;
+}
+
+export function requireFolderIn(workspaceId: string, folderId: string, what = "Folder") {
+  const folder = getFolder(folderId);
+  if (!folder || folder.workspaceId !== workspaceId) throw notFound(what);
+  return folder;
+}
+
+/** A collection is a top-level folder. */
+export function requireCollectionIn(workspaceId: string, collectionId: string) {
+  const folder = requireFolderIn(workspaceId, collectionId, "Collection");
+  if (folder.parentId) throw new HttpError(400, "Collection variables belong to a top-level collection");
+  return folder;
+}
+
+export function requireEnvironmentIn(workspaceId: string, environmentId: string) {
+  const row = getDb().select().from(environments).where(eq(environments.id, environmentId)).get();
+  if (!row || row.workspaceId !== workspaceId) throw notFound("Environment");
+  return row;
+}
+
+export function requireRequestIn(workspaceId: string, requestId: string) {
+  const request = getRequest(requestId);
+  if (!request || request.workspaceId !== workspaceId) throw notFound("Request");
+  return request;
+}
+
+/** Global variables have no owner; environment and collection variables need one from the same workspace. */
+export function requireVariableOwner(workspaceId: string, scope: VariableScopeName, ownerId: string | null) {
+  if (scope === "global") {
+    if (ownerId) throw new HttpError(400, "Global variables have no owner");
+    return requireWorkspace(workspaceId);
+  }
+  if (!ownerId) throw new HttpError(400, `${scope} variables need an ownerId`);
+  return scope === "environment"
+    ? requireEnvironmentIn(workspaceId, ownerId)
+    : requireCollectionIn(workspaceId, ownerId);
 }
 
 // ------------------------------------------------------------------ tree
@@ -215,6 +266,8 @@ function nextSort(workspaceId: string, parentId: string | null): number {
 }
 
 export function createFolder(workspaceId: string, parentId: string | null, partial: Partial<FolderDef> = {}) {
+  requireWorkspace(workspaceId);
+  if (parentId) requireFolderIn(workspaceId, parentId, "Parent folder");
   const def = defaultFolder({ name: parentId ? "New Folder" : "New Collection", ...partial });
   getDb()
     .insert(folders)
@@ -284,6 +337,7 @@ export function getRequest(id: string) {
 }
 
 export function createRequest(workspaceId: string, folderId: string, partial: Partial<RequestDef> = {}) {
+  requireFolderIn(workspaceId, folderId);
   const def = defaultRequest(partial);
   if (!def.params.length) def.params = paramsFromUrl(def.url);
   getDb()
@@ -383,11 +437,13 @@ export function reorder(kind: "folder" | "request", id: string, parentId: string
     kind === "folder"
       ? db.select().from(folders).where(eq(folders.id, id)).get()
       : db.select().from(requests).where(eq(requests.id, id)).get();
-  if (!item) throw new Error("Item not found");
-  if (kind === "request" && !parentId) throw new Error("Requests must live inside a collection or folder");
+  if (!item) throw notFound(kind === "folder" ? "Folder" : "Request");
+  if (kind === "request" && !parentId)
+    throw new HttpError(400, "Requests must live inside a collection or folder");
+  if (parentId) requireFolderIn(item.workspaceId, parentId, "Target folder");
   if (kind === "folder" && parentId) {
     if (getFolderChain(parentId).some((f) => f.id === id))
-      throw new Error("Cannot move a folder into itself");
+      throw new HttpError(400, "Cannot move a folder into itself");
   }
   const workspaceId = item.workspaceId;
   const siblingsF = db
@@ -454,6 +510,7 @@ export function getEnvironment(id: string): (Environment & { workspaceId: string
 }
 
 export function createEnvironment(workspaceId: string, name: string, vars: Variable[] = []) {
+  requireWorkspace(workspaceId);
   const id = newId();
   getDb()
     .insert(environments)
@@ -513,6 +570,7 @@ export function replaceVariables(
   ownerId: string | null,
   list: Variable[],
 ) {
+  requireVariableOwner(workspaceId, scope, ownerId);
   const db = getDb();
   db.transaction((tx) => {
     tx.delete(variables)
@@ -711,6 +769,8 @@ export function importTree(
   variables: Variable[] = [],
   parentId: string | null = null,
 ) {
+  requireWorkspace(workspaceId);
+  if (parentId) requireFolderIn(workspaceId, parentId, "Parent folder");
   const db = getDb();
   let folderCount = 0;
   let requestCount = 0;

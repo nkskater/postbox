@@ -287,6 +287,7 @@ Chromium binary (otherwise run `npx playwright-core install chromium` once).
 | `SCRIPT_TIMEOUT_MS` | `5000` | Per-script time limit |
 | `SCRIPT_MEMORY_MB` | `32` | Per-script memory limit |
 | `RESPONSE_MAX_BYTES` | `52428800` | Encoded response bytes are truncated at this limit; decompression exceeding the limit at any stage is rejected |
+| `API_BODY_LIMIT_MB` | `25` | Largest JSON body the REST API and `/api/mcp` accept (file uploads travel inline as base64); larger bodies get `413` |
 | `MCP_ALLOWED_ORIGINS` | _(none)_ | Extra browser origins allowed to call `/api/mcp` (cross-origin browser requests are rejected otherwise) |
 | `HISTORY_LIMIT` | `500` | History entries kept per workspace |
 

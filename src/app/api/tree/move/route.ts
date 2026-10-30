@@ -16,6 +16,7 @@ export const POST = route(async (req: Request) => {
   try {
     repo.reorder(input.kind, input.id, input.parentId, input.index);
   } catch (err) {
+    if (err instanceof HttpError) throw err;
     throw new HttpError(400, (err as Error).message);
   }
   return json({ ok: true });
