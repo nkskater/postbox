@@ -14,6 +14,7 @@ import type {
   TestResult,
 } from "../types";
 import { execute, executionPassed, type ExecuteResult, type ScriptError } from "../executor";
+import { recordExecution, type ExecutionDetails } from "./details";
 import type { CookieJarStore } from "../http/cookies";
 import type { HostPolicy } from "../http/policy";
 import type { RequestDefaults } from "../http/prepare";
@@ -48,6 +49,7 @@ export interface RunResult {
   /** Truncated response body for the results view. */
   responseBody?: string;
   responseHeaders?: [string, string][];
+  executionDetails?: ExecutionDetails;
 }
 
 export interface RunSummary {
@@ -240,6 +242,14 @@ export async function runCollection(
       scopes = r.scopes;
       if (r.logs.length) emit({ type: "log", entries: r.logs });
       const rawResult = toResult(iteration, sequence++, item, r, keep);
+      rawResult.executionDetails = recordExecution(
+        r,
+        input.secrets ?? [],
+        undefined,
+        item.request.body.mode === "binary" || item.request.body.mode === "formdata",
+      );
+      if (rawResult.executionDetails.response?.body.text !== undefined)
+        rawResult.responseBody = rawResult.executionDetails.response.body.text.slice(0, keep);
       const result = { ...redactStoredValue(rawResult, input.secrets ?? []), requestId: rawResult.requestId };
       if (input.retainResults !== false) results.push(result);
       totalRequests++;
