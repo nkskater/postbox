@@ -57,6 +57,21 @@ export interface OAuth2Config {
   headerPrefix: string;
 }
 
+export type HawkAlgorithm = "sha256" | "sha1";
+
+export interface HawkConfig {
+  authId: string;
+  authKey: string;
+  algorithm: HawkAlgorithm;
+  user?: string;
+  nonce?: string;
+  ext?: string;
+  app?: string;
+  dlg?: string;
+  timestamp?: string;
+  includePayloadHash?: boolean;
+}
+
 export type AuthConfig =
   | { type: "inherit" }
   | { type: "none" }
@@ -64,7 +79,8 @@ export type AuthConfig =
   | { type: "basic"; basic: { username: string; password: string } }
   | { type: "apikey"; apikey: { key: string; value: string; in: "header" | "query" } }
   | { type: "digest"; digest: { username: string; password: string } }
-  | { type: "oauth2"; oauth2: OAuth2Config };
+  | { type: "oauth2"; oauth2: OAuth2Config }
+  | { type: "hawk"; hawk: HawkConfig };
 
 export type AuthType = AuthConfig["type"];
 

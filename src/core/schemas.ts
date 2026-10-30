@@ -4,7 +4,7 @@
  * is rejected before it reaches persistence or the HTTP engine.
  */
 import { z } from "zod";
-import type { AuthConfig, BodyConfig, OAuth2Config } from "./types";
+import type { AuthConfig, BodyConfig, HawkConfig, OAuth2Config } from "./types";
 
 /** RFC 9110 method token (custom methods such as PROPFIND or M-SEARCH are allowed). */
 export const methodSchema = z
@@ -68,6 +68,19 @@ export const oauth2ConfigSchema: z.ZodType<OAuth2Config> = z.object({
   headerPrefix: z.string().default("Bearer"),
 });
 
+export const hawkConfigSchema: z.ZodType<HawkConfig> = z.object({
+  authId: z.string().default(""),
+  authKey: z.string().default(""),
+  algorithm: z.enum(["sha256", "sha1"]).default("sha256"),
+  user: z.string().optional(),
+  nonce: z.string().optional(),
+  ext: z.string().optional(),
+  app: z.string().optional(),
+  dlg: z.string().optional(),
+  timestamp: z.string().optional(),
+  includePayloadHash: z.boolean().default(false),
+});
+
 export const authSchema: z.ZodType<AuthConfig> = z.discriminatedUnion("type", [
   z.object({ type: z.literal("inherit") }),
   z.object({ type: z.literal("none") }),
@@ -86,6 +99,7 @@ export const authSchema: z.ZodType<AuthConfig> = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("digest"), digest: z.object({ username: z.string(), password: z.string() }) }),
   z.object({ type: z.literal("oauth2"), oauth2: oauth2ConfigSchema }),
+  z.object({ type: z.literal("hawk"), hawk: hawkConfigSchema }),
 ]);
 
 export const settingsPatchSchema = z.object({
@@ -190,8 +204,8 @@ export const CONSOLE_LEVELS = ["log", "info", "warn", "error", "debug"] as const
 /** Short, readable summary of a ZodError for messages that cross a trust boundary. */
 export function describeIssues(error: z.ZodError, max = 3): string {
   const parts = error.issues
-    .slice(0, max)
-    .map((i) => (i.path.length ? `${i.path.join(".")}: ${i.message}` : i.message));
+  .slice(0, max)
+  .map((i) => (i.path.length ? `${i.path.join(".")}: ${i.message}` : i.message));
   if (error.issues.length > max) parts.push(`…and ${error.issues.length - max} more`);
   return parts.join("; ");
 }
