@@ -24,7 +24,7 @@ import { generateSnippet, type CodegenLanguage } from "@/core/convert/codegen";
 import { exportPostmanCollection, exportPostmanEnvironment } from "@/core/convert/postman";
 import { prepareRequest } from "@/core/http/prepare";
 import { sendRequest } from "@/core/http/engine";
-import { parseCsv, parseJsonData } from "@/core/runner/data";
+import { DataValidationError, formatIssue, parseJsonData, readCsv } from "@/core/runner/data";
 import { renderReport, type ReportFormat } from "@/core/runner/reporters";
 import { Resolver } from "@/core/variables/resolver";
 import { getPolicy, loadScopes, runSingleRequest } from "./context";
@@ -47,7 +47,14 @@ function errResult(err: unknown): CallToolResult {
   const message = err instanceof Error ? err.message : String(err);
   return {
     isError: true,
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify(
+          err instanceof DataValidationError ? { error: message, issues: err.issues } : { error: message },
+        ),
+      },
+    ],
   };
 }
 
@@ -1100,8 +1107,11 @@ export function createPostboxMcpServer(): McpServer {
         if (!folder) throw new Error(`Folder not found: ${input.folderId}`);
 
         let data: DataTable | null = null;
+        let dataWarnings: string[] = [];
         if (input.dataCsv) {
-          data = parseCsv(input.dataCsv);
+          const parsed = readCsv(input.dataCsv);
+          data = parsed.table;
+          dataWarnings = parsed.warnings.map(formatIssue);
         } else if (input.dataJson) {
           data = parseJsonData(input.dataJson);
         } else if (input.dataRows?.length) {
@@ -1126,7 +1136,7 @@ export function createPostboxMcpServer(): McpServer {
           source: "mcp",
         });
 
-        return okJson({ runId, summary });
+        return okJson(dataWarnings.length ? { runId, summary, dataWarnings } : { runId, summary });
       } catch (err) {
         return errResult(err);
       }

@@ -10,7 +10,7 @@ import {
 } from "../core/convert/postman";
 import { CookieJarStore } from "../core/http/cookies";
 import { HostPolicy } from "../core/http/policy";
-import { parseDataFile } from "../core/runner/data";
+import { formatIssue, readDataFile } from "../core/runner/data";
 import { renderReport, type ReportFormat } from "../core/runner/reporters";
 import { flattenTree, runCollection } from "../core/runner/runner";
 import { DEFAULT_RUN_OPTIONS, type Variable } from "../core/types";
@@ -88,7 +88,12 @@ async function run(file: string, options: Options) {
   const secrets = [...variables, ...environment, ...globals]
     .filter((v) => v.enabled && v.type === "secret" && v.value)
     .map((v) => v.value);
-  const data = options.data ? parseDataFile(options.data, await readFile(options.data)) : undefined;
+  let data;
+  if (options.data) {
+    const parsed = readDataFile(options.data, await readFile(options.data));
+    for (const w of parsed.warnings) console.error(`postbox: warning: ${options.data} ${formatIssue(w)}`);
+    data = parsed.table;
+  }
   const controller = new AbortController();
   let interrupted = 0;
   const interrupt = () => {
