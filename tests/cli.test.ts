@@ -267,3 +267,47 @@ describe("standalone CLI", () => {
     expect((await invoke(["--version"])).code).toBe(0);
   });
 });
+
+describe("HAR CLI input", () => {
+  it("executes representable recorded requests in order without captured credentials", async () => {
+    const start = server.requests.length;
+    const input = await fixture("recording.har", {
+      log: {
+        version: "1.2",
+        entries: [
+          {
+            request: {
+              method: "POST",
+              url: server.url + "/echo?x=one&x=two&token=har-token",
+              headers: [{ name: "Authorization", value: "Bearer har-bearer" }],
+              postData: {
+                mimeType: "application/json",
+                text: '{"message":"hello","password":"har-password"}',
+              },
+            },
+          },
+          { request: { method: "GET", url: server.url + "/echo?second=yes" } },
+        ],
+      },
+    });
+    const result = await invoke([
+      "run",
+      input,
+      "--reporters",
+      "json",
+      "--reporter-json-export",
+      "har-report.json",
+    ]);
+    expect(result.code).toBe(0);
+    expect(result.stderr).toContain("Credentials redacted");
+    const requests = server.requests.slice(start);
+    expect(requests).toHaveLength(2);
+    expect(requests[0].url).toBe("/echo?x=one&x=two");
+    expect(requests[1].url).toBe("/echo?second=yes");
+    expect(requests[0].headers.authorization).toBeUndefined();
+    expect(requests[0].headers["content-type"]).toBe("application/json");
+    expect(JSON.parse(requests[0].body).message).toBe("hello");
+    expect(JSON.parse(requests[0].body).password).not.toBe("har-password");
+    expect(await readFile(path.join(directory, "har-report.json"), "utf8")).not.toContain("har-token");
+  });
+});

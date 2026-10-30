@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { importHar, isHar } from "../core/convert/har";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { Command, InvalidArgumentError } from "commander";
@@ -91,9 +92,14 @@ async function run(file: string, options: Options) {
     }
   }
   const collection = await jsonFile(file);
-  if (!isPostmanCollection(collection))
-    throw new Error("Expected a Postman collection with info and item fields.");
-  const { root, variables } = importPostmanCollection(collection);
+  if (!isPostmanCollection(collection) && !isHar(collection))
+    throw new Error("Expected a Postman collection or HAR 1.2 recording.");
+  const imported = isPostmanCollection(collection)
+    ? importPostmanCollection(collection)
+    : importHar(collection);
+  if ("warnings" in imported && Array.isArray(imported.warnings))
+    for (const warning of imported.warnings) console.error(`postbox: warning: ${warning}`);
+  const { root, variables } = imported;
   if (!flattenTree(root).length) throw new Error("Collection contains no requests.");
   const [environment, globals] = await Promise.all([
     loadVariables(options.environment),
@@ -195,9 +201,9 @@ const program = new Command()
 program
   .command("run")
   .description(
-    "Run a Postman collection JSON file. Export reporters default to postbox-report.{json,xml,html}.",
+    "Run a Postman collection or HAR recording. Export reporters default to postbox-report.{json,xml,html}.",
   )
-  .argument("<collection.json>", "Postman v2.1 collection")
+  .argument("<collection.json>", "Postman v2.1 collection or HAR 1.2 recording")
   .option("-e, --environment <file>", "Postman environment JSON")
   .option("-g, --globals <file>", "Postman globals JSON")
   .option("-d, --data <file>", "Iteration data (CSV, JSON, XLSX)")

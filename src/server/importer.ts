@@ -1,5 +1,6 @@
+import { importHar, isHar } from "@/core/convert/har";
 /**
- * Detects and imports Postman collections/environments and OpenAPI specs.
+ * Detects and imports Postman collections/environments, OpenAPI specs and HAR recordings.
  * Shared by /api/import and the MCP server.
  */
 import { importOpenApi, isOpenApi, parseSpec } from "@/core/convert/openapi";
@@ -18,7 +19,8 @@ export type ImportOutcome =
       name: string;
       folders: number;
       requests: number;
-      source: "postman" | "openapi";
+      source: "postman" | "openapi" | "har";
+      warnings?: string[];
     }
   | { kind: "environment"; id: string; name: string; variables: number }
   | { kind: "globals"; variables: number };
@@ -29,6 +31,10 @@ export function importContent(workspaceId: string, content: string, sourceUrl?: 
     data = parseSpec(content);
   } catch {
     throw new Error("Content is neither valid JSON nor YAML");
+  }
+  if (isHar(data)) {
+    const { root, variables, warnings } = importHar(data);
+    return { kind: "collection", source: "har", ...repo.importTree(workspaceId, root, variables), warnings };
   }
   if (isPostmanCollection(data)) {
     const { root, variables } = importPostmanCollection(data);
@@ -53,6 +59,6 @@ export function importContent(workspaceId: string, content: string, sourceUrl?: 
     return { kind: "environment", id: created.id, name: created.name, variables: env.variables.length };
   }
   throw new Error(
-    "Unrecognised format. Supported: Postman collection v2.0/v2.1, Postman environment, OpenAPI 3.x, Swagger 2.0",
+    "Unrecognised format. Supported: Postman collection v2.0/v2.1, Postman environment, OpenAPI 3.x, Swagger 2.0, HAR 1.2",
   );
 }
