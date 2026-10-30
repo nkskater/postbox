@@ -8,6 +8,14 @@ import type { TreeFolderSummary, TreeRequestSummary } from "@/server/repo";
 export type ProxyResult = RunSingleResult;
 export type { TreeFolderSummary, TreeRequestSummary };
 
+const AUTH_REQUIRED_EVENT = "postbox:authentication-required";
+
+/** The application shell owns navigation; API callers only report lost authentication. */
+export function onAuthenticationRequired(listener: () => void): () => void {
+  window.addEventListener(AUTH_REQUIRED_EVENT, listener);
+  return () => window.removeEventListener(AUTH_REQUIRED_EVENT, listener);
+}
+
 export interface Workspace {
   id: string;
   name: string;
@@ -50,8 +58,8 @@ async function call<T>(method: string, url: string, body?: unknown, signal?: Abo
     body: body !== undefined ? JSON.stringify(body) : undefined,
     signal,
   });
-  if (res.status === 401 && typeof window !== "undefined") {
-    window.location.href = "/login";
+  if (res.status === 401) {
+    if (typeof window !== "undefined") window.dispatchEvent(new Event(AUTH_REQUIRED_EVENT));
     throw new ApiError(401, "Authentication required");
   }
   const text = await res.text();

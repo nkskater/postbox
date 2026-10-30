@@ -45,7 +45,11 @@ export const folders = sqliteTable(
     testScript: text("test_script").notNull().default(""),
     ...timestamps,
   },
-  (t) => [index("folders_workspace_idx").on(t.workspaceId), index("folders_parent_idx").on(t.parentId)],
+  (t) => [
+    index("folders_workspace_idx").on(t.workspaceId),
+    index("folders_parent_idx").on(t.parentId),
+    index("folders_workspace_parent_sort_idx").on(t.workspaceId, t.parentId, t.sort),
+  ],
 );
 
 export const requests = sqliteTable(
@@ -75,6 +79,7 @@ export const requests = sqliteTable(
   },
   (t) => [
     index("requests_folder_idx").on(t.folderId),
+    index("requests_folder_sort_idx").on(t.folderId, t.sort),
     index("requests_workspace_sort_idx").on(t.workspaceId, t.sort, t.createdAt),
   ],
 );

@@ -1,5 +1,7 @@
 "use client";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import {
   Command,
   Cookie,
@@ -32,6 +34,7 @@ import { Input } from "@/components/ui/input";
 
 /** Header: workspace switcher, environment selector with quick look, global actions. */
 export function TopBar({ authEnabled }: { authEnabled: boolean }) {
+  const router = useRouter();
   const {
     workspaces,
     workspaceId,
@@ -45,6 +48,7 @@ export function TopBar({ authEnabled }: { authEnabled: boolean }) {
   } = useApp();
   const { setImportOpen, setPaletteOpen, setShortcutsOpen } = useDialogs();
   const [newWs, setNewWs] = useState<string | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
 
   return (
     <header className="flex h-11 shrink-0 items-center gap-2 border-b bg-sidebar px-3">
@@ -201,9 +205,18 @@ export function TopBar({ authEnabled }: { authEnabled: boolean }) {
           size="icon"
           className="size-7"
           title="Sign out"
+          disabled={signingOut}
           onClick={async () => {
-            await fetch("/api/auth/logout", { method: "POST" });
-            window.location.href = "/login";
+            setSigningOut(true);
+            try {
+              const response = await fetch("/api/auth/logout", { method: "POST" });
+              if (!response.ok) throw new Error("Could not sign out. Please try again.");
+              router.replace("/login");
+              router.refresh();
+            } catch {
+              toast.error("Could not sign out. Please try again.");
+              setSigningOut(false);
+            }
           }}
         >
           <LogOut className="size-4" />
