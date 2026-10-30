@@ -5,6 +5,7 @@
  * Open WebUI, Cursor, MCP Inspector, and any Streamable HTTP or JSON-RPC MCP client.
  */
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import { HttpError, readBodyText } from "@/server/http";
 import { createPostboxMcpServer } from "@/server/mcp";
 
 export const dynamic = "force-dynamic";
@@ -45,25 +46,26 @@ function jsonRpcError(status: number, message: string): Response {
  * JSON and SSE, so the Accept header is widened. Content-Type is deliberately NOT rewritten:
  * requiring application/json keeps cross-site "simple" form/text POSTs from being accepted.
  */
-function normalizeAccept(req: Request): Request {
-  const accept = req.headers.get("accept") ?? "";
-  if (accept.includes("application/json") && accept.includes("text/event-stream")) return req;
+function normalizeAccept(req: Request, body: string): Request {
   const headers = new Headers(req.headers);
-  headers.set("accept", "application/json, text/event-stream");
-  return new Request(req.url, {
-    method: req.method,
-    headers,
-    body: req.body,
-    // @ts-expect-error Node fetch requires duplex: "half" when passing a ReadableStream body
-    duplex: "half",
-    signal: req.signal,
-  });
+  const accept = headers.get("accept") ?? "";
+  if (!(accept.includes("application/json") && accept.includes("text/event-stream")))
+    headers.set("accept", "application/json, text/event-stream");
+  headers.delete("content-length");
+  return new Request(req.url, { method: req.method, headers, body, signal: req.signal });
 }
 
 export async function POST(req: Request): Promise<Response> {
   if (!isAllowedOrigin(req)) return jsonRpcError(403, "Forbidden: cross-origin MCP requests are not allowed");
   if (!(req.headers.get("content-type") ?? "").toLowerCase().includes("application/json")) {
     return jsonRpcError(415, "Unsupported Media Type: MCP requests must use Content-Type: application/json");
+  }
+  let body: string;
+  try {
+    body = await readBodyText(req);
+  } catch (err) {
+    if (err instanceof HttpError) return jsonRpcError(err.status, err.message);
+    throw err;
   }
   const server = createPostboxMcpServer();
   const transport = new WebStandardStreamableHTTPServerTransport({
@@ -72,7 +74,7 @@ export async function POST(req: Request): Promise<Response> {
   });
   await server.connect(transport);
   try {
-    return await transport.handleRequest(normalizeAccept(req));
+    return await transport.handleRequest(normalizeAccept(req, body));
   } finally {
     await server.close();
   }
