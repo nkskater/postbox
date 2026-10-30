@@ -290,6 +290,26 @@ Chromium binary (otherwise run `npx playwright-core install chromium` once).
 | `MCP_ALLOWED_ORIGINS` | _(none)_ | Extra browser origins allowed to call `/api/mcp` (cross-origin browser requests are rejected otherwise) |
 | `HISTORY_LIMIT` | `500` | History entries kept per workspace |
 
+### Outbound host policy and redirects
+
+`PROXY_ALLOW_HOSTS` and `PROXY_DENY_HOSTS` accept comma-separated ASCII hostnames
+(use punycode for international names), `*.example.com` subdomain patterns, IPv4/IPv6
+addresses, CIDRs, or `*`. Wildcards exclude the apex. Names ignore case and a trailing
+DNS dot. An empty setting disables that list; malformed entries, empty comma-separated
+entries, URLs, ports and invalid CIDR prefixes reject the policy when it is loaded.
+Deny rules win, and hostnames and resolved addresses are checked at every redirect hop.
+
+HTTPS-to-HTTP redirects are rejected with `EREDIRECTDOWNGRADE`, even with SSL verification
+disabled. Disable redirect following to inspect the original redirect response.
+Same-origin redirects retain request headers. Across origins (including a port change),
+only `Accept`, `Accept-Encoding`, `Accept-Language`, `Content-Type`, `Content-Length`, and
+`User-Agent` are forwarded. All other headers, including custom API keys, authorization,
+explicit cookies, proxy authorization and referrers, are removed and stay removed on later
+hops. Host is regenerated for the destination; applicable destination cookies are loaded
+from the cookie jar. Digest credentials are never reused across origins. Normal redirect
+method/body rules still apply; 307/308 preserve the body, so use trusted redirect targets
+and the host policy for requests carrying sensitive bodies.
+
 ### Container resource limits
 
 Docker Compose limits the entire running app, including the web server, request execution,

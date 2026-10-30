@@ -30,7 +30,22 @@ interface CompiledRules {
   empty: boolean;
 }
 
-function compile(patterns: string[]): CompiledRules {
+function normalizeHost(host: string): string {
+  return host
+    .toLowerCase()
+    .replace(/^\[|\]$/g, "")
+    .replace(/\.$/, "");
+}
+
+function validHostname(host: string): boolean {
+  return (
+    host.length <= 253 &&
+    !/^[\d.]+$/.test(host) &&
+    host.split(".").every((label) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))
+  );
+}
+
+function compile(patterns: string[], setting: string): CompiledRules {
   const rules: CompiledRules = {
     names: [],
     wildcards: [],
@@ -41,20 +56,41 @@ function compile(patterns: string[]): CompiledRules {
   };
   for (const raw of patterns) {
     const p = raw.trim().toLowerCase();
-    if (!p) continue;
+    const invalid = () =>
+      new HostPolicyError(
+        `Invalid ${setting} pattern "${raw}": expected a hostname, *.hostname, IP address, CIDR, or *`,
+      );
     if (p === "*") rules.any = true;
-    else if (p.startsWith("*.")) rules.wildcards.push(p.slice(1));
-    else if (p.includes("/")) {
-      const [addr, prefix] = p.split("/");
-      const family = net.isIPv6(addr) ? "ipv6" : "ipv4";
-      if (net.isIP(addr)) {
-        rules.blocks.addSubnet(addr, Number(prefix), family);
-        rules.hasBlocks = true;
-      }
-    } else if (net.isIP(p)) {
-      rules.blocks.addAddress(p, net.isIPv6(p) ? "ipv6" : "ipv4");
+    else if (p.startsWith("*.")) {
+      const suffix = normalizeHost(p.slice(2));
+      if (!validHostname(suffix) || net.isIP(suffix)) throw invalid();
+      rules.wildcards.push("." + suffix);
+    } else if (p.includes("/")) {
+      const parts = p.split("/");
+      const [addr, prefix] = parts;
+      const version = net.isIP(addr);
+      if (
+        parts.length !== 2 ||
+        !version ||
+        !/^\d+$/.test(prefix) ||
+        Number(prefix) > (version === 6 ? 128 : 32)
+      )
+        throw invalid();
+      rules.blocks.addSubnet(addr, Number(prefix), version === 6 ? "ipv6" : "ipv4");
       rules.hasBlocks = true;
-    } else rules.names.push(p);
+    } else {
+      const host = normalizeHost(p);
+      if (p.includes("[") || p.includes("]")) {
+        if (!/^\[[^\[\]]+\]$/.test(p) || !net.isIPv6(host)) throw invalid();
+      }
+      if (net.isIP(host)) {
+        rules.blocks.addAddress(host, net.isIPv6(host) ? "ipv6" : "ipv4");
+        rules.hasBlocks = true;
+      } else {
+        if (!validHostname(host)) throw invalid();
+        rules.names.push(host);
+      }
+    }
   }
   rules.empty = !rules.any && !rules.names.length && !rules.wildcards.length && !rules.hasBlocks;
   return rules;
@@ -62,7 +98,7 @@ function compile(patterns: string[]): CompiledRules {
 
 function matches(rules: CompiledRules, host: string, ip?: string): boolean {
   if (rules.any) return true;
-  const h = host.toLowerCase().replace(/^\[|\]$/g, "");
+  const h = normalizeHost(host);
   if (rules.names.includes(h)) return true;
   if (rules.wildcards.some((w) => h.endsWith(w) && h.length > w.length)) return true;
   if (rules.hasBlocks) {
@@ -78,25 +114,19 @@ export class HostPolicy {
   private deny: CompiledRules;
 
   constructor(allow: string[] = [], deny: string[] = []) {
-    this.allow = compile(allow);
-    this.deny = compile(deny);
+    this.allow = compile(allow, "PROXY_ALLOW_HOSTS");
+    this.deny = compile(deny, "PROXY_DENY_HOSTS");
   }
 
   static fromEnv(env: NodeJS.ProcessEnv = process.env): HostPolicy {
-    const split = (v?: string) =>
-      v
-        ? v
-            .split(",")
-            .map((s) => s.trim())
-            .filter(Boolean)
-        : [];
+    const split = (v?: string) => (v?.trim() ? v.split(",") : []);
     return new HostPolicy(split(env.PROXY_ALLOW_HOSTS), split(env.PROXY_DENY_HOSTS));
   }
 
   /** Returns null when allowed, or a reason string when blocked. */
   check(host: string, ip?: string): string | null {
     // Literal addresses bypass Node's lookup callback, so they must be final here.
-    host = host.toLowerCase().replace(/^\[|\]$/g, "");
+    host = normalizeHost(host);
     ip ??= net.isIP(host) ? host : undefined;
     if (matches(this.deny, host, ip))
       return `Host "${host}"${ip ? ` (${ip})` : ""} is blocked by PROXY_DENY_HOSTS`;

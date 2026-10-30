@@ -41,6 +41,16 @@ export class RequestError extends Error {
   }
 }
 
+// Only these non-credential headers survive an origin boundary. Unknown/custom
+// headers may contain API keys, so stripping a fixed credential denylist is insufficient.
+const CROSS_ORIGIN_HEADERS = new Set([
+  "accept",
+  "accept-encoding",
+  "accept-language",
+  "content-type",
+  "content-length",
+  "user-agent",
+]);
 const REDIRECT_CODES = new Set([301, 302, 303, 307, 308]);
 const DEFAULT_MAX_BODY = Number(process.env.RESPONSE_MAX_BYTES) || 50 * 1024 * 1024;
 
@@ -398,6 +408,9 @@ export async function sendRequest(
       }
       redirects.push({ url: url.toString(), status: res.status });
       const next = new URL(location, url);
+      if (url.protocol === "https:" && next.protocol === "http:") {
+        throw new RequestError("Blocked HTTPS-to-HTTP redirect", "EREDIRECTDOWNGRADE");
+      }
       // 303 always becomes GET; 301/302 become GET for non-GET/HEAD (browser behaviour).
       if (
         res.status === 303 ||
@@ -409,7 +422,7 @@ export async function sendRequest(
       }
       // Never forward credentials to a different origin.
       if (next.origin !== url.origin) {
-        headers = withoutHeader(headers, "authorization", "cookie");
+        headers = headers.filter(([name]) => CROSS_ORIGIN_HEADERS.has(name.toLowerCase()));
         digestAllowed = false;
       }
       headers = withoutHeader(headers, "host");
