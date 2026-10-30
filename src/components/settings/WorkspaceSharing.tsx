@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useApp } from "@/stores/app";
 import { Button } from "@/components/ui/button";
+import { InviteLinks } from "./InviteLinks";
 import { Input } from "@/components/ui/input";
 
 type Role = "owner" | "editor" | "viewer";
@@ -54,6 +55,7 @@ function Sharing({ workspaceId }: { workspaceId: string }) {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error);
       setMembers(data);
+      window.dispatchEvent(new Event("postbox:membership-changed"));
       setUsername("");
     } catch (err) {
       setError((err as Error).message);
@@ -102,6 +104,7 @@ function Sharing({ workspaceId }: { workspaceId: string }) {
             </select>
             <Button disabled={busy || !username.trim()}>Add member</Button>
           </form>
+          <InviteLinks workspaceId={workspaceId} />
           {members.map((member) => (
             <div key={member.userId} className="flex items-center gap-3 rounded border p-3">
               <span className="min-w-0 flex-1 truncate">

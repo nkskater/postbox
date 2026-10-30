@@ -264,7 +264,7 @@ describe("workspace membership roles", () => {
 
 describe("MCP role enforcement", () => {
   for (const [name, action] of Object.entries(MCP_POLICIES)) {
-    if (["list", "create"].includes(action)) continue;
+    if (["list", "create", "identity"].includes(action)) continue;
     it(`guards ${name}`, async () => {
       const args = {
         workspaceId,

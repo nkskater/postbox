@@ -15,6 +15,7 @@ export const PATCH = route(async (req: Request) => {
   try {
     return json(patchSettings(values));
   } catch (err) {
+    if (err instanceof HttpError) throw err;
     throw new HttpError(400, (err as Error).message);
   }
 });

@@ -787,3 +787,6 @@ export function matchesQuery(def: SettingDef, query: string): boolean {
     .toLowerCase();
   return q.split(/\s+/).every((word) => hay.includes(word));
 }
+
+/** Browser preferences are private to an account; server settings remain instance-wide. */
+export const BROWSER_SETTING_KEYS = SETTINGS.filter((def) => def.scope === "browser").map((def) => def.key);

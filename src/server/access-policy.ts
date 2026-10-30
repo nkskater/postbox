@@ -43,6 +43,14 @@ export const REST_POLICIES: Record<string, Policy> = {
   "POST /api/auth/setup": p("public"),
   "GET /api/auth/status": p("public"),
   "GET /api/health": p("public"),
+  "POST /api/auth/invite": p("public"),
+  "GET /api/admin/users": p("admin"),
+  "POST /api/admin/users": p("admin"),
+  "PATCH /api/admin/users/[id]": p("admin"),
+  "POST /api/admin/users/[id]/revoke": p("admin"),
+  "GET /api/invites": p("account"),
+  "POST /api/invites": p("account"),
+  "DELETE /api/invites/[id]": p("account"),
   "GET /api/me": p("account"),
   "POST /api/me/password": p("account"),
   "GET /api/me/tokens": p("account"),
@@ -100,9 +108,9 @@ export const REST_POLICIES: Record<string, Policy> = {
   "DELETE /api/schedules/[id]": p("resource", "run", "schedule"),
   "POST /api/schedules/[id]/run": p("resource", "run", "schedule"),
   "GET /api/settings": p("account"),
-  "PATCH /api/settings": p("admin"),
+  "PATCH /api/settings": p("account"),
   "GET /api/settings/import": p("account"),
-  "POST /api/settings/import": p("admin"),
+  "POST /api/settings/import": p("account"),
   "GET /api/mcp": p("mcp"),
   "POST /api/mcp": p("mcp"),
   "DELETE /api/mcp": p("mcp"),
@@ -151,7 +159,8 @@ export async function authorizeRest(
   authorize(caller, workspaceId, policy.action!);
 }
 
-export const MCP_POLICIES: Record<string, WorkspaceAction | "list" | "create"> = {
+export const MCP_POLICIES: Record<string, WorkspaceAction | "list" | "create" | "identity"> = {
+  whoami: "identity",
   list_workspaces: "list",
   create_workspace: "create",
   rename_workspace: "write",
@@ -193,7 +202,7 @@ export const MCP_POLICIES: Record<string, WorkspaceAction | "list" | "create"> =
 export function authorizeTool(caller: Caller, name: string, input: Record<string, unknown>) {
   const action = MCP_POLICIES[name];
   if (!action) throw new HttpError(403, "Tool has no access policy");
-  if (action === "list" || action === "create") return;
+  if (action === "list" || action === "create" || action === "identity") return;
   const ids = new Set<string>();
   if (input.workspaceId) ids.add(stringId(input.workspaceId));
   for (const [field, kind] of [

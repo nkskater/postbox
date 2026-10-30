@@ -23,6 +23,9 @@ import { getPolicy, loadScopes, runSingleRequest } from "./context";
 import { defaultRequest } from "./defaults";
 import { importContent } from "./importer";
 import * as repo from "./repo";
+import { currentCaller } from "./access-context";
+import { describeCaller } from "./caller";
+import { workspaceRole } from "./authorize";
 import * as runs from "./runs";
 
 const SECRET_MASK = "••••••••";
@@ -225,6 +228,26 @@ export function createPostboxMcpServer(): McpServer {
         ],
       };
     },
+  );
+
+  server.registerTool(
+    "whoami",
+    {
+      title: "Current identity",
+      description: "The authenticated caller and their accessible workspace roles.",
+      inputSchema: {},
+    },
+    async () =>
+      okJson({
+        ...describeCaller(currentCaller() ?? null),
+        workspaces: repo
+          .listWorkspaces()
+          .map((workspace) => ({
+            id: workspace.id,
+            name: workspace.name,
+            role: workspaceRole(currentCaller(), workspace.id),
+          })),
+      }),
   );
 
   // ================================================================ WORKSPACES

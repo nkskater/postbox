@@ -350,7 +350,7 @@ roles. Viewers can read/export; editors can also modify and execute requests; ow
 delete the workspace. Administrators can access every workspace. Hidden workspaces return 404; actions disallowed
 by a visible workspace's role return 403. REST and MCP enforce the same roles, including history, cookies and exports.
 Scheduled runs use their creator's identity and stop when that account is disabled or loses execution access.
-User administration and invite links follow in LAB-134.
+See [Users and sharing](#users-and-sharing) for user administration and invite links.
 
 **Single-user mode.** Without accounts, these environment variables work as before:
 
@@ -364,6 +364,44 @@ Anyone with Docker access on the host can still read them with `docker inspect`.
 single-user sessions; account sessions are signed with `POSTBOX_SESSION_SECRET` or a key Postbox generates and keeps in
 its database. Failed logins are rate limited per client address and per account. Only run Postbox without auth on a
 trusted network.
+
+### Users and sharing
+
+Administrators open **Settings → Users** to create accounts, disable or enable users, reset passwords,
+promote or demote administrators, and revoke a user's sessions and API tokens. Password changes and account
+management invalidate existing sessions. The last active administrator cannot be disabled or demoted.
+Accounts are disabled rather than deleted, preserving history and run attribution.
+
+![User administration](docs/screenshots/users.png)
+
+Owners open **Settings → Workspace sharing** to add existing users and assign viewer, editor or owner roles.
+Viewers read and export; editors also edit and execute; owners manage sharing and delete the workspace.
+Administrators have access to every workspace. The top bar shows your signed-in account and effective workspace
+role; MCP clients can inspect their identity and accessible roles with `whoami`.
+
+![Workspace members and invite links](docs/screenshots/workspace-sharing.png)
+
+Administrators can create account-only invite links from Users. Workspace owners can create invites that also
+grant access to their workspace. Copy a newly created link and share it privately: it is displayed once,
+expires after 24 hours by default (configurable from 1 to 168 hours), and can create exactly one account.
+The database stores only its hash. Links can be revoked, and accepting rechecks the inviter's current permission.
+Every new account receives its own private workspace. Invites never grant instance administrator privileges.
+
+All settings marked **browser** in the registry—including appearance, layout, editors, request/response/tab,
+variable display, console and runner defaults—are private to the signed-in account, including imports, exports
+and resets. Settings marked **server** are instance-wide and only administrators may change them; environment
+variables still override them. On upgrade, legacy shared browser preferences move to the first active
+administrator; other accounts start with defaults. Open/single-user installations retain their existing shared
+preferences until the initial administrator is created. Collection configuration, environment variables and
+workspace history remain workspace data and follow membership roles.
+
+Regenerate these two screenshots against a fresh throwaway instance (no external target requests):
+
+```bash
+DATABASE_PATH=/tmp/postbox-users-demo.db npm run dev -- --port 3124
+# In another terminal, with Chromium installed:
+SCREENSHOT_SET=users BASE_URL=http://localhost:3124 npm run screenshots
+```
 
 ## Running behind a reverse proxy
 
