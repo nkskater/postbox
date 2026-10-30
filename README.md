@@ -280,7 +280,7 @@ Chromium binary (otherwise run `npx playwright-core install chromium` once).
 | `PORT` | `3000` | HTTP port |
 | `POSTBOX_PASSWORD` | _(none)_ | Enables login with this password |
 | `POSTBOX_TOKEN` | _(none)_ | Enables `Authorization: Bearer` access (API, MCP, automation) |
-| `POSTBOX_SESSION_SECRET` | _(derived)_ | Optional explicit key for signing session cookies |
+| `POSTBOX_SESSION_SECRET` | _(generated)_ | Optional explicit key for signing session cookies (otherwise derived from the env credentials, or generated and stored for accounts) |
 | `POSTBOX_SESSION_DAYS` | `30` | Session lifetime |
 | `PROXY_ALLOW_HOSTS` | _(all)_ | Comma list of hosts, `*.wildcards` or CIDRs requests may target |
 | `PROXY_DENY_HOSTS` | _(none)_ | Comma list that is always blocked (wins over allow) |
@@ -335,14 +335,29 @@ After editing `.env`, apply the limits with `docker compose up -d`. Check the re
 
 ### Authentication
 
-Set either or both of these to require authentication for the UI and every API route, including `/api/mcp`.
-`/api/health` and `/login` stay public.
+Postbox is open until you turn on one of the options below. Once auth is on, the UI and every API route, including
+`/api/mcp`, require it. `/api/health`, `/login` and `/api/auth/*` stay public.
+
+**User accounts (recommended).** Open **Profile** (the person icon in the top bar) and create the administrator
+account. From then on everyone signs in with a username and password, and each person creates their own API tokens
+under Profile for the CLI, scripts and MCP clients (`Authorization: Bearer pbx_…`). Tokens are shown once, can expire,
+and can be revoked at any time. Changing your password signs out your other sessions. In open mode, whoever reaches
+Profile first can create the administrator, so do this before exposing Postbox. To control that step, set
+`POSTBOX_PASSWORD` or `POSTBOX_TOKEN` first: the first account can then only be created after signing in with them.
+More users, invites and workspace sharing are coming next (LAB-133, LAB-134).
+
+**Single-user mode.** Without accounts, these environment variables work as before:
 
 - `POSTBOX_PASSWORD`: enables the `/login` page, which issues a signed, HTTP-only session cookie (default 30 days).
-- `POSTBOX_TOKEN`: accepted as `Authorization: Bearer <token>` for scripts and MCP clients (and on the login form).
+  Once an account exists, the password login is replaced by username and password, and old password sessions end.
+- `POSTBOX_TOKEN`: accepted as `Authorization: Bearer <token>`. It keeps working after accounts exist, as an
+  administrator recovery login, so keep it secret or unset it.
 
 Put them in the git-ignored `.env` file (see `.env.example`), not in `docker-compose.yml`, which is tracked in git.
-Anyone with Docker access on the host can still read them with `docker inspect`. Changing either value signs everyone out. With neither set, Postbox is open. Only run it that way on a trusted network.
+Anyone with Docker access on the host can still read them with `docker inspect`. Changing either value signs out
+single-user sessions; account sessions are signed with `POSTBOX_SESSION_SECRET` or a key Postbox generates and keeps in
+its database. Failed logins are rate limited per client address and per account. Only run Postbox without auth on a
+trusted network.
 
 ## Running behind a reverse proxy
 
@@ -378,15 +393,18 @@ location / {
 
 ## MCP Server (`/api/mcp`)
 
-> Set `POSTBOX_TOKEN` so MCP clients must authenticate. Without auth, anyone who can reach Postbox can use its MCP
-> tools (including deletes). Requests from foreign browser origins are always rejected.
+> Turn on authentication (see [Authentication](#authentication)) so MCP clients must present a token. Without auth,
+> anyone who can reach Postbox can use its MCP tools (including deletes). Requests from foreign browser origins are
+> always rejected.
 
 Postbox exposes a Streamable HTTP MCP endpoint at `/api/mcp` backed by the same server-side execution engine, collection runner, variable resolver, and SQLite database as the web UI.
 
 **Claude Code**
 ```bash
 claude mcp add --transport http postbox http://localhost:3000/api/mcp
-# with POSTBOX_TOKEN set:
+# with accounts: create a personal token under Profile → API tokens
+claude mcp add --transport http postbox http://localhost:3000/api/mcp --header "Authorization: Bearer pbx_..."
+# single-user mode:
 claude mcp add --transport http postbox http://localhost:3000/api/mcp --header "Authorization: Bearer $POSTBOX_TOKEN"
 ```
 
@@ -409,6 +427,8 @@ Ask your assistant things like *"list my Postbox collections"*, *"send the Get u
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the design. Planned work is tracked as stories in Jira; highlights:
 
 - [x] Optional single-user auth (`POSTBOX_PASSWORD` / `POSTBOX_TOKEN`)
+- [x] User accounts with personal API tokens
+- [ ] Workspace roles and sharing (owner/editor/viewer), admin user management and invites
 - [x] MCP server endpoint (`/api/mcp`)
 - [x] Headless CLI runner (`postbox-cli`)
 - [x] Scheduled runs
