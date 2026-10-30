@@ -106,14 +106,15 @@
 /* CodeMirror should fill its container and follow the app palette. */
 .cm-editor {
   height: 100%;
-  font-size: 12.5px;
+  font-size: var(--code-font-size, 12.5px);
   background: transparent !important;
 }
 .cm-editor.cm-focused {
   outline: none !important;
 }
 .cm-scroller {
-  font-family: var(--font-mono) !important;
+  font-family: var(--code-font, ui-monospace, Menlo, Consolas, monospace) !important;
+  line-height: var(--code-line-height, 1.4) !important;
 }
 
 /* Variable highlighting ({{var}}) in inputs and editors. */

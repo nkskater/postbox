@@ -10,9 +10,11 @@ import { xml } from "@codemirror/lang-xml";
 import { html } from "@codemirror/lang-html";
 import { javascript } from "@codemirror/lang-javascript";
 import { EditorView } from "@codemirror/view";
-import type { Extension } from "@codemirror/state";
+import { EditorState, type Extension } from "@codemirror/state";
+import { indentUnit } from "@codemirror/language";
 import { useApp } from "@/stores/app";
-import { variableExtensions } from "./variables-ext";
+import { useSetting } from "@/stores/settings";
+import { useVariableOptions, variableExtensions } from "./variables-ext";
 import { editorTheme } from "./theme";
 
 export type EditorLanguage = "json" | "xml" | "html" | "javascript" | "text" | "graphql";
@@ -39,6 +41,7 @@ export interface CodeEditorProps {
   readOnly?: boolean;
   /** Highlight {{variables}} (default true unless read-only). */
   variables?: boolean;
+  /** Wrap long lines; defaults to the editor.wrap setting. */
   wrap?: boolean;
   placeholder?: string;
   className?: string;
@@ -60,15 +63,27 @@ export function CodeEditor({
 }: CodeEditorProps) {
   const theme = useApp((s) => s.theme);
   const vars = useApp((s) => s.variables);
+  const varOpts = useVariableOptions();
+  const wrapDefault = useSetting<boolean>("editor.wrap");
+  const lineNumbers = useSetting<boolean>("editor.lineNumbers");
+  const folding = useSetting<boolean>("editor.folding");
+  const brackets = useSetting<boolean>("editor.brackets");
+  const activeLine = useSetting<boolean>("editor.activeLine");
+  const tabSize = Number(useSetting<string>("editor.tabSize")) || 2;
   const highlightVars = variables ?? !readOnly;
+  const lineWrap = wrap ?? wrapDefault;
   const extensions = useMemo(
     () => [
       ...languageExt(language),
-      ...(highlightVars ? variableExtensions(vars, { autocomplete: !readOnly }) : []),
-      ...(wrap ? [EditorView.lineWrapping] : []),
+      ...(highlightVars
+        ? variableExtensions(vars, { ...varOpts, autocomplete: !readOnly && varOpts.autocomplete })
+        : []),
+      ...(lineWrap ? [EditorView.lineWrapping] : []),
+      EditorState.tabSize.of(tabSize),
+      indentUnit.of(" ".repeat(tabSize)),
       ...(extra ?? []),
     ],
-    [language, highlightVars, vars, readOnly, wrap, extra],
+    [language, highlightVars, vars, varOpts, readOnly, lineWrap, tabSize, extra],
   );
   return (
     <CodeMirror
@@ -82,10 +97,12 @@ export function CodeEditor({
       height="100%"
       className={className ?? "h-full"}
       basicSetup={{
-        lineNumbers: true,
-        foldGutter: true,
-        highlightActiveLine: !readOnly,
-        highlightActiveLineGutter: !readOnly,
+        lineNumbers,
+        foldGutter: folding,
+        bracketMatching: brackets,
+        closeBrackets: brackets && !readOnly,
+        highlightActiveLine: !readOnly && activeLine,
+        highlightActiveLineGutter: !readOnly && activeLine,
         autocompletion: false,
         searchKeymap: true,
         ...(typeof basicSetup === "object" ? basicSetup : {}),

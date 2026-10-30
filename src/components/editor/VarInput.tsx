@@ -10,15 +10,15 @@ import { EditorState, Prec, type Extension } from "@codemirror/state";
 import { EditorView, keymap, placeholder as placeholderExt } from "@codemirror/view";
 import { useApp } from "@/stores/app";
 import { cn } from "@/lib/utils";
-import { variableExtensions } from "./variables-ext";
+import { useVariableOptions, variableExtensions } from "./variables-ext";
 import { editorTheme } from "./theme";
 
 const singleLine: Extension = [
   // Strip newlines from typed or pasted text.
   EditorState.transactionFilter.of((tr) => (tr.newDoc.lines > 1 ? [] : tr)),
   EditorView.theme({
-    "&": { fontSize: "13px" },
-    ".cm-content": { padding: "0", fontFamily: "var(--font-mono)" },
+    "&": { fontSize: "calc(var(--code-font-size, 12.5px) + 0.5px)" },
+    ".cm-content": { padding: "0", fontFamily: "var(--code-font, ui-monospace, monospace)" },
     ".cm-line": { padding: "0 8px" },
     ".cm-scroller": { overflow: "hidden" },
   }),
@@ -50,6 +50,7 @@ export function VarInput({
 }: VarInputProps) {
   const theme = useApp((s) => s.theme);
   const vars = useApp((s) => s.variables);
+  const varOpts = useVariableOptions();
   // Callbacks live in refs so the CodeMirror extensions don't have to be rebuilt every render.
   const enterRef = useRef(onEnter);
   const pasteRef = useRef(onPasteText);
@@ -60,7 +61,7 @@ export function VarInput({
   const hasEnter = !!onEnter;
   const hasPaste = !!onPasteText;
   const extensions = useMemo(() => {
-    const exts: Extension[] = [singleLine, ...variableExtensions(vars)];
+    const exts: Extension[] = [singleLine, ...variableExtensions(vars, varOpts)];
     if (placeholder) exts.push(placeholderExt(placeholder));
     if (hasEnter)
       exts.push(Prec.highest(keymap.of([{ key: "Enter", run: () => (enterRef.current?.(), true) }])));
@@ -79,7 +80,7 @@ export function VarInput({
         }),
       );
     return exts;
-  }, [vars, placeholder, hasEnter, masked, hasPaste]);
+  }, [vars, varOpts, placeholder, hasEnter, masked, hasPaste]);
 
   return (
     <div
