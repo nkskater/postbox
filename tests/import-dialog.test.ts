@@ -180,6 +180,48 @@ describe("ImportDialog multi-file recovery and concurrency", () => {
     expect(ctrl.getState().open).toBe(false);
   });
 
+  it("preserves batch ledger when refresh rejects after a partial import so retry does not duplicate persisted files", async () => {
+    let fileBContent = "broken-spec";
+    let failRefreshOnce = true;
+    refreshTree.mockImplementation(async () => {
+      if (failRefreshOnce) {
+        failRefreshOnce = false;
+        throw new Error("Sidebar refresh failed");
+      }
+      sidebarCollections = [...persistedCollections];
+    });
+
+    const fetchMock = vi.fn<typeof fetch>(async (_input, init) => {
+      const { content } = JSON.parse(String(init?.body ?? "{}")) as { content: string };
+      if (content === "broken-spec") {
+        return jsonResponse({ error: "Unrecognized import format" }, 400);
+      }
+      persistedCollections.push(content);
+      return jsonResponse({ kind: "collection", name: content, requests: 1 });
+    });
+
+    const ctrl = setup(fetchMock);
+    const fileA = mockFile("a.json", "Collection A");
+    const fileB = mockFile("b.json", async () => fileBContent);
+
+    const firstBatch = await ctrl.importFiles([fileA, fileB]);
+    expect(firstBatch).toMatchObject({ total: 2, succeeded: 1, failed: 1 });
+    expect(ctrl.getState().batchSummary?.entries.map((e) => [e.name, e.status])).toEqual([
+      ["a.json", "succeeded"],
+      ["b.json", "failed"],
+    ]);
+    expect(toastError).toHaveBeenCalledWith("Sidebar refresh failed");
+
+    // Retrying failed files must only retry b.json and must not re-import a.json.
+    fileBContent = "Collection B";
+    const retryBatch = await ctrl.retryFailedFiles();
+    expect(retryBatch).toMatchObject({ total: 2, succeeded: 2, failed: 0 });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(persistedCollections).toEqual(["Collection A", "Collection B"]);
+    expect(sidebarCollections).toEqual(["Collection A", "Collection B"]);
+    expect(ctrl.getState().open).toBe(false);
+  });
+
   it("ignores empty file selections without side effects", async () => {
     const fetchMock = vi.fn<typeof fetch>();
     const ctrl = setup(fetchMock);

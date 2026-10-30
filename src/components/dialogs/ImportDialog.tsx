@@ -232,12 +232,6 @@ export function createImportController(
         }
       }
 
-      // Always refresh persisted state if at least one server-persisted file succeeded,
-      // even if a subsequent file in the same batch failed.
-      if (anyNewlyPersisted) {
-        await refreshPersistedState();
-      }
-
       const combinedEntries = [...preservedEntries, ...newEntries];
       const succeeded = combinedEntries.filter((e) => e.status === "succeeded").length;
       const failedEntries = newEntries.filter((e) => e.status === "failed");
@@ -249,9 +243,10 @@ export function createImportController(
         entries: combinedEntries,
       };
 
-      if (failed === 0) {
-        resetAndClose();
-      } else {
+      // Publish the batch ledger before refreshing persisted stores so a refresh
+      // error cannot discard per-file success/failure tracking or cause duplicate
+      // imports on retry.
+      if (failed > 0) {
         emit({ batchSummary: summary });
         if (filesToRun.length === 1 && preservedEntries.length === 0) {
           notify.error(failedEntries[0].error || "Import failed");
@@ -260,6 +255,22 @@ export function createImportController(
             `Imported ${newEntries.length - failed} of ${filesToRun.length} files (${failed} failed)`,
           );
         }
+      }
+
+      // Always refresh persisted state if at least one server-persisted file succeeded,
+      // even if a subsequent file in the same batch failed.
+      if (anyNewlyPersisted) {
+        try {
+          await refreshPersistedState();
+        } catch (refreshErr) {
+          notify.error(
+            (refreshErr as Error)?.message || "Imported files, but refreshing workspace state failed",
+          );
+        }
+      }
+
+      if (failed === 0) {
+        resetAndClose();
       }
 
       return summary;
