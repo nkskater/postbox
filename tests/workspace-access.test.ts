@@ -536,3 +536,59 @@ describe("Hoppscotch import boundaries", () => {
     expect(repo.listEnvironments(workspaceId)).toHaveLength(before);
   });
 });
+
+describe("Thunder Client import boundaries", () => {
+  it("requires explicit credentials consent through REST/MCP and retains workspace isolation", async () => {
+    const { POST } = await import("@/app/api/import/route");
+    const content = JSON.stringify({
+      clientName: "Thunder Client",
+      version: "1.2",
+      collectionName: "Thunder",
+      folders: [],
+      requests: [
+        {
+          _id: "one",
+          name: "One",
+          url: "https://example.test/",
+          method: "GET",
+          auth: { type: "bearer", bearer: "consented-token" },
+        },
+      ],
+    });
+    const send = (user: UserRow, includeCredentials = false) =>
+      POST(request("POST", "/api/import", user, { workspaceId, content, includeCredentials }));
+    expect((await send(editor)).status).toBe(400);
+    expect((await send(outsider, true)).status).toBe(404);
+    expect((await send(viewer, true)).status).toBe(403);
+    const response = await send(editor, true);
+    expect(response.status).toBe(201);
+    const result = await response.json();
+    expect(result).toMatchObject({ kind: "collection", source: "thunder-client", requests: 1 });
+    expect(repo.getFolderTree(result.id)?.children[0]).toMatchObject({
+      auth: { type: "bearer", bearer: { token: "consented-token" } },
+    });
+    const rpc = await mcpRoute.POST(
+      request("POST", "/api/mcp", editor, {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "import_spec", arguments: { workspaceId, content, includeCredentials: true } },
+      }),
+    );
+    expect(JSON.parse((await rpc.json()).result.content[0].text)).toMatchObject({
+      kind: "collection",
+      source: "thunder-client",
+    });
+    const env = JSON.stringify({
+      client: "Thunder Client",
+      version: "1.0",
+      environmentName: "Thunder env",
+      variables: [{ name: "key", value: "value", isSecret: true }],
+    });
+    const importedEnv = await POST(
+      request("POST", "/api/import", editor, { workspaceId, content: env, includeCredentials: true }),
+    );
+    expect(importedEnv.status).toBe(201);
+    expect(await importedEnv.json()).toMatchObject({ kind: "environment", variables: 1 });
+  });
+});

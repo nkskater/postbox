@@ -1376,13 +1376,13 @@ export function createPostboxMcpServer(): McpServer {
     {
       title: "Import API Collections and Specifications",
       description:
-        "Import a Postman Collection (v2.0/v2.1), Postman Environment, or OpenAPI 3.x / Swagger 2.0 specification (JSON or YAML) HAR 1.2 recordings, or Hoppscotch exports from raw text or a URL into a workspace. Hoppscotch requires explicit includeCredentials consent.",
+        "Import a Postman Collection (v2.0/v2.1), Postman Environment, or OpenAPI 3.x / Swagger 2.0 specification (JSON or YAML), HAR 1.2 recordings, Hoppscotch or Thunder Client exports from raw text or a URL into a workspace. Hoppscotch and Thunder Client require explicit includeCredentials consent.",
       inputSchema: {
         workspaceId: z.string().optional().describe("Workspace ID (defaults to primary workspace)"),
         includeCredentials: z
           .boolean()
           .optional()
-          .describe("Explicitly allow credentials in Hoppscotch exports"),
+          .describe("Explicitly allow credentials in Hoppscotch and Thunder Client exports"),
         content: z.string().optional().describe("Raw JSON or YAML specification content"),
         url: z.string().url().optional().describe("URL to fetch the specification from"),
       },
