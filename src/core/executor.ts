@@ -20,7 +20,7 @@ import type {
 } from "./types";
 import { DEFAULT_SETTINGS } from "./types";
 import { Resolver, redactSecrets, type VariableScopes } from "./variables/resolver";
-import { prepareRequest } from "./http/prepare";
+import { prepareRequest, type RequestDefaults } from "./http/prepare";
 import { sendRequest, type EngineOptions } from "./http/engine";
 import type { CookieJarStore } from "./http/cookies";
 import type { HostPolicy } from "./http/policy";
@@ -47,6 +47,8 @@ export interface ExecuteOptions {
   iterationCount?: number;
   signal?: AbortSignal;
   scriptLimits?: Partial<ScriptLimits>;
+  /** Instance-wide default headers, User-Agent and Accept behaviour (also used by pm.sendRequest). */
+  requestDefaults?: RequestDefaults;
   oauth2CacheScope?: string;
   /** Run-level overrides (e.g. the runner's global timeout / SSL setting). */
   overrides?: { timeoutMs?: number; verifySsl?: boolean };
@@ -258,7 +260,9 @@ export async function execute(opts: ExecuteOptions): Promise<ExecuteResult> {
           formdata: normalizeKv(spec.body.formdata).map((f) => ({ ...f, type: "text" as const })),
         };
       }
-      const { prepared } = await prepareRequest(def, [], new Resolver(scopes), hostEngine);
+      const { prepared } = await prepareRequest(def, [], new Resolver(scopes), hostEngine, {
+        defaults: opts.requestDefaults,
+      });
       const res = await sendRequest(prepared, hostEngine);
       logs.push({
         level: "info",
@@ -334,7 +338,9 @@ export async function execute(opts: ExecuteOptions): Promise<ExecuteResult> {
   let prepared;
   let oauth2Token: OAuth2Token | undefined;
   try {
-    const p = await prepareRequest(request, opts.ancestors, resolver, engine);
+    const p = await prepareRequest(request, opts.ancestors, resolver, engine, {
+      defaults: opts.requestDefaults,
+    });
     prepared = p.prepared;
     oauth2Token = p.oauth2Token;
   } catch (err) {

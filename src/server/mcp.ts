@@ -27,6 +27,7 @@ import { currentCaller } from "./access-context";
 import { describeCaller } from "./caller";
 import { workspaceRole } from "./authorize";
 import * as runs from "./runs";
+import { executionSettings } from "./execution-settings";
 
 const SECRET_MASK = "••••••••";
 
@@ -240,13 +241,11 @@ export function createPostboxMcpServer(): McpServer {
     async () =>
       okJson({
         ...describeCaller(currentCaller() ?? null),
-        workspaces: repo
-          .listWorkspaces()
-          .map((workspace) => ({
-            id: workspace.id,
-            name: workspace.name,
-            role: workspaceRole(currentCaller(), workspace.id),
-          })),
+        workspaces: repo.listWorkspaces().map((workspace) => ({
+          id: workspace.id,
+          name: workspace.name,
+          role: workspaceRole(currentCaller(), workspace.id),
+        })),
       }),
   );
 
@@ -954,7 +953,7 @@ export function createPostboxMcpServer(): McpServer {
           chain,
           resolver,
           { policy: getPolicy() },
-          { offline: true },
+          { offline: true, defaults: executionSettings().requestDefaults },
         );
         const snippet = generateSnippet(input.language as CodegenLanguage, {
           method: prepared.method,

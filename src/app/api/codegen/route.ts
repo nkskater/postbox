@@ -12,6 +12,7 @@ import * as repo from "@/server/repo";
 import { loadScopes } from "@/server/context";
 import { json, parseBody, route } from "@/server/http";
 import { requestInputSchema } from "@/core/schemas";
+import { executionSettings } from "@/server/execution-settings";
 
 /** Resolver that leaves every {{variable}} untouched. */
 class PassthroughResolver extends Resolver {
@@ -46,6 +47,7 @@ export const POST = route(async (req: Request) => {
     : new PassthroughResolver();
   const { prepared, resolvedBody } = await prepareRequest(request, chain, resolver, undefined, {
     offline: true,
+    defaults: executionSettings().requestDefaults,
   });
   const code = generateSnippet(input.language as CodegenLanguage, {
     method: prepared.method,

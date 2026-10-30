@@ -31,6 +31,20 @@ interface Options {
   reporterJsonExport?: string;
   reporterJunitExport?: string;
   reporterHtmlExport?: string;
+  header: [string, string][];
+  userAgent?: string;
+  acceptHeaders: boolean;
+  scriptTimeout?: number;
+  scriptMemory?: number;
+}
+
+/** Repeatable `--header "Name: value"`. */
+function header(value: string, previous: [string, string][] = []): [string, string][] {
+  const i = value.indexOf(":");
+  const name = i > 0 ? value.slice(0, i).trim() : "";
+  if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name))
+    throw new InvalidArgumentError('Expected "Name: value" with a valid header name.');
+  return [...previous, [name, value.slice(i + 1).trim()]];
 }
 
 function integer(min: number) {
@@ -128,6 +142,15 @@ async function run(file: string, options: Options) {
       policy: HostPolicy.fromEnv(),
       secrets,
       signal: controller.signal,
+      requestDefaults: {
+        headers: options.header.map(([key, value]) => ({ key, value, enabled: true })),
+        userAgent: options.userAgent,
+        autoAcceptHeaders: options.acceptHeaders,
+      },
+      scriptLimits: {
+        ...(options.scriptTimeout ? { timeoutMs: options.scriptTimeout } : {}),
+        ...(options.scriptMemory ? { memoryBytes: options.scriptMemory * 1024 * 1024 } : {}),
+      },
       retainResults: options.reporters.some((reporter) => reporter !== "cli"),
       onExecution: (_item, result) => {
         for (const [list, scope] of [
@@ -183,6 +206,11 @@ program
   .option("--bail", "Stop after the first failed request or assertion")
   .option("--insecure", "Disable TLS certificate verification")
   .option("--timeout <ms>", "Request timeout in milliseconds", integer(1))
+  .option("-H, --header <header>", 'Default header for every request, "Name: value" (repeatable)', header, [])
+  .option("--user-agent <value>", 'User-Agent when a request sets none ("" sends none)')
+  .option("--no-accept-headers", "Do not add Accept and Accept-Encoding automatically")
+  .option("--script-timeout <ms>", "Script time limit in milliseconds", integer(100))
+  .option("--script-memory <mb>", "Script memory limit in MB", integer(8))
   .option("--reporters <list>", "Comma-separated reporters: cli,json,junit,html", reporters, ["cli"])
   .option("--reporter-json-export <path>", "JSON report destination")
   .option("--reporter-junit-export <path>", "JUnit XML report destination")

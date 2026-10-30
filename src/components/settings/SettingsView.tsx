@@ -74,7 +74,10 @@ export function SettingsView() {
         <div
           key={def.key}
           id={`setting-${def.key}`}
-          className="flex flex-col gap-3 p-4 md:flex-row md:items-start md:justify-between"
+          className={cn(
+            "flex flex-col gap-3 p-4",
+            def.type !== "keyvalue" && "md:flex-row md:items-start md:justify-between",
+          )}
         >
           <div className="min-w-0 md:max-w-sm">
             <div className="flex items-center gap-2 text-sm font-medium">
@@ -90,7 +93,9 @@ export function SettingsView() {
             </div>
             <p className="mt-0.5 text-xs text-muted-foreground">{def.description}</p>
           </div>
-          <div className="flex items-start gap-2 md:justify-end">
+          <div
+            className={cn("flex items-start gap-2", def.type === "keyvalue" ? "w-full" : "md:justify-end")}
+          >
             <SettingControl
               def={def}
               value={values[def.key]}

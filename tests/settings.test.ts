@@ -93,8 +93,11 @@ describe("settings registry", () => {
     const r = resolveSettings({ "x.limit": 20 }, { X_LIMIT: "50", X_FLAG: "true" }, defs);
     expect(r.values).toMatchObject({ "x.limit": 50, "x.flag": true });
     expect(r.envLocked).toEqual({ "x.limit": "X_LIMIT", "x.flag": "X_FLAG" });
-    // Invalid env values fall back to the saved value and do not lock the setting.
-    const bad = resolveSettings({ "x.limit": 20 }, { X_LIMIT: "5000" }, defs);
+    // Numeric env pins outside the range are clamped; non-numeric ones are ignored.
+    const high = resolveSettings({ "x.limit": 20 }, { X_LIMIT: "5000" }, defs);
+    expect(high.values["x.limit"]).toBe(100);
+    expect(high.envLocked).toEqual({ "x.limit": "X_LIMIT" });
+    const bad = resolveSettings({ "x.limit": 20 }, { X_LIMIT: "lots" }, defs);
     expect(bad.values["x.limit"]).toBe(20);
     expect(bad.envLocked).toEqual({});
   });
