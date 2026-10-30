@@ -14,7 +14,7 @@ if errorlevel 1 (
 )
 if not exist "node_modules\better-sqlite3" (
   echo Installing dependencies, this only happens once...
-  call npm ci --no-audit --no-fund
+  call npm ci --ignore-scripts --no-audit --no-fund
   if errorlevel 1 (
     pause
     exit /b 1

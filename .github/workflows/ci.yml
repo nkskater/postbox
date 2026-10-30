@@ -51,7 +51,7 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       - run: npm run build:windows
       - name: Smoke test packaged Windows app, local proxy execution, CLI, and shortcuts
         shell: pwsh
@@ -79,7 +79,7 @@ jobs:
           $p = Start-App
           try {
             if (-not (Test-Path (Join-Path $data 'postbox.db'))) { throw 'Database not created in Settings.cmd DATA_DIR' }
-            $workspaces = Invoke-RestMethod "$base/api/workspaces"
+            $workspaces = @(Invoke-RestMethod "$base/api/workspaces")
             $wsId = $workspaces[0].id
             if (-not $wsId) { throw 'Default workspace was not created' }
 
@@ -105,7 +105,7 @@ jobs:
             if (-not $second.WaitForExit(30000)) { throw 'Second launch did not exit' }
             if ($second.ExitCode -ne 0) { throw "Second launch failed with $($second.ExitCode)" }
           } finally {
-            taskkill /T /F /PID $p.Id 2>$null | Out-Null
+            & taskkill.exe /T /F /PID $p.Id | Out-Null
           }
 
           Start-Sleep -Seconds 1
@@ -116,7 +116,7 @@ jobs:
               throw 'Daily backup was not created in Backups\'
             }
           } finally {
-            taskkill /T /F /PID $p2.Id 2>$null | Out-Null
+            & taskkill.exe /T /F /PID $p2.Id | Out-Null
           }
 
           # Bundled CLI works via Postbox CLI.cmd
