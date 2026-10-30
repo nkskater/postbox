@@ -15,6 +15,7 @@ import {
 } from "@/core/variables/resolver";
 import type { OAuth2Token } from "@/core/http/auth";
 import * as repo from "./repo";
+import { executionSettings } from "./execution-settings";
 
 let policy: HostPolicy | null = null;
 /** Host policy from PROXY_ALLOW_HOSTS / PROXY_DENY_HOSTS (parsed once). */
@@ -174,6 +175,7 @@ export async function runSingleRequest(input: RunSingleInput): Promise<RunSingle
     secrets: ctx.secrets,
     signal: input.signal,
     oauth2CacheScope: input.workspaceId,
+    ...executionSettings(),
   });
 
   persistOAuth2Token(input.workspaceId, input.request, chain, result.oauth2Token, input.requestId);

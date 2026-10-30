@@ -14,6 +14,7 @@ import { getPolicy, loadScopes, persistScopes, persistOAuth2Token, persistenceSe
 import { newId } from "./defaults";
 import { actorId } from "./authorize";
 import { redactStoredValue } from "@/core/variables/resolver";
+import { executionSettings } from "./execution-settings";
 
 const { runs, runResults } = schema;
 
@@ -109,6 +110,7 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
       policy: getPolicy(),
       secrets: ctx.secrets,
       oauth2CacheScope: input.workspaceId,
+      ...executionSettings(),
       onExecution: (item, result) => {
         persistOAuth2Token(
           input.workspaceId,
