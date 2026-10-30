@@ -8,7 +8,16 @@
 import { isValidAccent, DEFAULT_ACCENT } from "./accent";
 
 export type SettingCategory =
-  "appearance" | "layout" | "editor" | "requests" | "responses" | "tabs" | "variables" | "console" | "runner";
+  | "appearance"
+  | "layout"
+  | "editor"
+  | "requests"
+  | "responses"
+  | "tabs"
+  | "variables"
+  | "console"
+  | "runner"
+  | "execution";
 
 export const CATEGORIES: { id: SettingCategory; label: string; description: string }[] = [
   { id: "appearance", label: "Appearance", description: "Theme, colors, typography and density." },
@@ -28,6 +37,11 @@ export const CATEGORIES: { id: SettingCategory; label: string; description: stri
   },
   { id: "console", label: "Console", description: "Script console and network log." },
   { id: "runner", label: "Collection runner", description: "Defaults used when you open the runner." },
+  {
+    id: "execution",
+    label: "Request execution",
+    description: "Server-side defaults for every request and script. Administrators only.",
+  },
 ];
 
 interface Base<T> {
@@ -47,9 +61,18 @@ export type SettingDef =
   | (Base<string> & { type: "select"; options: { value: string; label: string }[] })
   | (Base<boolean> & { type: "boolean" })
   | (Base<number> & { type: "number"; min: number; max: number; step?: number; unit?: string })
-  | (Base<string> & { type: "accent" });
+  | (Base<string> & { type: "accent" })
+  | (Base<string> & { type: "text"; maxLength: number; placeholder?: string })
+  | (Base<HeaderRow[]> & { type: "keyvalue"; maxRows: number });
 
-export type SettingValue = string | number | boolean;
+/** One row of a key/value list setting (same shape as a request header row). */
+export interface HeaderRow {
+  key: string;
+  value: string;
+  enabled: boolean;
+}
+
+export type SettingValue = string | number | boolean | HeaderRow[];
 
 export const SETTINGS: SettingDef[] = [
   {
@@ -681,6 +704,70 @@ export const SETTINGS: SettingDef[] = [
     ],
     keywords: ["export", "junit", "report"],
   },
+  {
+    key: "execution.defaultHeaders",
+    category: "execution",
+    label: "Default headers",
+    description:
+      "Added to every request, including the runner, schedules, MCP and pm.sendRequest. Collection, folder and request headers with the same name win.",
+    type: "keyvalue",
+    scope: "server",
+    default: [],
+    maxRows: 50,
+    keywords: ["global", "header"],
+  },
+  {
+    key: "execution.userAgent",
+    category: "execution",
+    label: "User-Agent",
+    description: "Sent when a request does not set its own User-Agent header. Leave empty to send none.",
+    type: "text",
+    scope: "server",
+    default: "Postbox/0.1",
+    maxLength: 256,
+    placeholder: "No User-Agent header",
+    keywords: ["ua", "agent", "header"],
+  },
+  {
+    key: "execution.autoAcceptHeaders",
+    category: "execution",
+    label: "Add Accept headers automatically",
+    description: "Send Accept: */* and Accept-Encoding: gzip, deflate, br when a request does not set them.",
+    type: "boolean",
+    scope: "server",
+    default: true,
+    keywords: ["accept", "encoding", "gzip", "compression"],
+  },
+  {
+    key: "execution.scriptTimeoutMs",
+    category: "execution",
+    label: "Script time limit",
+    description: "Maximum run time of each pre-request or test script.",
+    type: "number",
+    scope: "server",
+    env: "SCRIPT_TIMEOUT_MS",
+    default: 5000,
+    min: 100,
+    max: 60000,
+    step: 100,
+    unit: "ms",
+    keywords: ["timeout", "sandbox", "script"],
+  },
+  {
+    key: "execution.scriptMemoryMb",
+    category: "execution",
+    label: "Script memory limit",
+    description: "Maximum memory of each script sandbox.",
+    type: "number",
+    scope: "server",
+    env: "SCRIPT_MEMORY_MB",
+    default: 32,
+    min: 8,
+    max: 512,
+    step: 8,
+    unit: "MB",
+    keywords: ["memory", "sandbox", "script"],
+  },
 ];
 
 export const SETTINGS_BY_KEY = new Map(SETTINGS.map((s) => [s.key, s]));
@@ -710,6 +797,29 @@ export function validateSetting(def: SettingDef, value: unknown): SettingValue {
       if (typeof value !== "string" || !isValidAccent(value))
         throw new Error(`${def.label} must be a preset name or a #rrggbb color`);
       return value.startsWith("#") ? value.toLowerCase() : value;
+    case "text":
+      if (typeof value !== "string") throw new Error(`${def.label} must be text`);
+      if (value.length > def.maxLength)
+        throw new Error(`${def.label} must be at most ${def.maxLength} characters`);
+      // Header values cannot carry line breaks or other control characters.
+      if (/[\u0000-\u001f\u007f]/.test(value)) throw new Error(`${def.label} contains control characters`);
+      return value.trim();
+    case "keyvalue": {
+      if (!Array.isArray(value)) throw new Error(`${def.label} must be a list`);
+      if (value.length > def.maxRows) throw new Error(`${def.label} allows at most ${def.maxRows} rows`);
+      return value.map((row, i) => {
+        const r = row as Partial<HeaderRow> | null;
+        if (!r || typeof r.key !== "string" || typeof (r.value ?? "") !== "string")
+          throw new Error(`${def.label} row ${i + 1} must have a text key and value`);
+        const key = r.key.trim();
+        const val = r.value ?? "";
+        if (key && !/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(key))
+          throw new Error(`${def.label} row ${i + 1}: "${key}" is not a valid header name`);
+        if (/[\r\n\u0000]/.test(val))
+          throw new Error(`${def.label} row ${i + 1}: value contains line breaks`);
+        return { key, value: val, enabled: r.enabled !== false };
+      });
+    }
   }
 }
 
@@ -733,8 +843,13 @@ export function resolveSettings(
     const raw = def.env ? env[def.env] : undefined;
     if (raw !== undefined && raw !== "") {
       try {
+        // Numeric env pins outside the allowed range are clamped rather than ignored.
         const parsed =
-          def.type === "number" ? Number(raw) : def.type === "boolean" ? /^(1|true|yes|on)$/i.test(raw) : raw;
+          def.type === "number"
+            ? Math.min(def.max, Math.max(def.min, Number(raw)))
+            : def.type === "boolean"
+              ? /^(1|true|yes|on)$/i.test(raw)
+              : raw;
         value = validateSetting(def, parsed);
         envLocked[def.key] = def.env!;
       } catch {
