@@ -4,7 +4,7 @@
  * is rejected before it reaches persistence or the HTTP engine.
  */
 import { z } from "zod";
-import type { AuthConfig, BodyConfig, OAuth2Config } from "./types";
+import type { AuthConfig, BodyConfig, EdgeGridConfig, OAuth2Config } from "./types";
 
 /** RFC 9110 method token (custom methods such as PROPFIND or M-SEARCH are allowed). */
 export const methodSchema = z
@@ -68,6 +68,17 @@ export const oauth2ConfigSchema: z.ZodType<OAuth2Config> = z.object({
   headerPrefix: z.string().default("Bearer"),
 });
 
+export const edgeGridConfigSchema: z.ZodType<EdgeGridConfig> = z.object({
+  clientToken: z.string().default(""),
+  clientSecret: z.string().default(""),
+  accessToken: z.string().default(""),
+  baseURL: z.string().optional(),
+  headersToSign: z.string().optional(),
+  maxBodySize: z.number().int().nonnegative().optional(),
+  nonce: z.string().optional(),
+  timestamp: z.string().optional(),
+});
+
 export const authSchema: z.ZodType<AuthConfig> = z.discriminatedUnion("type", [
   z.object({ type: z.literal("inherit") }),
   z.object({ type: z.literal("none") }),
@@ -86,6 +97,7 @@ export const authSchema: z.ZodType<AuthConfig> = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("digest"), digest: z.object({ username: z.string(), password: z.string() }) }),
   z.object({ type: z.literal("oauth2"), oauth2: oauth2ConfigSchema }),
+  z.object({ type: z.literal("edgegrid"), edgegrid: edgeGridConfigSchema }),
 ]);
 
 export const settingsPatchSchema = z.object({

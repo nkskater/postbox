@@ -57,6 +57,17 @@ export interface OAuth2Config {
   headerPrefix: string;
 }
 
+export interface EdgeGridConfig {
+  clientToken: string;
+  clientSecret: string;
+  accessToken: string;
+  baseURL?: string;
+  headersToSign?: string;
+  maxBodySize?: number;
+  nonce?: string;
+  timestamp?: string;
+}
+
 export type AuthConfig =
   | { type: "inherit" }
   | { type: "none" }
@@ -64,7 +75,8 @@ export type AuthConfig =
   | { type: "basic"; basic: { username: string; password: string } }
   | { type: "apikey"; apikey: { key: string; value: string; in: "header" | "query" } }
   | { type: "digest"; digest: { username: string; password: string } }
-  | { type: "oauth2"; oauth2: OAuth2Config };
+  | { type: "oauth2"; oauth2: OAuth2Config }
+  | { type: "edgegrid"; edgegrid: EdgeGridConfig };
 
 export type AuthType = AuthConfig["type"];
 

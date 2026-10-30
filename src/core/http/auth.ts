@@ -6,6 +6,7 @@ import { DEFAULT_SETTINGS } from "../types";
 import type { Resolver } from "../variables/resolver";
 import { sendRequest, type EngineOptions } from "./engine";
 import { createHash } from "node:crypto";
+import { buildEdgeGridAuthHeader } from "./edgegrid";
 
 /**
  * Resolve the effective auth from an outermost → innermost chain
@@ -52,6 +53,22 @@ export function resolveAuth(auth: AuthConfig, r: Resolver): AuthConfig {
           username: r.resolve(o.username),
           password: r.resolve(o.password),
           accessToken: r.resolve(o.accessToken),
+        },
+      };
+    }
+    case "edgegrid": {
+      const e = auth.edgegrid;
+      return {
+        type: "edgegrid",
+        edgegrid: {
+          ...e,
+          clientToken: r.resolve(e.clientToken),
+          clientSecret: r.resolve(e.clientSecret),
+          accessToken: r.resolve(e.accessToken),
+          baseURL: e.baseURL !== undefined ? r.resolve(e.baseURL) : undefined,
+          headersToSign: e.headersToSign !== undefined ? r.resolve(e.headersToSign) : undefined,
+          nonce: e.nonce !== undefined ? r.resolve(e.nonce) : undefined,
+          timestamp: e.timestamp !== undefined ? r.resolve(e.timestamp) : undefined,
         },
       };
     }
@@ -244,6 +261,32 @@ export async function applyAuth(
         setHeader(req, "Authorization", prefix ? `${prefix} ${token.accessToken}` : token.accessToken);
       }
       return { oauth2Token: token ?? undefined };
+    }
+    case "edgegrid": {
+      if (hasAuthHeader) return {};
+      const { clientToken, clientSecret, accessToken } = auth.edgegrid;
+      if (offline) {
+        const ct = clientToken || "<client-token>";
+        const cs = clientSecret || "<client-secret>";
+        const at = accessToken || "<access-token>";
+        const header = buildEdgeGridAuthHeader(
+          { ...auth.edgegrid, clientToken: ct, clientSecret: cs, accessToken: at },
+          { method: req.method, url: req.url, headers: req.headers, body: req.body },
+        );
+        setHeader(req, "Authorization", header);
+        return {};
+      }
+      if (!clientToken || !clientSecret || !accessToken) {
+        throw new Error("Akamai EdgeGrid: clientToken, clientSecret, and accessToken are required");
+      }
+      const header = buildEdgeGridAuthHeader(auth.edgegrid, {
+        method: req.method,
+        url: req.url,
+        headers: req.headers,
+        body: req.body,
+      });
+      setHeader(req, "Authorization", header);
+      return {};
     }
     default:
       return {};

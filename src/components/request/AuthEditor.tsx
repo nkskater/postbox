@@ -5,7 +5,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { KeyRound } from "lucide-react";
-import type { AuthConfig, AuthType, OAuth2Config } from "@/core/types";
+import type { AuthConfig, AuthType, EdgeGridConfig, OAuth2Config } from "@/core/types";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -20,6 +20,7 @@ const TYPES: { type: AuthType; label: string }[] = [
   { type: "apikey", label: "API Key" },
   { type: "digest", label: "Digest Auth" },
   { type: "oauth2", label: "OAuth 2.0" },
+  { type: "edgegrid", label: "Akamai EdgeGrid" },
 ];
 
 export function defaultAuth(type: AuthType): AuthConfig {
@@ -44,6 +45,17 @@ export function defaultAuth(type: AuthType): AuthConfig {
           clientAuthentication: "header",
           accessToken: "",
           headerPrefix: "Bearer",
+        },
+      };
+    case "edgegrid":
+      return {
+        type,
+        edgegrid: {
+          clientToken: "",
+          clientSecret: "",
+          accessToken: "",
+          baseURL: "",
+          headersToSign: "",
         },
       };
     default:
@@ -193,6 +205,12 @@ export function AuthEditor({
           folderId={folderId}
         />
       )}
+      {auth.type === "edgegrid" && (
+        <EdgeGridEditor
+          config={auth.edgegrid}
+          onChange={(edgegrid) => onChange({ ...auth, edgegrid })}
+        />
+      )}
     </div>
   );
 }
@@ -336,5 +354,69 @@ function OAuth2Editor({
         </>
       )}
     </>
+  );
+}
+
+function EdgeGridEditor({
+  config,
+  onChange,
+}: {
+  config: EdgeGridConfig;
+  onChange: (c: EdgeGridConfig) => void;
+}) {
+  const set = (patch: Partial<EdgeGridConfig>) => onChange({ ...config, ...patch });
+
+  return (
+    <div className="flex flex-col gap-3">
+      <Field label="Access Token">
+        <VarInput
+          value={config.accessToken}
+          onChange={(accessToken) => set({ accessToken })}
+          placeholder="akab-xxxxxxxxxxxxxxxx-xxxxxxxxxxxxxxxx"
+        />
+      </Field>
+      <Field label="Client Token">
+        <VarInput
+          value={config.clientToken}
+          onChange={(clientToken) => set({ clientToken })}
+          placeholder="akab-xxxxxxxxxxxxxxxx-xxxxxxxxxxxxxxxx"
+        />
+      </Field>
+      <Field label="Client Secret">
+        <VarInput
+          masked
+          value={config.clientSecret}
+          onChange={(clientSecret) => set({ clientSecret })}
+          placeholder="Secret key"
+        />
+      </Field>
+      <Field label="Base URL">
+        <VarInput
+          value={config.baseURL ?? ""}
+          onChange={(baseURL) => set({ baseURL: baseURL || undefined })}
+          placeholder="https://akab-xxxx.luna.akamaiapis.net (optional)"
+        />
+      </Field>
+      <Field label="Headers to Sign">
+        <VarInput
+          value={config.headersToSign ?? ""}
+          onChange={(headersToSign) => set({ headersToSign: headersToSign || undefined })}
+          placeholder="e.g. Content-Type (comma separated, optional)"
+        />
+      </Field>
+      <Field label="Max Body Size">
+        <VarInput
+          value={config.maxBodySize !== undefined ? String(config.maxBodySize) : ""}
+          onChange={(val) => {
+            const num = parseInt(val, 10);
+            set({ maxBodySize: Number.isNaN(num) ? undefined : num });
+          }}
+          placeholder="131072 (bytes, optional)"
+        />
+      </Field>
+      <p className="text-muted-foreground">
+        Requests will be signed with Akamai EdgeGrid V1 (EG1-HMAC-SHA256).
+      </p>
+    </div>
   );
 }
