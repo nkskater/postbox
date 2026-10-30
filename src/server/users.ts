@@ -139,11 +139,17 @@ export async function prepareUser(input: {
 }
 
 export type PreparedUser = Awaited<ReturnType<typeof prepareUser>>;
-export function insertPreparedUser(row: PreparedUser): UserRow {
+/**
+ * Insert a prepared user and their private workspace in one transaction.
+ * `firstOnly` (first-run setup) re-checks that no account exists inside that transaction,
+ * so concurrent setup requests cannot each create an administrator.
+ */
+export function insertPreparedUser(row: PreparedUser, opts: { firstOnly?: boolean } = {}): UserRow {
   const now = row.createdAt;
   getDb().transaction((tx) => {
-    if (getUserByUsername(row.username)) throw new HttpError(409, "That username is taken");
     const first = tx.select({ id: users.id }).from(users).get() === undefined;
+    if (opts.firstOnly && !first) throw new HttpError(409, "An account already exists; sign in instead");
+    if (getUserByUsername(row.username)) throw new HttpError(409, "That username is taken");
     tx.insert(users).values(row).run();
     if (first && row.isAdmin) {
       const existing = tx.select().from(schema.workspaces).all();

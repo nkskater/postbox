@@ -91,10 +91,7 @@ export function formatOutcomeSummary(o: Outcome): string {
  * Stateful controller for ImportDialog workflows (multi-file batches, partial failure
  * recovery, retry-failed-only, text/cURL paste, link import, and busy concurrency lock).
  */
-export function createImportController(
-  deps: ImportControllerDeps,
-  initial: Partial<ImportDialogState> = {},
-) {
+export function createImportController(deps: ImportControllerDeps, initial: Partial<ImportDialogState> = {}) {
   const fetchFn = deps.fetchImpl ?? fetch;
   const notify = deps.toastImpl ?? toast;
 
@@ -330,9 +327,7 @@ export function createImportController(
     retryFailedFiles: async () => {
       const currentSummary = state.batchSummary;
       if (!currentSummary) return null;
-      const failedFiles = currentSummary.entries
-        .filter((e) => e.status === "failed")
-        .map((e) => e.file);
+      const failedFiles = currentSummary.entries.filter((e) => e.status === "failed").map((e) => e.file);
       if (failedFiles.length === 0) return null;
       const succeededEntries = currentSummary.entries.filter((e) => e.status === "succeeded");
       return runFileBatch(failedFiles, succeededEntries);
@@ -587,10 +582,7 @@ export function ImportDialog() {
             />
             {textError && <p className="text-xs text-destructive">{textError}</p>}
             <div className="flex justify-end">
-              <Button
-                disabled={!text.trim() || busy}
-                onClick={() => void getController().importText()}
-              >
+              <Button disabled={!text.trim() || busy} onClick={() => void getController().importText()}>
                 {busy && <Loader2 className="size-4 animate-spin" />} Import
               </Button>
             </div>
@@ -607,10 +599,7 @@ export function ImportDialog() {
             </p>
             {linkError && <p className="text-xs text-destructive">{linkError}</p>}
             <div className="flex justify-end">
-              <Button
-                disabled={!link.trim() || busy}
-                onClick={() => void getController().importLink()}
-              >
+              <Button disabled={!link.trim() || busy} onClick={() => void getController().importLink()}>
                 {busy && <Loader2 className="size-4 animate-spin" />} Import
               </Button>
             </div>

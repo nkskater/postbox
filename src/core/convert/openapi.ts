@@ -418,9 +418,7 @@ export function importOpenApi(input: string | Obj, opts: { sourceUrl?: string } 
     ? { url: resolveSwaggerBaseUrl(spec, undefined, opts.sourceUrl), extraVariables: [] }
     : resolveOpenApiServer(pickFirstServer(spec, spec.servers), opts.sourceUrl);
 
-  const variables: Variable[] = [
-    { key: "baseUrl", value: rootResolved.url, type: "default", enabled: true },
-  ];
+  const variables: Variable[] = [{ key: "baseUrl", value: rootResolved.url, type: "default", enabled: true }];
   const usedVarKeys = new Set<string>(["baseUrl"]);
 
   // Reserve path parameter names so generated server variable keys never collide with them.
