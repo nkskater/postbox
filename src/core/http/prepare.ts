@@ -11,6 +11,16 @@ import type { EngineOptions } from "./engine";
 
 export const USER_AGENT = "Postbox/0.1";
 
+/** Instance-wide request defaults (App Settings → Request execution). */
+export interface RequestDefaults {
+  /** Added to every request below collection, folder and request headers. */
+  headers?: KeyValue[];
+  /** User-Agent sent when no header sets one; empty string sends none. */
+  userAgent?: string;
+  /** Add `Accept: *\/*` and `Accept-Encoding` when the request does not set them. */
+  autoAcceptHeaders?: boolean;
+}
+
 export interface PrepareResult {
   prepared: PreparedRequest;
   unresolved: string[];
@@ -83,21 +93,28 @@ export async function prepareRequest(
   resolver: Resolver,
   engine?: EngineOptions,
   /** Offline mode never fetches OAuth2 tokens (code generation). */
-  opts: { offline?: boolean } = {},
+  opts: { offline?: boolean; defaults?: RequestDefaults } = {},
 ): Promise<PrepareResult> {
+  const defaults = opts.defaults ?? {};
   const settings = { ...DEFAULT_SETTINGS, ...request.settings };
   const method = (resolver.resolve(request.method) || "GET").toUpperCase();
   const url = normalizeUrl(resolver.resolve(request.url));
 
-  const headers = mergeHeaders([...ancestors.map((a) => a.headers), request.headers], resolver);
+  const headers = mergeHeaders(
+    [defaults.headers ?? [], ...ancestors.map((a) => a.headers), request.headers],
+    resolver,
+  );
   const has = (n: string) => headers.some(([k]) => k.toLowerCase() === n);
 
   const resolvedBody = resolveBody(request.body ?? { mode: "none" }, resolver);
   const encoded = encodeBody(resolvedBody, method);
   if (encoded.contentType && !has("content-type")) headers.push(["Content-Type", encoded.contentType]);
-  if (!has("user-agent")) headers.push(["User-Agent", USER_AGENT]);
-  if (!has("accept")) headers.push(["Accept", "*/*"]);
-  if (!has("accept-encoding")) headers.push(["Accept-Encoding", "gzip, deflate, br"]);
+  const userAgent = defaults.userAgent ?? USER_AGENT;
+  if (userAgent && !has("user-agent")) headers.push(["User-Agent", userAgent]);
+  if (defaults.autoAcceptHeaders !== false) {
+    if (!has("accept")) headers.push(["Accept", "*/*"]);
+    if (!has("accept-encoding")) headers.push(["Accept-Encoding", "gzip, deflate, br"]);
+  }
 
   const prepared: PreparedRequest = { method, url, headers, body: encoded.body, settings };
 

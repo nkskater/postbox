@@ -16,6 +16,8 @@ import type {
 import { execute, executionPassed, type ExecuteResult, type ScriptError } from "../executor";
 import type { CookieJarStore } from "../http/cookies";
 import type { HostPolicy } from "../http/policy";
+import type { RequestDefaults } from "../http/prepare";
+import type { ScriptLimits } from "../scripts/sandbox";
 import { redactStoredValue, type VariableScopes } from "../variables/resolver";
 
 export interface RunItem {
@@ -91,6 +93,8 @@ export interface RunCollectionInput {
   /** Keep results in the returned summary (default true). Disable when persisting via onEvent. */
   retainResults?: boolean;
   oauth2CacheScope?: string;
+  scriptLimits?: Partial<ScriptLimits>;
+  requestDefaults?: RequestDefaults;
   onExecution?: (item: RunItem, result: ExecuteResult) => void;
 }
 
@@ -229,6 +233,8 @@ export async function runCollection(
         signal: input.signal,
         overrides: { timeoutMs: opts.timeoutMs, verifySsl: opts.verifySsl },
         oauth2CacheScope: input.oauth2CacheScope,
+        scriptLimits: input.scriptLimits,
+        requestDefaults: input.requestDefaults,
       });
       input.onExecution?.(item, r);
       scopes = r.scopes;
