@@ -1,0 +1,498 @@
+{
+  "version": 1,
+  "referenceVersion": "Postman v12",
+  "reviewedAt": "2026-10-30",
+  "source": "https://learning.postman.com/latest-v-12/docs/tests-and-scripts/write-scripts/variables-list",
+  "aliases": {
+    "$randomUUID": "$guid"
+  },
+  "notes": [
+    "Date variables use Date.toString(); isoTimestamp is UTC ISO 8601.",
+    "Image URLs are generated strings, never fetched. Category images preserve the documented legacy lorempixel path shape; availability is not guaranteed.",
+    "Values are synthetic fixtures, not credentials for production use."
+  ],
+  "variables": {
+    "$guid": {
+      "category": "common",
+      "shape": "uuid"
+    },
+    "$randomUUID": {
+      "category": "common",
+      "shape": "uuid"
+    },
+    "$timestamp": {
+      "category": "common",
+      "shape": "unix-seconds"
+    },
+    "$isoTimestamp": {
+      "category": "common",
+      "shape": "iso-utc"
+    },
+    "$randomAlphaNumeric": {
+      "category": "text",
+      "shape": "alphanumeric-character"
+    },
+    "$randomBoolean": {
+      "category": "text",
+      "shape": "boolean"
+    },
+    "$randomInt": {
+      "category": "text",
+      "shape": "integer-0-1000"
+    },
+    "$randomColor": {
+      "category": "text",
+      "shape": "color"
+    },
+    "$randomHexColor": {
+      "category": "text",
+      "shape": "hex-color"
+    },
+    "$randomAbbreviation": {
+      "category": "text",
+      "shape": "abbreviation"
+    },
+    "$randomIP": {
+      "category": "internet",
+      "shape": "ipv4"
+    },
+    "$randomIPV6": {
+      "category": "internet",
+      "shape": "ipv6"
+    },
+    "$randomMACAddress": {
+      "category": "internet",
+      "shape": "mac-address"
+    },
+    "$randomPassword": {
+      "category": "internet",
+      "shape": "alphanumeric-15"
+    },
+    "$randomLocale": {
+      "category": "internet",
+      "shape": "language-code"
+    },
+    "$randomUserAgent": {
+      "category": "internet",
+      "shape": "user-agent"
+    },
+    "$randomProtocol": {
+      "category": "internet",
+      "shape": "http-protocol"
+    },
+    "$randomSemver": {
+      "category": "internet",
+      "shape": "semver"
+    },
+    "$randomFirstName": {
+      "category": "names",
+      "shape": "first-name"
+    },
+    "$randomLastName": {
+      "category": "names",
+      "shape": "last-name"
+    },
+    "$randomFullName": {
+      "category": "names",
+      "shape": "full-name"
+    },
+    "$randomNamePrefix": {
+      "category": "names",
+      "shape": "name-prefix"
+    },
+    "$randomNameSuffix": {
+      "category": "names",
+      "shape": "name-suffix"
+    },
+    "$randomJobArea": {
+      "category": "profession",
+      "shape": "job-area"
+    },
+    "$randomJobDescriptor": {
+      "category": "profession",
+      "shape": "job-descriptor"
+    },
+    "$randomJobTitle": {
+      "category": "profession",
+      "shape": "job-title"
+    },
+    "$randomJobType": {
+      "category": "profession",
+      "shape": "job-type"
+    },
+    "$randomPhoneNumber": {
+      "category": "location",
+      "shape": "phone-10"
+    },
+    "$randomPhoneNumberExt": {
+      "category": "location",
+      "shape": "phone-12"
+    },
+    "$randomCity": {
+      "category": "location",
+      "shape": "city"
+    },
+    "$randomStreetName": {
+      "category": "location",
+      "shape": "street"
+    },
+    "$randomStreetAddress": {
+      "category": "location",
+      "shape": "street-address"
+    },
+    "$randomCountry": {
+      "category": "location",
+      "shape": "country"
+    },
+    "$randomCountryCode": {
+      "category": "location",
+      "shape": "country-code"
+    },
+    "$randomLatitude": {
+      "category": "location",
+      "shape": "latitude"
+    },
+    "$randomLongitude": {
+      "category": "location",
+      "shape": "longitude"
+    },
+    "$randomAvatarImage": {
+      "category": "images",
+      "shape": "image-url"
+    },
+    "$randomImageUrl": {
+      "category": "images",
+      "shape": "image-url"
+    },
+    "$randomAbstractImage": {
+      "category": "images",
+      "shape": "image-url"
+    },
+    "$randomAnimalsImage": {
+      "category": "images",
+      "shape": "image-url"
+    },
+    "$randomBusinessImage": {
+      "category": "images",
+      "shape": "image-url"
+    },
+    "$randomCatsImage": {
+      "category": "images",
+      "shape": "image-url"
+    },
+    "$randomCityImage": {
+      "category": "images",
+      "shape": "image-url"
+    },
+    "$randomFoodImage": {
+      "category": "images",
+      "shape": "image-url"
+    },
+    "$randomNightlifeImage": {
+      "category": "images",
+      "shape": "image-url"
+    },
+    "$randomFashionImage": {
+      "category": "images",
+      "shape": "image-url"
+    },
+    "$randomPeopleImage": {
+      "category": "images",
+      "shape": "image-url"
+    },
+    "$randomNatureImage": {
+      "category": "images",
+      "shape": "image-url"
+    },
+    "$randomSportsImage": {
+      "category": "images",
+      "shape": "image-url"
+    },
+    "$randomTransportImage": {
+      "category": "images",
+      "shape": "image-url"
+    },
+    "$randomImageDataUri": {
+      "category": "images",
+      "shape": "svg-data-uri"
+    },
+    "$randomBankAccount": {
+      "category": "finance",
+      "shape": "digits-8"
+    },
+    "$randomBankAccountName": {
+      "category": "finance",
+      "shape": "account-name"
+    },
+    "$randomCreditCardMask": {
+      "category": "finance",
+      "shape": "digits-4"
+    },
+    "$randomBankAccountBic": {
+      "category": "finance",
+      "shape": "bic"
+    },
+    "$randomBankAccountIban": {
+      "category": "finance",
+      "shape": "iban"
+    },
+    "$randomTransactionType": {
+      "category": "finance",
+      "shape": "transaction-type"
+    },
+    "$randomCurrencyCode": {
+      "category": "finance",
+      "shape": "currency-code"
+    },
+    "$randomCurrencyName": {
+      "category": "finance",
+      "shape": "currency-name"
+    },
+    "$randomCurrencySymbol": {
+      "category": "finance",
+      "shape": "currency-symbol"
+    },
+    "$randomBitcoin": {
+      "category": "finance",
+      "shape": "bitcoin-address"
+    },
+    "$randomCompanyName": {
+      "category": "business",
+      "shape": "company-name"
+    },
+    "$randomCompanySuffix": {
+      "category": "business",
+      "shape": "company-suffix"
+    },
+    "$randomBs": {
+      "category": "business",
+      "shape": "business-phrase"
+    },
+    "$randomBsAdjective": {
+      "category": "business",
+      "shape": "business-adjective"
+    },
+    "$randomBsBuzz": {
+      "category": "business",
+      "shape": "business-verb"
+    },
+    "$randomBsNoun": {
+      "category": "business",
+      "shape": "business-noun"
+    },
+    "$randomCatchPhrase": {
+      "category": "catchphrases",
+      "shape": "catchphrase"
+    },
+    "$randomCatchPhraseAdjective": {
+      "category": "catchphrases",
+      "shape": "catchphrase-adjective"
+    },
+    "$randomCatchPhraseDescriptor": {
+      "category": "catchphrases",
+      "shape": "catchphrase-descriptor"
+    },
+    "$randomCatchPhraseNoun": {
+      "category": "catchphrases",
+      "shape": "catchphrase-noun"
+    },
+    "$randomDatabaseColumn": {
+      "category": "databases",
+      "shape": "database-column"
+    },
+    "$randomDatabaseType": {
+      "category": "databases",
+      "shape": "database-type"
+    },
+    "$randomDatabaseCollation": {
+      "category": "databases",
+      "shape": "database-collation"
+    },
+    "$randomDatabaseEngine": {
+      "category": "databases",
+      "shape": "database-engine"
+    },
+    "$randomDateFuture": {
+      "category": "dates",
+      "shape": "future-date-string"
+    },
+    "$randomDatePast": {
+      "category": "dates",
+      "shape": "past-date-string"
+    },
+    "$randomDateRecent": {
+      "category": "dates",
+      "shape": "recent-date-string"
+    },
+    "$randomWeekday": {
+      "category": "dates",
+      "shape": "weekday"
+    },
+    "$randomMonth": {
+      "category": "dates",
+      "shape": "month"
+    },
+    "$randomDomainName": {
+      "category": "domains",
+      "shape": "domain-name"
+    },
+    "$randomDomainSuffix": {
+      "category": "domains",
+      "shape": "domain-suffix"
+    },
+    "$randomDomainWord": {
+      "category": "domains",
+      "shape": "domain-word"
+    },
+    "$randomEmail": {
+      "category": "domains",
+      "shape": "email"
+    },
+    "$randomExampleEmail": {
+      "category": "domains",
+      "shape": "example-email"
+    },
+    "$randomUserName": {
+      "category": "domains",
+      "shape": "username"
+    },
+    "$randomUrl": {
+      "category": "domains",
+      "shape": "url"
+    },
+    "$randomFileName": {
+      "category": "files",
+      "shape": "filename"
+    },
+    "$randomCommonFileName": {
+      "category": "files",
+      "shape": "filename"
+    },
+    "$randomFileType": {
+      "category": "files",
+      "shape": "file-type"
+    },
+    "$randomCommonFileType": {
+      "category": "files",
+      "shape": "file-type"
+    },
+    "$randomFileExt": {
+      "category": "files",
+      "shape": "file-extension"
+    },
+    "$randomCommonFileExt": {
+      "category": "files",
+      "shape": "file-extension"
+    },
+    "$randomFilePath": {
+      "category": "files",
+      "shape": "file-path"
+    },
+    "$randomDirectoryPath": {
+      "category": "files",
+      "shape": "directory-path"
+    },
+    "$randomMimeType": {
+      "category": "files",
+      "shape": "mime-type"
+    },
+    "$randomPrice": {
+      "category": "stores",
+      "shape": "price-0-1000"
+    },
+    "$randomProduct": {
+      "category": "stores",
+      "shape": "product"
+    },
+    "$randomProductAdjective": {
+      "category": "stores",
+      "shape": "product-adjective"
+    },
+    "$randomProductMaterial": {
+      "category": "stores",
+      "shape": "product-material"
+    },
+    "$randomProductName": {
+      "category": "stores",
+      "shape": "product-name"
+    },
+    "$randomDepartment": {
+      "category": "stores",
+      "shape": "department"
+    },
+    "$randomNoun": {
+      "category": "grammar",
+      "shape": "noun"
+    },
+    "$randomVerb": {
+      "category": "grammar",
+      "shape": "verb"
+    },
+    "$randomIngverb": {
+      "category": "grammar",
+      "shape": "ing-verb"
+    },
+    "$randomAdjective": {
+      "category": "grammar",
+      "shape": "adjective"
+    },
+    "$randomWord": {
+      "category": "grammar",
+      "shape": "word"
+    },
+    "$randomWords": {
+      "category": "grammar",
+      "shape": "words"
+    },
+    "$randomPhrase": {
+      "category": "grammar",
+      "shape": "phrase"
+    },
+    "$randomLoremWord": {
+      "category": "lorem",
+      "shape": "lorem-word"
+    },
+    "$randomLoremWords": {
+      "category": "lorem",
+      "shape": "lorem-words"
+    },
+    "$randomLoremSentence": {
+      "category": "lorem",
+      "shape": "sentence"
+    },
+    "$randomLoremSentences": {
+      "category": "lorem",
+      "shape": "sentences-2-6"
+    },
+    "$randomLoremParagraph": {
+      "category": "lorem",
+      "shape": "paragraph"
+    },
+    "$randomLoremParagraphs": {
+      "category": "lorem",
+      "shape": "paragraphs-3"
+    },
+    "$randomLoremText": {
+      "category": "lorem",
+      "shape": "lorem-text"
+    },
+    "$randomLoremSlug": {
+      "category": "lorem",
+      "shape": "slug"
+    },
+    "$randomLoremLines": {
+      "category": "lorem",
+      "shape": "lines-1-5"
+    }
+  },
+  "extensions": {
+    "$randomHexadecimal": {
+      "category": "extensions",
+      "shape": "hex-character"
+    },
+    "$randomPort": {
+      "category": "extensions",
+      "shape": "port"
+    }
+  }
+}
