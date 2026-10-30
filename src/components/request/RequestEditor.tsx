@@ -16,6 +16,7 @@ import { ResponseViewer } from "@/components/response/ResponseViewer";
 import { folderPath, useApp, type RequestDraft, type Tab } from "@/stores/app";
 import { useDialogs } from "@/stores/dialogs";
 import { useSetting } from "@/stores/settings";
+import { getSetting } from "@/lib/settings/runtime";
 import { paramsFromUrl, urlWithParams } from "@/lib/url-params";
 import { methodColor } from "@/lib/format";
 import { api } from "@/lib/api";
@@ -65,6 +66,7 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
 
   // Pasting a cURL command into the URL bar imports it.
   const onPaste = (text: string) => {
+    if (!getSetting<boolean>("requests.curlPaste")) return false;
     if (!/^\s*curl\s/i.test(text)) return false;
     try {
       const r = parseCurl(text);

@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { formatBytes, formatMs, formatXml, statusColor } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { useSetting } from "@/stores/settings";
 
 function detectLanguage(contentType: string, body: string): EditorLanguage {
   const ct = contentType.toLowerCase();
@@ -86,11 +87,27 @@ export function ResponseViewer({
   onCancel?: () => void;
   onSaveExample?: () => void;
 }) {
-  const [view, setView] = useState<"pretty" | "raw" | "preview">("pretty");
-  const [wrap, setWrap] = useState(true);
+  const defaultView = useSetting<"pretty" | "raw" | "preview">("responses.defaultView");
+  const wrapDefault = useSetting<boolean>("responses.wrap");
+  const maxRenderBytes = (Number(useSetting<number>("responses.maxRenderKb")) || 2048) * 1024;
+  const openTestsOnFailure = useSetting<boolean>("responses.openTestsOnFailure");
+  const [view, setView] = useState<"pretty" | "raw" | "preview">(defaultView);
+  const [wrap, setWrap] = useState(wrapDefault);
+  const [tab, setTab] = useState("body");
+  const [renderFull, setRenderFull] = useState(false);
+  // React to a new result during render (not in an effect): reset the large-body view and
+  // jump to Test Results when a test failed.
+  const [seenResult, setSeenResult] = useState(result);
+  if (result !== seenResult) {
+    setSeenResult(result);
+    setRenderFull(false);
+    if (openTestsOnFailure && result?.tests.some((t) => !t.passed && !t.skipped)) setTab("tests");
+  }
   const res = result?.response;
+  const tooLarge = !!res && !renderFull && res.bodyText.length > maxRenderBytes;
   const lang = useMemo(() => (res ? detectLanguage(res.contentType, res.bodyText) : "text"), [res]);
-  const pretty = useMemo(() => (res ? prettify(res.bodyText, lang) : ""), [res, lang]);
+  // Prettifying huge bodies is expensive, so it only happens once the full body is shown.
+  const pretty = useMemo(() => (res && !tooLarge ? prettify(res.bodyText, lang) : ""), [res, lang, tooLarge]);
 
   if (sending) {
     return (
@@ -126,7 +143,7 @@ export function ResponseViewer({
   const failed = result.tests.filter((t) => !t.passed).length;
 
   const copyBody = () => {
-    void navigator.clipboard.writeText(view === "pretty" ? pretty : (res?.bodyText ?? ""));
+    void navigator.clipboard.writeText(view === "pretty" && !tooLarge ? pretty : (res?.bodyText ?? ""));
     toast.success("Copied to clipboard");
   };
   const download = () => {
@@ -144,7 +161,7 @@ export function ResponseViewer({
   const isPdf = res?.contentType.includes("pdf");
 
   return (
-    <Tabs defaultValue="body" className="flex h-full min-h-0 flex-col gap-0">
+    <Tabs value={tab} onValueChange={setTab} className="flex h-full min-h-0 flex-col gap-0">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b px-3 py-1">
         <TabsList className="h-8 bg-transparent p-0">
           <TabsTrigger value="body" className="text-xs">
@@ -328,6 +345,33 @@ export function ResponseViewer({
                 <div className="p-6 text-center text-muted-foreground">
                   Binary response ({formatBytes(res.size)}, {res.contentType || "unknown type"}). Use Preview
                   or Download.
+                </div>
+              ) : tooLarge ? (
+                <div className="flex h-full min-h-0 flex-col">
+                  <div className="flex flex-wrap items-center gap-2 border-b bg-warning/10 px-3 py-1.5 text-xs">
+                    <AlertTriangle className="size-3.5 text-warning" />
+                    Large response ({formatBytes(res.size)}). Showing the first {formatBytes(maxRenderBytes)}{" "}
+                    as raw text.
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 text-xs"
+                      onClick={() => setRenderFull(true)}
+                    >
+                      Render full body
+                    </Button>
+                    <Button size="sm" variant="ghost" className="h-6 text-xs" onClick={download}>
+                      <Download className="size-3.5" /> Download
+                    </Button>
+                  </div>
+                  <div className="min-h-0 flex-1">
+                    <CodeEditor
+                      value={res.bodyText.slice(0, maxRenderBytes)}
+                      language="text"
+                      readOnly
+                      wrap={wrap}
+                    />
+                  </div>
                 </div>
               ) : (
                 <CodeEditor

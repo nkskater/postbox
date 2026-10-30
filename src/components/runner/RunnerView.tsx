@@ -21,6 +21,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { TestResultsList } from "@/components/response/ResponseViewer";
 import { formatBytes, formatMs, methodColor, relativeTime, statusColor } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { getSetting } from "@/lib/settings/runtime";
+import { useSetting } from "@/stores/settings";
 import { readNdjson } from "@/lib/ndjson";
 import { DataGrid } from "./DataGrid";
 import { Schedules } from "./Schedules";
@@ -94,10 +96,16 @@ export function RunnerView({ folderId }: { folderId: string }) {
   const [iterationsInput, setIterations] = useState(1);
   /** While true, the iteration count follows the number of (filtered) data rows. */
   const [autoIterations, setAutoIterations] = useState(true);
-  const [delayMs, setDelayMs] = useState(0);
-  const [stopOnFailure, setStopOnFailure] = useState(false);
-  const [persistVariables, setPersistVariables] = useState(true);
-  const [verifySsl, setVerifySsl] = useState(true);
+  // Initial option values come from Settings → Collection runner.
+  const [delayMs, setDelayMs] = useState(() => getSetting<number>("runner.delayMs") ?? 0);
+  const [stopOnFailure, setStopOnFailure] = useState(
+    () => getSetting<boolean>("runner.stopOnFailure") ?? false,
+  );
+  const [persistVariables, setPersistVariables] = useState(
+    () => getSetting<boolean>("runner.persistVariables") ?? true,
+  );
+  const [verifySsl, setVerifySsl] = useState(() => getSetting<boolean>("runner.verifySsl") ?? true);
+  const preferredReport = useSetting<string>("runner.reportFormat");
   const [data, setData] = useState<DataTable | null>(null);
   const [dataName, setDataName] = useState("");
   const [filter, setFilter] = useState("");
@@ -437,17 +445,20 @@ export function RunnerView({ folderId }: { folderId: string }) {
               )}
               {run.runId && !run.running && (
                 <div className="ml-auto flex gap-1">
-                  {(["json", "junit", "html"] as const).map((f) => (
-                    <Button
-                      key={f}
-                      variant="outline"
-                      size="sm"
-                      className="h-6 text-[11px]"
-                      onClick={() => window.open(`/api/runs/${run.runId}/export?format=${f}`, "_blank")}
-                    >
-                      Export {f === "junit" ? "JUnit" : f.toUpperCase()}
-                    </Button>
-                  ))}
+                  {(["json", "junit", "html"] as const)
+                    .slice()
+                    .sort((a, b) => Number(b === preferredReport) - Number(a === preferredReport))
+                    .map((f) => (
+                      <Button
+                        key={f}
+                        variant="outline"
+                        size="sm"
+                        className="h-6 text-[11px]"
+                        onClick={() => window.open(`/api/runs/${run.runId}/export?format=${f}`, "_blank")}
+                      >
+                        Export {f === "junit" ? "JUnit" : f.toUpperCase()}
+                      </Button>
+                    ))}
                 </div>
               )}
             </div>

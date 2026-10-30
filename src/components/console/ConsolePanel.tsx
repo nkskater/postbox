@@ -8,6 +8,7 @@ import { useApp } from "@/stores/app";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { useSetting } from "@/stores/settings";
 
 const LEVEL_CLASS: Record<string, string> = {
   error: "text-destructive",
@@ -21,6 +22,7 @@ export function ConsolePanel() {
   const entries = useApp((s) => s.consoleEntries);
   const clear = useApp((s) => s.clearConsole);
   const setOpen = useApp((s) => s.setConsoleOpen);
+  const timestamps = useSetting<boolean>("console.timestamps");
   const [filter, setFilter] = useState("");
   const [level, setLevel] = useState<string>("all");
   const end = useRef<HTMLDivElement>(null);
@@ -79,9 +81,11 @@ export function ConsolePanel() {
         )}
         {shown.map((e, i) => (
           <div key={i} className="flex gap-3 border-b border-border/40 py-0.5">
-            <span className="shrink-0 text-muted-foreground">
-              {new Date(e.timestamp).toLocaleTimeString()}
-            </span>
+            {timestamps && (
+              <span className="shrink-0 text-muted-foreground">
+                {new Date(e.timestamp).toLocaleTimeString()}
+              </span>
+            )}
             <span className={cn("min-w-0 flex-1 break-all whitespace-pre-wrap", LEVEL_CLASS[e.level])}>
               {e.message}
             </span>

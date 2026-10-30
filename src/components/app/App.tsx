@@ -143,7 +143,7 @@ export function App({ authEnabled }: { authEnabled: boolean }) {
         s.openDraft();
       } else if (e.altKey && key === "w" && s.activeTabId) {
         e.preventDefault();
-        s.closeTab(s.activeTabId);
+        s.requestCloseTab(s.activeTabId);
       } else if (e.altKey && /^[1-9]$/.test(e.key)) {
         const t = s.tabs[Number(e.key) - 1];
         if (t) {

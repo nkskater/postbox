@@ -24,7 +24,8 @@ import {
   Upload,
 } from "lucide-react";
 import { toast } from "sonner";
-import { useApp } from "@/stores/app";
+import { defaultRequestSettings, useApp } from "@/stores/app";
+import { getSetting } from "@/lib/settings/runtime";
 import { useDialogs } from "@/stores/dialogs";
 import { api, type TreeFolderSummary, type TreeRequestSummary } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -160,7 +161,11 @@ export function CollectionTree() {
     });
   const newRequest = (folderId: string) =>
     run(async () => {
-      const r = await api.requests.create(workspaceId!, folderId, { name: "New Request" });
+      const r = await api.requests.create(workspaceId!, folderId, {
+        name: "New Request",
+        method: getSetting<string>("requests.defaultMethod") || "GET",
+        settings: defaultRequestSettings(),
+      });
       toggle(folderId, true);
       await refreshTree();
       await openRequest(r.id);
@@ -400,7 +405,7 @@ export function CollectionTree() {
           onDragEnd={() => (setDrag(null), setDrop(null))}
           onDragOver={(e) => onDragOver(e, "request", r.id)}
           onDrop={onDrop}
-          onClick={() => openRequest(r.id, { preview: true })}
+          onClick={() => openRequest(r.id, { preview: getSetting<boolean>("tabs.previewOnClick") })}
           onDoubleClick={() => openRequest(r.id)}
           className={cn(
             "group flex h-7 cursor-pointer items-center gap-2 rounded pr-1 hover:bg-accent",

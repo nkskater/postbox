@@ -6,7 +6,9 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { ConsoleEntry, RequestDef, Variable } from "@/core/types";
-import { DEFAULT_SETTINGS } from "@/core/types";
+import { DEFAULT_SETTINGS, type RequestSettings } from "@/core/types";
+import { getSetting } from "@/lib/settings/runtime";
+import { useDialogs } from "./dialogs";
 import {
   api,
   type EnvironmentSummary,
@@ -47,11 +49,23 @@ export interface KnownVariable {
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
+/** Request settings for new requests, from the user's Requests settings. */
+export function defaultRequestSettings(): RequestSettings {
+  return {
+    ...DEFAULT_SETTINGS,
+    timeoutMs: getSetting<number>("requests.timeoutMs") ?? DEFAULT_SETTINGS.timeoutMs,
+    followRedirects: getSetting<boolean>("requests.followRedirects") ?? DEFAULT_SETTINGS.followRedirects,
+    maxRedirects: getSetting<number>("requests.maxRedirects") ?? DEFAULT_SETTINGS.maxRedirects,
+    verifySsl: getSetting<boolean>("requests.verifySsl") ?? DEFAULT_SETTINGS.verifySsl,
+    useCookieJar: getSetting<boolean>("requests.useCookieJar") ?? DEFAULT_SETTINGS.useCookieJar,
+  };
+}
+
 export function newDraft(partial: Partial<RequestDraft> = {}): RequestDraft {
   return {
     id: `draft-${uid()}`,
     name: "Untitled Request",
-    method: "GET",
+    method: getSetting<string>("requests.defaultMethod") || "GET",
     url: "",
     params: [],
     headers: [],
@@ -59,7 +73,7 @@ export function newDraft(partial: Partial<RequestDraft> = {}): RequestDraft {
     auth: { type: "inherit" },
     preRequestScript: "",
     testScript: "",
-    settings: { ...DEFAULT_SETTINGS },
+    settings: defaultRequestSettings(),
     description: "",
     examples: [],
     folderId: null,
@@ -115,6 +129,8 @@ interface AppState {
   openDraft(partial?: Partial<RequestDraft>, result?: ProxyResult | null): void;
   openTab(tab: Tab): void;
   closeTab(id: string): void;
+  /** Close a tab, asking for confirmation first if it has unsaved changes (per settings). */
+  requestCloseTab(id: string): void;
   closeOtherTabs(id: string): void;
   setActiveTab(id: string): void;
   updateDraft(tabId: string, patch: Partial<RequestDraft>): void;
@@ -343,6 +359,13 @@ export const useApp = create<AppState>()(
         void get().refreshVariables();
       },
 
+      requestCloseTab(id) {
+        const tab = get().tabs.find((t) => t.id === id);
+        if (tab && isTabDirty(tab) && getSetting<boolean>("tabs.confirmCloseUnsaved")) {
+          useDialogs.getState().setConfirmCloseTabId(id);
+        } else get().closeTab(id);
+      },
+
       closeTab(id) {
         abortTab(id);
         set((s) => {
@@ -457,7 +480,10 @@ export const useApp = create<AppState>()(
           }));
         patchTab({ sending: true });
         try {
-          const { folderId, ...request } = tab.draft;
+          const { folderId, ...draftRequest } = tab.draft;
+          const request = getSetting<boolean>("requests.trimUrl")
+            ? { ...draftRequest, url: draftRequest.url.trim() }
+            : draftRequest;
           const result = await api.proxy(
             {
               workspaceId,
@@ -529,7 +555,13 @@ export const useApp = create<AppState>()(
 
       log(entries) {
         if (!entries.length) return;
-        set((s) => ({ consoleEntries: [...s.consoleEntries, ...entries].slice(-2000) }));
+        const max = getSetting<number>("console.maxEntries") || 2000;
+        const openOnError =
+          getSetting<boolean>("console.openOnError") && entries.some((e) => e.level === "error");
+        set((s) => ({
+          consoleEntries: [...s.consoleEntries, ...entries].slice(-max),
+          ...(openOnError ? { consoleOpen: true } : {}),
+        }));
       },
       clearConsole: () => set({ consoleEntries: [] }),
       setConsoleOpen: (open) => set({ consoleOpen: open }),
@@ -549,12 +581,37 @@ export const useApp = create<AppState>()(
         theme: s.theme,
         sidebarView: s.sidebarView,
         consoleOpen: s.consoleOpen,
-        activeTabId: s.activeTabId,
-        tabs: s.tabs.map((t) => (t.type === "request" ? { ...t, result: null, sending: false } : t)),
+        // With "Restore tabs on reload" off, tabs are not written to storage.
+        activeTabId: getSetting<boolean>("tabs.restore") === false ? null : s.activeTabId,
+        tabs:
+          getSetting<boolean>("tabs.restore") === false
+            ? []
+            : s.tabs.map((t) => (t.type === "request" ? { ...t, result: null, sending: false } : t)),
       }),
     },
   ),
 );
+
+/** A request tab with changes that would be lost on close. */
+export function isTabDirty(t: Tab): boolean {
+  if (t.type !== "request") return false;
+  if (t.saved === null) return t.draft.url.trim() !== "" || t.draft.body.mode !== "none";
+  return t.saved !== snapshot(t.draft);
+}
+
+/**
+ * "Maximum open tabs": when a tab is added beyond the limit, close the oldest tabs that
+ * are not active, not sending and have no unsaved changes.
+ */
+useApp.subscribe((state, prev) => {
+  const max = getSetting<number>("tabs.maxOpen") || 0;
+  if (!max || state.tabs.length <= prev.tabs.length || state.tabs.length <= max) return;
+  const removable = state.tabs.filter(
+    (t) => t.id !== state.activeTabId && !isTabDirty(t) && !(t.type === "request" && t.sending),
+  );
+  const drop = new Set(removable.slice(0, state.tabs.length - max).map((t) => t.id));
+  if (drop.size) useApp.setState({ tabs: state.tabs.filter((t) => !drop.has(t.id)) });
+});
 
 /** Folder breadcrumbs for a folder id, collection first. */
 export function folderPath(folders: TreeFolderSummary[], folderId: string | null): TreeFolderSummary[] {
