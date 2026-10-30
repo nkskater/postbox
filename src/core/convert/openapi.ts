@@ -224,8 +224,10 @@ function effectiveServerForOperation(
   }
   const opServer = pickFirstServer(spec, op.servers);
   const pathServer = pickFirstServer(spec, item.servers);
-  const rootServer = pickFirstServer(spec, spec.servers);
-  const chosen = opServer ?? pathServer ?? rootServer;
+  const chosen = opServer ?? pathServer;
+  if (!chosen) {
+    return { url: rootBaseUrl, extraVariables: [] };
+  }
 
   // Relative server overrides resolve against `sourceUrl` when provided;
   // otherwise against the root server's URL if absolute, or `http://localhost`.

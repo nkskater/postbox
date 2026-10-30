@@ -352,6 +352,31 @@ paths:
         enabled: true,
       },
     ]);
+
+    // Root-relative and directory-relative root servers without sourceUrl must not
+    // duplicate the relative prefix on inherited operations.
+    for (const rootServerUrl of ["/v1", "v1"]) {
+      const inherited = importOpenApi({
+        openapi: "3.0.3",
+        info: { title: "InheritedRelativeRoot", version: "1.0.0" },
+        servers: [{ url: rootServerUrl }],
+        paths: {
+          "/items": {
+            get: { operationId: "listItems" },
+          },
+        },
+      });
+      expect(inherited.variables).toEqual([
+        { key: "baseUrl", value: "http://localhost/v1", type: "default", enabled: true },
+      ]);
+      const [itemReq] = inherited.root.children as RequestNode[];
+      expect(itemReq.url).toBe("{{baseUrl}}/items");
+      const resolver = new Resolver({
+        ...emptyScopes(),
+        collection: variablesToRecord(inherited.variables),
+      });
+      expect(resolver.resolve(itemReq.url)).toBe("http://localhost/v1/items");
+    }
   });
 
   it("populates templated server variables from defaults/enums and preserves unresolved variables without collision", () => {
