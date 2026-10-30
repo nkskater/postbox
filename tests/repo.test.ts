@@ -46,7 +46,8 @@ describe("repository", () => {
     expect(request.params).toEqual(params);
     expect(repo.updateRequest(request.id, { name: "Renamed" })?.params).toEqual(params);
     expect(repo.updateRequest(request.id, { url: "http://host?asn={{asn_id}}" })?.params).toEqual([
-      { ...params[0], value: "{{asn_id}}" }, params[1],
+      { ...params[0], value: "{{asn_id}}" },
+      params[1],
     ]);
     expect(repo.updateRequest(request.id, { url: "http://host" })?.params).toEqual([params[1]]);
     expect(repo.updateRequest(request.id, { url: "http://host?x=1", params: [] })?.params).toEqual([
@@ -57,6 +58,108 @@ describe("repository", () => {
     ]);
     expect(repo.updateRequest(request.id, { url: "http://host?x=2", params })?.params).toEqual(params);
     expect(repo.updateRequest(request.id, { url: "http://host", params: [] })?.params).toEqual([]);
+  });
+
+  it("appends after the maximum mixed sibling sort without including other parents or workspaces", async () => {
+    const { getSqlite } = await import("@/server/db");
+    const sqlite = getSqlite();
+    const ws = repo.createWorkspace("Sibling sorts");
+    const otherWs = repo.createWorkspace("Other workspace");
+    const root = repo.createFolder(ws.id, null);
+    expect(root.sort).toBe(0);
+    const otherRoot = repo.createFolder(otherWs.id, null);
+    sqlite.prepare("UPDATE folders SET sort = 9000 WHERE id = ?").run(otherRoot.id);
+    const otherParent = repo.createFolder(ws.id, null);
+    expect(otherParent.sort).toBe(1);
+    const unrelated = repo.createFolder(ws.id, otherParent.id);
+    sqlite.prepare("UPDATE folders SET sort = 8000 WHERE id = ?").run(unrelated.id);
+    const unrelatedRequest = repo.createRequest(ws.id, otherParent.id);
+    sqlite.prepare("UPDATE requests SET sort = 10000 WHERE id = ?").run(unrelatedRequest.id);
+
+    const child = repo.createFolder(ws.id, root.id);
+    expect(child.sort).toBe(0);
+    const request = repo.createRequest(ws.id, root.id);
+    expect(request.sort).toBe(1);
+    sqlite.prepare("UPDATE folders SET sort = 50 WHERE id = ?").run(child.id);
+    expect(repo.createRequest(ws.id, root.id).sort).toBe(51);
+    sqlite.prepare("UPDATE requests SET sort = 100 WHERE id = ?").run(request.id);
+    expect(repo.createFolder(ws.id, root.id).sort).toBe(101);
+    expect(repo.createRequest(ws.id, root.id).sort).toBe(102);
+    expect(repo.createFolder(ws.id, null).sort).toBe(2);
+  });
+
+  it("starts at zero when existing sibling sorts are negative", async () => {
+    const { getSqlite } = await import("@/server/db");
+    const sqlite = getSqlite();
+    const ws = repo.createWorkspace("Negative sorts");
+    const root = repo.createFolder(ws.id, null);
+    sqlite.prepare("UPDATE folders SET sort = -5 WHERE id = ?").run(root.id);
+    expect(repo.createFolder(ws.id, null).sort).toBe(0);
+    const child = repo.createFolder(ws.id, root.id);
+    const request = repo.createRequest(ws.id, root.id);
+    sqlite.prepare("UPDATE folders SET sort = -3 WHERE id = ?").run(child.id);
+    sqlite.prepare("UPDATE requests SET sort = -2 WHERE id = ?").run(request.id);
+    expect(repo.createRequest(ws.id, root.id).sort).toBe(0);
+  });
+
+  it("appends folders and requests with 160,000 mixed siblings", async () => {
+    const { getSqlite } = await import("@/server/db");
+    const sqlite = getSqlite();
+    const ws = repo.createWorkspace("Large sibling set");
+    const root = repo.createFolder(ws.id, null);
+    const count = 80000;
+    // Bulk seed directly so setup does not repeatedly calculate nextSort.
+    sqlite.transaction(() => {
+      sqlite
+        .prepare(
+          `
+        WITH RECURSIVE seq(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM seq WHERE i + 1 < ?)
+        INSERT INTO folders (id, workspace_id, parent_id, name, sort, auth, headers, created_at, updated_at)
+        SELECT 'bulk-folder-' || i, ?, ?, 'Folder', i * 2, '{}', '[]', 0, 0 FROM seq
+      `,
+        )
+        .run(count, ws.id, root.id);
+      sqlite
+        .prepare(
+          `
+        WITH RECURSIVE seq(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM seq WHERE i + 1 < ?)
+        INSERT INTO requests (id, workspace_id, folder_id, name, sort, method, params, headers, body, auth, settings, examples, created_at, updated_at)
+        SELECT 'bulk-request-' || i, ?, ?, 'Request', i * 2 + 1, 'GET', '[]', '[]', '{}', '{}', '{}', '[]', 0, 0 FROM seq
+      `,
+        )
+        .run(count, ws.id, root.id);
+    })();
+    expect(repo.createFolder(ws.id, root.id).sort).toBe(count * 2);
+    expect(repo.createRequest(ws.id, root.id).sort).toBe(count * 2 + 1);
+    repo.deleteWorkspace(ws.id);
+  });
+
+  it("uses covering indexes to find maximum sibling sorts", async () => {
+    const { getSqlite } = await import("@/server/db");
+    const sqlite = getSqlite();
+    const queries = [
+      {
+        sql: "SELECT max(sort) FROM folders WHERE workspace_id = ? AND parent_id = ?",
+        params: ["workspace", "parent"],
+        index: "folders_workspace_parent_sort_idx",
+      },
+      {
+        sql: "SELECT max(sort) FROM folders WHERE workspace_id = ? AND parent_id IS NULL",
+        params: ["workspace"],
+        index: "folders_workspace_parent_sort_idx",
+      },
+      {
+        sql: "SELECT max(sort) FROM requests WHERE folder_id = ?",
+        params: ["parent"],
+        index: "requests_folder_sort_idx",
+      },
+    ];
+    for (const query of queries) {
+      const plan = JSON.stringify(sqlite.prepare(`EXPLAIN QUERY PLAN ${query.sql}`).all(...query.params));
+      expect(plan).toContain(`USING COVERING INDEX ${query.index}`);
+      expect(plan).not.toContain("SCAN");
+      expect(plan).not.toContain("USE TEMP B-TREE");
+    }
   });
 
   it("loads only the requested subtree and preserves mixed sibling order", () => {
