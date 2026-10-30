@@ -26,3 +26,12 @@ export function executionSettings(env: NodeJS.ProcessEnv = process.env): Executi
     },
   };
 }
+
+/** Current run admission limits (read on every reservation so changes apply immediately). */
+export function runQueueLimits(env: NodeJS.ProcessEnv = process.env): { maxActive: number; maxQueued: number } {
+  const { values } = resolveSettings(readSavedSettings(), env);
+  return {
+    maxActive: values["execution.maxActiveRuns"] as number,
+    maxQueued: values["execution.maxQueuedRuns"] as number,
+  };
+}
