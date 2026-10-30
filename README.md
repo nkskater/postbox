@@ -66,6 +66,28 @@ npm run db:generate  # after changing src/server/db/schema.ts
 | `MCP_ALLOWED_ORIGINS` | _(none)_ | Extra browser origins allowed to call `/api/mcp` (cross-origin browser requests are rejected otherwise) |
 | `HISTORY_LIMIT` | `500` | History entries kept per workspace |
 
+### Container resource limits
+
+Docker Compose limits the entire running app, including the web server, request execution,
+script sandboxes and collection runs. Set these Compose variables in `.env`:
+
+| Variable | Default | Description |
+|---|---|---|
+| `POSTBOX_MEMORY_LIMIT` | `1g` | Total container memory, using Docker byte units such as `512m` or `2g` |
+| `POSTBOX_CPU_LIMIT` | `2.0` | CPU quota in cores; fractional values such as `0.5` are supported |
+| `POSTBOX_PIDS_LIMIT` | `256` | Maximum total processes and threads in the container |
+
+These [Compose service limits](https://docs.docker.com/reference/compose-file/services/)
+apply at runtime, including `docker compose run postbox postbox-cli ...`; they do not limit image builds
+or `npm run dev` on the host. `SCRIPT_MEMORY_MB` and `SCRIPT_TIMEOUT_MS` still limit each script separately.
+The container budget also covers Node.js, QuickJS/WASM overhead, response bodies and concurrent runs,
+so keep it above the per-script allowance and increase it for large responses or many simultaneous runs.
+Reaching the memory limit can cause Docker to kill the app; reaching the CPU quota throttles it.
+The PID limit includes Node.js worker threads, so setting it too low can prevent startup or scripts from running.
+
+After editing `.env`, apply the limits with `docker compose up -d`. Check the resolved configuration with
+`docker compose config --quiet` and inspect runtime use with `docker stats postbox`.
+
 ### Authentication
 
 Set either or both of these to require authentication for the UI and every API route, including `/api/mcp`.
