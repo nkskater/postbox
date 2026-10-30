@@ -127,7 +127,7 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
       },
     });
     if (options.persistVariables !== false) persistScopes(ctx, scopes);
-    repo.saveCookies(input.workspaceId, await jar.list());
+    repo.saveCookies(input.workspaceId, jar.getChanges());
     db.update(runs)
       .set({
         status: summary.status,

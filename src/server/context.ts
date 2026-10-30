@@ -173,7 +173,7 @@ export async function runSingleRequest(input: RunSingleInput): Promise<RunSingle
   persistOAuth2Token(input.workspaceId, input.request, chain, result.oauth2Token, input.requestId);
   const secrets = persistenceSecrets(ctx, result.scopes);
   const warnings = persistScopes(ctx, result.scopes);
-  if (jar) repo.saveCookies(input.workspaceId, await jar.list());
+  if (jar) repo.saveCookies(input.workspaceId, jar.getChanges());
 
   let historyId: string | undefined;
   if (input.saveHistory !== false && !result.skipped) {
