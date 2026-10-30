@@ -240,11 +240,13 @@ export function createPostboxMcpServer(): McpServer {
     async () =>
       okJson({
         ...describeCaller(currentCaller() ?? null),
-        workspaces: repo.listWorkspaces().map((workspace) => ({
-          id: workspace.id,
-          name: workspace.name,
-          role: workspaceRole(currentCaller(), workspace.id),
-        })),
+        workspaces: repo
+          .listWorkspaces()
+          .map((workspace) => ({
+            id: workspace.id,
+            name: workspace.name,
+            role: workspaceRole(currentCaller(), workspace.id),
+          })),
       }),
   );
 
