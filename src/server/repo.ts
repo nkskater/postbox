@@ -12,6 +12,7 @@ import type {
   TreeNode,
   Variable,
 } from "@/core/types";
+import type { CookieChanges } from "@/core/http/cookies";
 import { DEFAULT_SETTINGS } from "@/core/types";
 import { paramsFromUrl } from "@/lib/url-params";
 import { getDb, schema } from "./db";
@@ -639,7 +640,7 @@ export function listCookies(workspaceId: string): (CookieInfo & { id: string })[
       value: c.value,
       domain: c.domain,
       path: c.path,
-      expires: c.expires,
+      expires: c.expires ?? null,
       httpOnly: c.httpOnly,
       secure: c.secure,
       sameSite: c.sameSite,
@@ -647,30 +648,46 @@ export function listCookies(workspaceId: string): (CookieInfo & { id: string })[
     }));
 }
 
-/** Replace the workspace jar with the given list (after a request mutated it). */
-export function saveCookies(workspaceId: string, list: CookieInfo[]) {
+/** Apply explicit mutations atomically; unrelated concurrent jar changes are preserved.
+ * Conflicting writes to the same cookie use persistence order (last writer wins).
+ */
+export function saveCookies(workspaceId: string, changes: CookieChanges) {
   const db = getDb();
   db.transaction((tx) => {
-    tx.delete(cookies).where(eq(cookies.workspaceId, workspaceId)).run();
-    const seen = new Set<string>();
-    for (const c of list) {
-      const k = `${c.domain}|${c.path}|${c.name}`;
-      if (seen.has(k)) continue;
-      seen.add(k);
+    for (const c of changes.deletions) {
+      tx.delete(cookies)
+        .where(
+          and(
+            eq(cookies.workspaceId, workspaceId),
+            eq(cookies.domain, c.domain),
+            eq(cookies.path, c.path),
+            eq(cookies.name, c.name),
+          ),
+        )
+        .run();
+    }
+    for (const c of changes.upserts) {
+      const values = {
+        value: c.value,
+        expires: c.expires ?? null,
+        httpOnly: c.httpOnly,
+        secure: c.secure,
+        sameSite: c.sameSite ?? null,
+        hostOnly: c.hostOnly ?? true,
+      };
       tx.insert(cookies)
         .values({
           id: newId(),
           workspaceId,
           domain: c.domain,
-          path: c.path || "/",
+          path: c.path,
           name: c.name,
-          value: c.value,
-          expires: c.expires ?? null,
-          httpOnly: c.httpOnly,
-          secure: c.secure,
-          sameSite: c.sameSite ?? null,
-          hostOnly: c.hostOnly ?? true,
+          ...values,
           createdAt: now(),
+        })
+        .onConflictDoUpdate({
+          target: [cookies.workspaceId, cookies.domain, cookies.path, cookies.name],
+          set: values,
         })
         .run();
     }

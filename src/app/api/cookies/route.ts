@@ -22,13 +22,10 @@ export const POST = route(async (req: Request) => {
       }),
     }),
   );
-  const list = repo
-    .listCookies(input.workspaceId)
-    .filter(
-      (c) =>
-        !(c.domain === input.cookie.domain && c.path === input.cookie.path && c.name === input.cookie.name),
-    );
-  repo.saveCookies(input.workspaceId, [...list, { ...input.cookie, hostOnly: true }]);
+  repo.saveCookies(input.workspaceId, {
+    upserts: [{ ...input.cookie, hostOnly: true }],
+    deletions: [],
+  });
   return json(repo.listCookies(input.workspaceId));
 });
 
