@@ -340,3 +340,79 @@ describe("schedule authorization", () => {
     ).toBe(false);
   });
 });
+
+describe("completed run execution details", () => {
+  it("persists separate requests and iterations and grants viewers read access across users", async () => {
+    const { startTestServer } = await import("./helpers/server");
+    const { startRun } = await import("@/server/runs");
+    const server = await startTestServer();
+    try {
+      const collection = repo.createFolder(workspaceId, null, { name: "Recorded executions" });
+      const first = repo.createRequest(workspaceId, collection.id, {
+        name: "Echo",
+        method: "POST",
+        url: `${server.url}/echo?row={{row}}&token={{token}}`,
+        headers: [{ key: "X-Token", value: "{{token}}", enabled: true }],
+        body: { mode: "raw", raw: '{"row":"{{row}}","token":"{{token}}"}', language: "json" },
+      });
+      const second = repo.createRequest(workspaceId, collection.id, {
+        name: "Text",
+        url: `${server.url}/set-cookie`,
+      });
+      repo.replaceVariables(workspaceId, "collection", collection.id, [
+        { key: "token", value: "recorded-secret-123", type: "secret", enabled: true },
+      ]);
+      const { runId, summary } = await withCaller(caller(editor), () =>
+        startRun({
+          workspaceId,
+          folderId: collection.id,
+          environmentId: null,
+          options: { iterations: 2 },
+          data: { columns: ["row"], rows: [{ row: "alpha" }, { row: "beta" }] },
+        }),
+      );
+      expect(summary.results).toHaveLength(4);
+      const { GET } = await import("@/app/api/runs/[id]/route");
+      const read = (user: UserRow) =>
+        GET(request("GET", `/api/runs/${runId}`, user), { params: Promise.resolve({ id: runId }) });
+      const response = await read(viewer);
+      expect(response.status).toBe(200);
+      const saved = await response.json();
+      expect(JSON.stringify(saved)).not.toContain("recorded-secret-123");
+      expect(
+        saved.results.map((r: { iteration: number; sequence: number; requestId: string }) => [
+          r.iteration,
+          r.sequence,
+          r.requestId,
+        ]),
+      ).toEqual([
+        [0, 0, first.id],
+        [0, 1, second.id],
+        [1, 2, first.id],
+        [1, 3, second.id],
+      ]);
+      expect(saved.results[0].executionDetails.request.url).toContain("row=alpha");
+      expect(saved.results[2].executionDetails.request.url).toContain("row=beta");
+      expect(saved.results[0].executionDetails.request.headers).toContainEqual(["X-Token", "********"]);
+      expect(JSON.parse(saved.results[2].executionDetails.response.body.text).body).toContain("beta");
+      expect(
+        saved.results[1].executionDetails.response.headers.filter(
+          ([name]: [string, string]) => name.toLowerCase() === "set-cookie",
+        ),
+      ).toHaveLength(2);
+      expect(saved.results[1].executionDetails.response.body.text).toBe("ok");
+      expect((await read(owner)).status).toBe(200);
+      expect((await read(outsider)).status).toBe(404);
+      const { GET: readLegacy } = await import("@/app/api/runs/[id]/route");
+      expect(
+        (
+          await readLegacy(request("GET", `/api/runs/${ids.run}`, viewer), {
+            params: Promise.resolve({ id: ids.run }),
+          })
+        ).status,
+      ).toBe(200);
+    } finally {
+      await server.close();
+    }
+  });
+});

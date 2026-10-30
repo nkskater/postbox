@@ -1,3 +1,4 @@
+import { includeRunDetails } from "@/server/run-details";
 import { deleteRun, getRunSummary } from "@/server/runs";
 import { json, notFound, route } from "@/server/http";
 
@@ -8,7 +9,7 @@ export const GET = route(async (_req: Request, { params }: Ctx) => {
   const { id } = await params;
   const run = getRunSummary(id);
   if (!run) throw notFound("Run");
-  return json(run);
+  return json(includeRunDetails(run));
 });
 
 export const DELETE = route(async (_req: Request, { params }: Ctx) => {

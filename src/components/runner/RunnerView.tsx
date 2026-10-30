@@ -27,6 +27,7 @@ import { readNdjson } from "@/lib/ndjson";
 import { DataGrid } from "./DataGrid";
 import { Schedules } from "./Schedules";
 import { RunComparison } from "./RunComparison";
+import { RunResultDetails } from "./RunResultDetails";
 
 interface RunState {
   runId: string | null;
@@ -622,14 +623,7 @@ export function RunnerView({ folderId }: { folderId: string }) {
                         </div>
                       ))}
                       <TestResultsList tests={r.tests} />
-                      {r.responseBody && (
-                        <details>
-                          <summary className="cursor-pointer text-muted-foreground">Response body</summary>
-                          <pre className="mt-1 max-h-64 overflow-auto rounded border bg-background p-2 font-mono whitespace-pre-wrap">
-                            {r.responseBody}
-                          </pre>
-                        </details>
-                      )}
+                      <RunResultDetails key={`${r.iteration}:${r.sequence}`} result={r} />
                     </div>
                   )}
                 </div>

@@ -205,6 +205,13 @@ filesystem, `require`, or the host's globals.
   provided the iteration count defaults to the number of rows.
 - Progress is streamed to the browser as newline-delimited JSON events;
   results are persisted to `runs` / `run_results`.
+- Completed results record the effective request before redirects (method, URL,
+  prepared headers and up to 64 KB of request text), response headers, final URL,
+  timings and up to 1 MB of response text per execution. Secret values are
+  redacted before applying the response retention limit. Uploaded request bodies
+  and binary response bodies are not retained as text. Engine capture limits,
+  recording limits and older records without full details are shown explicitly
+  in the result detail view; transport-added request headers are not recorded.
 - Reporters: JSON, JUnit XML, standalone HTML. The CLI uses the same
   reporters plus a console reporter.
 

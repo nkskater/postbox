@@ -92,6 +92,7 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
         path: r.path,
         skipped: r.skipped,
         scriptErrors: r.scriptErrors,
+        executionDetails: r.executionDetails ?? null,
         responseBody: r.responseBody ?? null,
         responseHeaders: r.responseHeaders ?? null,
         createdAt: Date.now(),
