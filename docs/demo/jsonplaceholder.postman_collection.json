@@ -1,0 +1,170 @@
+{
+  "info": {
+    "name": "JSONPlaceholder Demo",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Demo collection used in the Postbox README. Targets https://jsonplaceholder.typicode.com."
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{apiKey}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "exec": [
+          "pm.request.headers.upsert({ key: \"X-Request-Id\", value: pm.variables.replaceIn(\"{{$guid}}\") });"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "apiVersion",
+      "value": "v1"
+    }
+  ],
+  "item": [
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "List users",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/users?_limit=5"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Returns 5 users\", () => pm.expect(pm.response.json()).to.have.lengthOf(5));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get user",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/users/{{userId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const user = pm.response.json();",
+                  "",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"User has an email\", () => pm.expect(user.email).to.include(\"@\"));",
+                  "pm.test(\"Response time is below 1000ms\", () => pm.expect(pm.response.responseTime).to.be.below(1000));",
+                  "",
+                  "// When running with iteration data, check the name from the CSV row.",
+                  "const expected = pm.iterationData.get(\"expected_name\");",
+                  "if (expected) {",
+                  "  pm.test(\"Name matches data row\", () => pm.expect(user.name).to.eql(expected));",
+                  "}",
+                  "",
+                  "pm.environment.set(\"username\", user.username);",
+                  "console.log(\"Fetched user\", user.id, user.username);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Posts",
+      "item": [
+        {
+          "name": "Posts for user",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/posts?userId={{userId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"All posts belong to the user\", () => {",
+                  "  const userId = Number(pm.variables.get(\"userId\")); // the data row value wins over the environment",
+                  "  pm.response.json().forEach((p) => pm.expect(p.userId).to.equal(userId));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create post",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/posts",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Hello from Postbox #{{$randomInt}}\",\n  \"body\": \"Sent by {{username}} at {{$isoTimestamp}}\",\n  \"userId\": \"{{userId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Created\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"Echoes the title\", () => pm.expect(pm.response.json().title).to.include(\"Hello from Postbox\"));",
+                  "pm.collectionVariables.set(\"lastPostId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

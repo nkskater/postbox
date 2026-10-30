@@ -22,7 +22,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "screenshots": "node scripts/screenshots.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.4",
@@ -74,6 +75,7 @@
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.4.3",
     "eslint-config-prettier": "^10.1.8",
+    "playwright-core": "1.56",
     "prettier": "^3.9.10",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.23.15",
