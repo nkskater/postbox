@@ -4,7 +4,8 @@ import { Mailbox, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-export function LoginForm({ next }: { next: string }) {
+export function LoginForm({ next, accounts }: { next: string; accounts: boolean }) {
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -17,7 +18,7 @@ export function LoginForm({ next }: { next: string }) {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify(accounts ? { username, password } : { password }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Login failed");
       window.location.assign(next);
@@ -33,17 +34,28 @@ export function LoginForm({ next }: { next: string }) {
         <div className="flex items-center gap-2 text-lg font-semibold">
           <Mailbox className="size-5 text-primary" /> Postbox
         </div>
-        <p className="text-sm text-muted-foreground">This Postbox instance is password protected.</p>
+        <p className="text-sm text-muted-foreground">
+          {accounts ? "Sign in to your Postbox account." : "This Postbox instance is password protected."}
+        </p>
+        {accounts && (
+          <Input
+            autoFocus
+            autoComplete="username"
+            placeholder="Username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+          />
+        )}
         <Input
           type="password"
-          autoFocus
+          autoFocus={!accounts}
           autoComplete="current-password"
           placeholder="Password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
         {error && <p className="text-sm text-destructive">{error}</p>}
-        <Button type="submit" className="w-full" disabled={busy || !password}>
+        <Button type="submit" className="w-full" disabled={busy || !password || (accounts && !username)}>
           {busy && <Loader2 className="size-4 animate-spin" />} Sign in
         </Button>
       </form>
