@@ -244,6 +244,51 @@ export const appSettings = sqliteTable("app_settings", {
   updatedAt: integer("updated_at").notNull(),
 });
 
+/** Local accounts. Bumping session_version invalidates every session cookie of the user. */
+export const users = sqliteTable(
+  "users",
+  {
+    id: text("id").primaryKey(),
+    username: text("username").notNull(),
+    displayName: text("display_name").notNull().default(""),
+    passwordHash: text("password_hash").notNull(),
+    isAdmin: integer("is_admin", { mode: "boolean" }).notNull().default(false),
+    disabled: integer("disabled", { mode: "boolean" }).notNull().default(false),
+    sessionVersion: integer("session_version").notNull().default(1),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("users_username_unique").on(t.username)],
+);
+
+/** Personal API tokens. Only a SHA-256 hash of the token is stored. */
+export const apiTokens = sqliteTable(
+  "api_tokens",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    /** First characters of the token, shown so users can tell tokens apart. */
+    prefix: text("prefix").notNull(),
+    lastUsedAt: integer("last_used_at"),
+    expiresAt: integer("expires_at"),
+    revokedAt: integer("revoked_at"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [uniqueIndex("api_tokens_hash_unique").on(t.tokenHash), index("api_tokens_user_idx").on(t.userId)],
+);
+
+/** Server-generated secrets (e.g. the session signing key). Never exported with settings. */
+export const serverSecrets = sqliteTable("server_secrets", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  createdAt: integer("created_at").notNull(),
+});
+
+export type UserRow = typeof users.$inferSelect;
+export type ApiTokenRow = typeof apiTokens.$inferSelect;
 export type WorkspaceRow = typeof workspaces.$inferSelect;
 export type FolderRow = typeof folders.$inferSelect;
 export type RequestRow = typeof requests.$inferSelect;
