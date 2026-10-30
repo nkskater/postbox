@@ -2,9 +2,9 @@
 /**
  * Renders the right control for a registry setting and saves changes through the settings store.
  */
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, Check, Pipette } from "lucide-react";
-import type { SettingDef, SettingValue } from "@/lib/settings/registry";
+import type { HeaderRow, SettingDef, SettingValue } from "@/lib/settings/registry";
 import { ACCENT_PRESETS, accentTokens } from "@/lib/settings/accent";
 import { css, oklchToHex, parseHex } from "@/lib/color";
 import { useSettings } from "@/stores/settings";
@@ -12,6 +12,7 @@ import { useApp } from "@/stores/app";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { KeyValueEditor } from "@/components/request/KeyValueEditor";
 import { cn } from "@/lib/utils";
 
 export function SettingControl({
@@ -77,6 +78,10 @@ export function SettingControl({
       return <NumberControl key={String(value)} def={def} value={Number(value)} disabled={disabled} />;
     case "accent":
       return <AccentPicker value={String(value)} disabled={disabled} />;
+    case "text":
+      return <TextControl key={String(value)} def={def} value={String(value)} disabled={disabled} />;
+    case "keyvalue":
+      return <HeadersControl def={def} value={Array.isArray(value) ? value : []} disabled={disabled} />;
   }
 }
 
@@ -116,6 +121,69 @@ function NumberControl({
         {def.unit}
       </span>
     </div>
+  );
+}
+
+/** Single-line text saved when the field loses focus or Enter is pressed. */
+function TextControl({
+  def,
+  value,
+  disabled,
+}: {
+  def: Extract<SettingDef, { type: "text" }>;
+  value: string;
+  disabled?: boolean;
+}) {
+  const save = useSettings((s) => s.set);
+  const [local, setLocal] = useState(value);
+  const commit = () => {
+    if (local !== value) void save(def.key, local);
+  };
+  return (
+    <Input
+      value={local}
+      maxLength={def.maxLength}
+      placeholder={def.placeholder}
+      disabled={disabled}
+      aria-label={def.label}
+      onChange={(e) => setLocal(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+      className="h-8 w-56 text-xs"
+    />
+  );
+}
+
+/** Header list using the request header editor; saves once typing pauses. */
+function HeadersControl({
+  def,
+  value,
+  disabled,
+}: {
+  def: Extract<SettingDef, { type: "keyvalue" }>;
+  value: HeaderRow[];
+  disabled?: boolean;
+}) {
+  const save = useSettings((s) => s.set);
+  const [rows, setRows] = useState(value);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Follow external changes (reset, import) unless an edit is waiting to be saved.
+  const incoming = JSON.stringify(value);
+  useEffect(() => {
+    if (!timer.current) setRows(JSON.parse(incoming) as HeaderRow[]);
+  }, [incoming]);
+  const onChange = (next: HeaderRow[]) => {
+    setRows(next);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      timer.current = null;
+      void save(def.key, next);
+    }, 500);
+  };
+  return (
+    <fieldset disabled={disabled} className="w-full min-w-0 disabled:opacity-60" aria-label={def.label}>
+      <KeyValueEditor rows={rows} onChange={onChange} keyPlaceholder="Header" />
+    </fieldset>
   );
 }
 
