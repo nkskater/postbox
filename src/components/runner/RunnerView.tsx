@@ -26,6 +26,7 @@ import { useSetting } from "@/stores/settings";
 import { readNdjson } from "@/lib/ndjson";
 import { DataGrid } from "./DataGrid";
 import { Schedules } from "./Schedules";
+import { RunComparison } from "./RunComparison";
 
 interface RunState {
   runId: string | null;
@@ -128,8 +129,8 @@ export function RunnerView({ folderId }: { folderId: string }) {
   const loadPast = useCallback(() => {
     if (workspaceId)
       fetch(`/api/runs?workspaceId=${workspaceId}&folderId=${folderId}`)
-        .then((r) => r.json())
-        .then(setPast)
+        .then((r) => (r.ok ? r.json() : []))
+        .then((rows) => setPast(Array.isArray(rows) ? rows : []))
         .catch(() => undefined);
   }, [workspaceId, folderId]);
   useEffect(loadPast, [loadPast]);
@@ -506,6 +507,14 @@ export function RunnerView({ folderId }: { folderId: string }) {
             {run.error && <div className="text-destructive">{run.error}</div>}
           </div>
           <div className="min-h-0 flex-1 overflow-auto">
+            {workspaceId && (
+              <RunComparison
+                key={`${workspaceId}:${folderId}`}
+                runs={past}
+                workspaceId={workspaceId}
+                folderId={folderId}
+              />
+            )}
             {run.results.length === 0 && !run.running && (
               <div className="p-4">
                 <p className="mb-3 text-muted-foreground">Run the collection to see results here.</p>
