@@ -209,6 +209,15 @@ export const authSchema: z.ZodType<AuthConfig> = z.discriminatedUnion("type", [
   z.object({ type: z.literal("awsv4"), awsv4: awsSigV4ConfigSchema }),
   z.object({ type: z.literal("oauth1"), oauth1: oauth1ConfigSchema }),
   z.object({ type: z.literal("asap"), asap: asapConfigSchema }),
+  z.object({
+    type: z.literal("ntlm"),
+    ntlm: z.object({
+      username: z.string().default(""),
+      password: z.string().default(""),
+      domain: z.string().optional(),
+      workstation: z.string().optional(),
+    }),
+  }),
 ]);
 
 export const settingsPatchSchema = z.object({

@@ -41,7 +41,7 @@ execute on the machine running Postbox, so VPN-connected Windows users can reach
 ## Features
 
 - **Request builder**: every method; params, headers and body (raw JSON/XML/text/HTML/JS, form-data with file upload,
-  urlencoded, binary, GraphQL); auth (Bearer, Basic, API key, Digest, OAuth 1.0 (HMAC/RSA/PLAINTEXT in header, query or body),
+  urlencoded, binary, GraphQL); auth (Bearer, Basic, API key, Digest, NTLMv2, OAuth 1.0 (HMAC/RSA/PLAINTEXT in header, query or body),
   OAuth 2.0 client-credentials/password/manual, Hawk, Akamai EdgeGrid,
   AWS Signature V4 with session tokens, header or presigned-URL mode, and re-signing on same-origin redirects,
   Atlassian ASAP JWTs signed with RS/PS/ES keys);

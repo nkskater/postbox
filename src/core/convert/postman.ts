@@ -129,6 +129,16 @@ export function importAuth(a: PmAuth | null | undefined): AuthConfig {
       return { type: "basic", basic: { username: p.username ?? "", password: p.password ?? "" } };
     case "digest":
       return { type: "digest", digest: { username: p.username ?? "", password: p.password ?? "" } };
+    case "ntlm":
+      return {
+        type: "ntlm",
+        ntlm: {
+          username: p.username ?? "",
+          password: p.password ?? "",
+          domain: p.domain || undefined,
+          workstation: p.workstation || undefined,
+        },
+      };
     case "apikey":
       return {
         type: "apikey",
@@ -522,6 +532,15 @@ function exportAuth(a: AuthConfig, includeCredentials = false): PmAuth | null | 
         type: "digest",
         digest: arr({ username: a.digest.username, password: credential(a.digest.password) }),
       };
+    case "ntlm": {
+      const raw: Record<string, string> = {
+        username: a.ntlm.username,
+        password: credential(a.ntlm.password),
+      };
+      if (a.ntlm.domain) raw.domain = a.ntlm.domain;
+      if (a.ntlm.workstation) raw.workstation = a.ntlm.workstation;
+      return { type: "ntlm", ntlm: arr(raw) };
+    }
     case "apikey":
       return {
         type: "apikey",

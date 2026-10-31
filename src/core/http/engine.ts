@@ -18,6 +18,7 @@ import type { CookieInfo, HttpResponse, PreparedRequest, RedirectHop, Timings } 
 import type { CookieJarStore } from "./cookies";
 import { parseSetCookies } from "./cookies";
 import { buildDigestAuthorization, parseDigestChallenge } from "./digest";
+import { authenticateMessage, negotiateMessage, parseChallenge } from "./ntlm";
 import { signAwsRequest } from "./aws-sigv4";
 import { HostPolicy, HostPolicyError, OPEN_POLICY } from "./policy";
 
@@ -154,6 +155,8 @@ function sendOnce(
     policy: HostPolicy;
     signal?: AbortSignal;
     maxBodyBytes: number;
+    /** Keep-alive agent for connection-bound auth (NTLM); otherwise a fresh socket per exchange. */
+    agent?: http.Agent;
   },
 ): Promise<SingleResponse> {
   return new Promise((resolve, reject) => {
@@ -194,7 +197,7 @@ function sendOnce(
         path: `${url.pathname}${url.search}`,
         headers: headerObj as unknown as http.OutgoingHttpHeaders,
         lookup,
-        agent: false,
+        agent: opts.agent ?? false,
         rejectUnauthorized: opts.verifySsl,
         servername: net.isIP(url.hostname) ? undefined : url.hostname,
         setHost: false,
@@ -339,128 +342,173 @@ export async function sendRequest(
   let body = prepared.body;
   let digestTried = false;
   let digestAllowed = true;
+  // NTLM authenticates a connection, so its handshake runs on one dedicated keep-alive socket.
+  let ntlmState: "idle" | "negotiating" | "authenticating" | "done" = prepared.ntlm ? "idle" : "done";
+  let ntlmAgent: http.Agent | undefined;
+  const closeNtlmAgent = () => {
+    ntlmAgent?.destroy();
+    ntlmAgent = undefined;
+  };
 
-  for (let hop = 0; ; hop++) {
-    if (options.signal?.aborted) throw new RequestError("Request was cancelled", "ECANCELLED");
-    if (url.protocol !== "http:" && url.protocol !== "https:") {
-      throw new RequestError(`Unsupported protocol "${url.protocol}"`, "EPROTOCOL");
-    }
-    policy.assert(url.hostname);
-
-    // Merge jar cookies with any Cookie header the user set explicitly.
-    let hopHeaders = headers;
-    if (options.cookieJar && settings.useCookieJar) {
-      const jarCookies = await options.cookieJar.getCookieHeader(url.toString());
-      if (jarCookies) {
-        const userCookieHeader = headers.find(([k]) => k.toLowerCase() === "cookie")?.[1];
-        hopHeaders = withoutHeader(headers, "cookie");
-        hopHeaders.push(["Cookie", userCookieHeader ? `${userCookieHeader}; ${jarCookies}` : jarCookies]);
+  try {
+    for (let hop = 0; ; hop++) {
+      if (options.signal?.aborted) throw new RequestError("Request was cancelled", "ECANCELLED");
+      if (url.protocol !== "http:" && url.protocol !== "https:") {
+        throw new RequestError(`Unsupported protocol "${url.protocol}"`, "EPROTOCOL");
       }
-    }
-    if (body && !hasHeader(hopHeaders, "content-length")) {
-      hopHeaders = [...hopHeaders, ["Content-Length", String(body.length)]];
-    }
+      policy.assert(url.hostname);
 
-    const res = await sendOnce(method, url, hopHeaders, body, {
-      verifySsl: settings.verifySsl,
-      timeoutMs: settings.timeoutMs,
-      policy,
-      signal: options.signal,
-      maxBodyBytes,
-    });
+      // Merge jar cookies with any Cookie header the user set explicitly.
+      let hopHeaders = headers;
+      if (options.cookieJar && settings.useCookieJar) {
+        const jarCookies = await options.cookieJar.getCookieHeader(url.toString());
+        if (jarCookies) {
+          const userCookieHeader = headers.find(([k]) => k.toLowerCase() === "cookie")?.[1];
+          hopHeaders = withoutHeader(headers, "cookie");
+          hopHeaders.push(["Cookie", userCookieHeader ? `${userCookieHeader}; ${jarCookies}` : jarCookies]);
+        }
+      }
+      if (body && !hasHeader(hopHeaders, "content-length")) {
+        hopHeaders = [...hopHeaders, ["Content-Length", String(body.length)]];
+      }
 
-    const setCookies = res.rawHeaders.filter(([k]) => k.toLowerCase() === "set-cookie").map(([, v]) => v);
-    if (setCookies.length) {
-      responseCookies.push(...parseSetCookies(setCookies, url.toString()));
-      if (options.cookieJar && settings.useCookieJar)
-        await options.cookieJar.storeSetCookies(setCookies, url.toString());
-    }
+      if (ntlmState === "idle" && !hasHeader(hopHeaders, "authorization")) {
+        closeNtlmAgent();
+        const Agent = url.protocol === "https:" ? https.Agent : http.Agent;
+        ntlmAgent = new Agent({ keepAlive: true, maxSockets: 1 });
+        hopHeaders = [...hopHeaders, ["Authorization", `NTLM ${negotiateMessage()}`]];
+        ntlmState = "negotiating";
+      }
 
-    const header = (name: string) => res.rawHeaders.find(([k]) => k.toLowerCase() === name)?.[1];
+      const res = await sendOnce(method, url, hopHeaders, body, {
+        verifySsl: settings.verifySsl,
+        timeoutMs: settings.timeoutMs,
+        policy,
+        signal: options.signal,
+        maxBodyBytes,
+        agent: ntlmState === "negotiating" || ntlmState === "authenticating" ? ntlmAgent : undefined,
+      });
 
-    // Digest challenge/response: retry once with credentials.
-    if (res.status === 401 && prepared.digest && digestAllowed && !digestTried) {
-      const challenge = parseDigestChallenge(
-        res.rawHeaders
-          .filter(([k]) => k.toLowerCase() === "www-authenticate")
-          .map(([, v]) => v)
-          .find((v) => /^\s*digest/i.test(v)) ?? "",
-      );
-      if (challenge) {
-        digestTried = true;
+      const setCookies = res.rawHeaders.filter(([k]) => k.toLowerCase() === "set-cookie").map(([, v]) => v);
+      if (setCookies.length) {
+        responseCookies.push(...parseSetCookies(setCookies, url.toString()));
+        if (options.cookieJar && settings.useCookieJar)
+          await options.cookieJar.storeSetCookies(setCookies, url.toString());
+      }
+
+      const header = (name: string) => res.rawHeaders.find(([k]) => k.toLowerCase() === name)?.[1];
+
+      if (ntlmState === "negotiating" && prepared.ntlm) {
+        const challenge =
+          res.status === 401
+            ? res.rawHeaders
+                .filter(([k]) => k.toLowerCase() === "www-authenticate")
+                .map(([, v]) => parseChallenge(v))
+                .find((c) => c !== null)
+            : undefined;
+        if (challenge) {
+          ntlmState = "authenticating";
+          const auth = `NTLM ${authenticateMessage(prepared.ntlm, challenge)}`;
+          headers = [...withoutHeader(headers, "authorization"), ["Authorization", auth]];
+          hop--;
+          continue;
+        }
+        ntlmState = "done";
+      } else if (ntlmState === "authenticating") {
+        // The AUTHENTICATE message is bound to that connection; never resend it elsewhere.
         headers = withoutHeader(headers, "authorization");
-        headers.push([
-          "Authorization",
-          buildDigestAuthorization(challenge, {
-            ...prepared.digest,
-            method,
-            uri: `${url.pathname}${url.search}`,
-          }),
-        ]);
-        hop--;
+        ntlmState = "done";
+        closeNtlmAgent();
+      }
+
+      // Digest challenge/response: retry once with credentials.
+      if (res.status === 401 && prepared.digest && digestAllowed && !digestTried) {
+        const challenge = parseDigestChallenge(
+          res.rawHeaders
+            .filter(([k]) => k.toLowerCase() === "www-authenticate")
+            .map(([, v]) => v)
+            .find((v) => /^\s*digest/i.test(v)) ?? "",
+        );
+        if (challenge) {
+          digestTried = true;
+          headers = withoutHeader(headers, "authorization");
+          headers.push([
+            "Authorization",
+            buildDigestAuthorization(challenge, {
+              ...prepared.digest,
+              method,
+              uri: `${url.pathname}${url.search}`,
+            }),
+          ]);
+          hop--;
+          continue;
+        }
+      }
+
+      const location = header("location");
+      if (settings.followRedirects && REDIRECT_CODES.has(res.status) && location) {
+        if (hop >= settings.maxRedirects) {
+          throw new RequestError(`Exceeded maximum of ${settings.maxRedirects} redirects`, "EMAXREDIRECTS");
+        }
+        redirects.push({ url: url.toString(), status: res.status });
+        const next = new URL(location, url);
+        if (url.protocol === "https:" && next.protocol === "http:") {
+          throw new RequestError("Blocked HTTPS-to-HTTP redirect", "EREDIRECTDOWNGRADE");
+        }
+        // 303 always becomes GET; 301/302 become GET for non-GET/HEAD (browser behaviour).
+        if (
+          res.status === 303 ||
+          ((res.status === 301 || res.status === 302) && method !== "GET" && method !== "HEAD")
+        ) {
+          method = method === "HEAD" ? "HEAD" : "GET";
+          body = undefined;
+          headers = withoutHeader(headers, "content-type", "content-length");
+        }
+        const sameOrigin = next.origin === url.origin;
+        // A new hop on the same origin uses a new connection, which needs its own NTLM handshake.
+        if (prepared.ntlm && ntlmState === "done" && sameOrigin) ntlmState = "idle";
+        // Never forward credentials to a different origin.
+        if (!sameOrigin) {
+          headers = headers.filter(([name]) => CROSS_ORIGIN_HEADERS.has(name.toLowerCase()));
+          digestAllowed = false;
+        }
+        headers = withoutHeader(headers, "host");
+        url = next;
+        // AWS signatures cover the method, URL and body; re-sign for the new hop on the same origin.
+        if (prepared.awsv4 && sameOrigin) {
+          const signed = signAwsRequest({ method, url: url.toString(), headers, body }, prepared.awsv4);
+          headers = signed.headers;
+          url = new URL(signed.url);
+        }
         continue;
       }
+
+      const decoded = await decompress(res.body, header("content-encoding"), maxBodyBytes);
+      const contentType = header("content-type") ?? "";
+      const isBinary = !isTextContentType(contentType) || looksBinary(decoded);
+      const headersSize = res.rawHeaders.reduce((n, [k, v]) => n + k.length + v.length + 4, 0);
+      const total = round(performance.now() - overallStart);
+
+      return {
+        status: res.status,
+        statusText: res.statusText,
+        httpVersion: res.httpVersion,
+        headers: res.rawHeaders,
+        bodyBase64: decoded.toString("base64"),
+        bodyText: isBinary ? "" : decoded.toString("utf8"),
+        isBinary,
+        contentType,
+        size: decoded.length,
+        truncated: res.truncated,
+        headersSize,
+        timings: { ...res.timings, total },
+        url: url.toString(),
+        redirects,
+        cookies: responseCookies,
+        remoteAddress: res.remoteAddress,
+      };
     }
-
-    const location = header("location");
-    if (settings.followRedirects && REDIRECT_CODES.has(res.status) && location) {
-      if (hop >= settings.maxRedirects) {
-        throw new RequestError(`Exceeded maximum of ${settings.maxRedirects} redirects`, "EMAXREDIRECTS");
-      }
-      redirects.push({ url: url.toString(), status: res.status });
-      const next = new URL(location, url);
-      if (url.protocol === "https:" && next.protocol === "http:") {
-        throw new RequestError("Blocked HTTPS-to-HTTP redirect", "EREDIRECTDOWNGRADE");
-      }
-      // 303 always becomes GET; 301/302 become GET for non-GET/HEAD (browser behaviour).
-      if (
-        res.status === 303 ||
-        ((res.status === 301 || res.status === 302) && method !== "GET" && method !== "HEAD")
-      ) {
-        method = method === "HEAD" ? "HEAD" : "GET";
-        body = undefined;
-        headers = withoutHeader(headers, "content-type", "content-length");
-      }
-      const sameOrigin = next.origin === url.origin;
-      // Never forward credentials to a different origin.
-      if (!sameOrigin) {
-        headers = headers.filter(([name]) => CROSS_ORIGIN_HEADERS.has(name.toLowerCase()));
-        digestAllowed = false;
-      }
-      headers = withoutHeader(headers, "host");
-      url = next;
-      // AWS signatures cover the method, URL and body; re-sign for the new hop on the same origin.
-      if (prepared.awsv4 && sameOrigin) {
-        const signed = signAwsRequest({ method, url: url.toString(), headers, body }, prepared.awsv4);
-        headers = signed.headers;
-        url = new URL(signed.url);
-      }
-      continue;
-    }
-
-    const decoded = await decompress(res.body, header("content-encoding"), maxBodyBytes);
-    const contentType = header("content-type") ?? "";
-    const isBinary = !isTextContentType(contentType) || looksBinary(decoded);
-    const headersSize = res.rawHeaders.reduce((n, [k, v]) => n + k.length + v.length + 4, 0);
-    const total = round(performance.now() - overallStart);
-
-    return {
-      status: res.status,
-      statusText: res.statusText,
-      httpVersion: res.httpVersion,
-      headers: res.rawHeaders,
-      bodyBase64: decoded.toString("base64"),
-      bodyText: isBinary ? "" : decoded.toString("utf8"),
-      isBinary,
-      contentType,
-      size: decoded.length,
-      truncated: res.truncated,
-      headersSize,
-      timings: { ...res.timings, total },
-      url: url.toString(),
-      redirects,
-      cookies: responseCookies,
-      remoteAddress: res.remoteAddress,
-    };
+  } finally {
+    closeNtlmAgent();
   }
 }
