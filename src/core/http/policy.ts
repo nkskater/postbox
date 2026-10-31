@@ -162,7 +162,11 @@ export class HostPolicy {
 
   static fromEnv(env: NodeJS.ProcessEnv = process.env): HostPolicy {
     const split = (v?: string) => (v?.trim() ? v.split(",") : []);
-    return new HostPolicy(split(env.PROXY_ALLOW_HOSTS), split(env.PROXY_DENY_HOSTS), split(env.PROXY_ALLOW_SOCKETS));
+    return new HostPolicy(
+      split(env.PROXY_ALLOW_HOSTS),
+      split(env.PROXY_DENY_HOSTS),
+      split(env.PROXY_ALLOW_SOCKETS),
+    );
   }
 
   /** Returns null when the socket or pipe may be used, or a reason string. */

@@ -76,7 +76,9 @@ describe("socket policy", () => {
   it.runIf(unix)("matches exact paths and dir/* and resolves symlinks", () => {
     expect(new HostPolicy([], [], [sock]).checkSocket(sock)).toBeNull();
     expect(new HostPolicy([], [], [`${dir}/*`]).checkSocket(sock)).toBeNull();
-    expect(new HostPolicy([], [], [`${dir}/*`]).checkSocket(path.join(dir, "nested", "x.sock"))).toMatch(/not in/);
+    expect(new HostPolicy([], [], [`${dir}/*`]).checkSocket(path.join(dir, "nested", "x.sock"))).toMatch(
+      /not in/,
+    );
     // The link sits in the allowed directory but points at a socket outside it.
     expect(new HostPolicy([], [], [`${dir}/*`]).checkSocket(link)).toMatch(/not in/);
     expect(new HostPolicy([], [], [other]).checkSocket(link)).toBeNull();
