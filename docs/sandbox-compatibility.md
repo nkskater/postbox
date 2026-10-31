@@ -50,7 +50,9 @@ excluded from the selected run. Imports assign new IDs, so source Postman IDs
 must be updated. A helper can save its runtime ID with
 `pm.globals.set("helperId", pm.info.requestId)` for later requests.
 
-The referenced collection's variables override the caller collection's values.
+A request in another collection sees only its own collection's variables; the
+caller's collection variables are not visible to it, so they cannot reach that
+collection's hosts. Within the same collection the variables are shared.
 Environment, iteration data, local variables and invocation overrides take
 precedence over both. Invocation overrides cannot escape back into the caller.
 Child global/environment/local changes return to the calling script; collection
