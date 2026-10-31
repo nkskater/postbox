@@ -1,11 +1,11 @@
 "use client";
+import { GraphqlBodyEditor } from "./GraphqlBodyEditor";
 /**
  * Request body editor: none / raw (JSON, XML, text, HTML, JS) / form-data /
  * x-www-form-urlencoded / binary / GraphQL.
  */
 import { FileUp, Wand2 } from "lucide-react";
-import { Group, Panel, Separator } from "react-resizable-panels";
-import type { BodyConfig, BodyMode, RawLanguage } from "@/core/types";
+import type { BodyConfig, BodyMode, RawLanguage, RequestDef } from "@/core/types";
 import { CodeEditor } from "@/components/editor/CodeEditor";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
@@ -74,7 +74,16 @@ function readFile(file: File): Promise<string> {
   });
 }
 
-export function BodyEditor({ body, onChange }: { body: BodyConfig; onChange: (b: BodyConfig) => void }) {
+export function BodyEditor({
+  body,
+  onChange,
+  draft,
+}: {
+  body: BodyConfig;
+  onChange: (b: BodyConfig) => void;
+  /** The whole request, so GraphQL introspection can reuse its URL, headers and auth. */
+  draft?: RequestDef & { folderId?: string | null };
+}) {
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
       <div className="flex flex-wrap items-center gap-3 text-xs">
@@ -191,35 +200,7 @@ export function BodyEditor({ body, onChange }: { body: BodyConfig; onChange: (b:
             />
           </label>
         )}
-        {body.mode === "graphql" && (
-          <Group orientation="horizontal" className="h-full">
-            <Panel defaultSize="60" minSize="20">
-              <div className="flex h-full flex-col">
-                <span className="mb-1 text-[11px] font-medium text-muted-foreground">QUERY</span>
-                <div className="min-h-0 flex-1 overflow-hidden rounded-md border">
-                  <CodeEditor
-                    value={body.graphql.query}
-                    language="graphql"
-                    onChange={(query) => onChange({ ...body, graphql: { ...body.graphql, query } })}
-                  />
-                </div>
-              </div>
-            </Panel>
-            <Separator className="mx-1 w-1 rounded hover:bg-primary/40" />
-            <Panel defaultSize="40" minSize="20">
-              <div className="flex h-full flex-col">
-                <span className="mb-1 text-[11px] font-medium text-muted-foreground">GRAPHQL VARIABLES</span>
-                <div className="min-h-0 flex-1 overflow-hidden rounded-md border">
-                  <CodeEditor
-                    value={body.graphql.variables}
-                    language="json"
-                    onChange={(variables) => onChange({ ...body, graphql: { ...body.graphql, variables } })}
-                  />
-                </div>
-              </div>
-            </Panel>
-          </Group>
-        )}
+        {body.mode === "graphql" && <GraphqlBodyEditor body={body} onChange={onChange} draft={draft} />}
       </div>
     </div>
   );
