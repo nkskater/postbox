@@ -224,3 +224,38 @@ describe("request builder concurrency", () => {
     expect(useApp.getState().variables.selected.value).toBe("new");
   });
 });
+
+describe("example request snapshots", () => {
+  it("pairs a result with the sent template even when the draft changes while sending", async () => {
+    const tab = requestTab();
+    const pending = deferred<ProxyResult>();
+    vi.mocked(api.proxy).mockReturnValue(pending.promise);
+    useApp.setState({ tabs: [tab] });
+    const sending = useApp.getState().sendTab(tab.id);
+    useApp
+      .getState()
+      .updateDraft(tab.id, {
+        url: "http://example.test/edited",
+        body: { mode: "raw", raw: "new body", language: "text" },
+      });
+    pending.resolve({ logs: [], scriptErrors: [], warnings: [] } as unknown as ProxyResult);
+    await sending;
+    expect(current().sentTemplate).toMatchObject({ url: "http://example.test", body: { mode: "none" } });
+    expect(current().draft.url).toBe("http://example.test/edited");
+    const stored = sanitizeStoredState({ tabs: [current()] });
+    expect(stored.tabs[0]).toMatchObject({ sentTemplate: null, result: null });
+  });
+  it("merges example changes into open drafts and excludes them from ordinary request saves", async () => {
+    const tab = requestTab();
+    useApp.setState({ tabs: [tab] });
+    useApp.getState().updateDraft(tab.id, { url: "http://example.test/unsaved" });
+    const examples = [
+      { id: "example", name: "OK", status: 200, statusText: "OK", headers: [], body: "", createdAt: 1 },
+    ];
+    useApp.getState().onExamplesChanged("request", examples);
+    expect(current().draft).toMatchObject({ url: "http://example.test/unsaved", examples });
+    vi.mocked(api.requests.update).mockResolvedValue(savedRequest(current()));
+    await useApp.getState().saveTab(tab.id);
+    expect(vi.mocked(api.requests.update).mock.calls[0][1]).not.toHaveProperty("examples");
+  });
+});
