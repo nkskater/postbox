@@ -128,7 +128,7 @@ export const runs = sqliteTable(
       .references(() => workspaces.id, { onDelete: "cascade" }),
     folderId: text("folder_id"),
     name: text("name").notNull(),
-    status: text("status").$type<"running" | "passed" | "failed" | "cancelled" | "error">().notNull(),
+    status: text("status").$type<"queued" | "running" | "passed" | "failed" | "cancelled" | "error">().notNull(),
     options: text("options", { mode: "json" }).$type<RunOptions>().notNull(),
     environmentId: text("environment_id"),
     iterations: integer("iterations").notNull().default(1),

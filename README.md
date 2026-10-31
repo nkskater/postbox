@@ -197,6 +197,11 @@ Scripts run in an isolated sandbox with no access to the server's files or netwo
 They have time and memory limits, set under Settings → Request execution (default 5 s and 32 MB). Setting
 `SCRIPT_TIMEOUT_MS` or `SCRIPT_MEMORY_MB` pins the value; out-of-range values are clamped to 60 s and 512 MB.
 
+Collection runs from the UI, REST API, MCP and schedules share one admission queue: at most
+**Concurrent collection runs** execute at once and up to **Queued collection runs** wait in order (shown as
+"Queued #N" in the Runner, where Stop removes them). When the queue is full new runs are
+rejected with HTTP 429 and scheduled ticks are skipped. The queue is per server process.
+
 ### 5. Run a collection with iteration data
 
 Click **Run** on a collection or folder to open the runner. Choose which requests to include, the environment,
@@ -325,6 +330,8 @@ Chromium binary (otherwise run `npx playwright-core install chromium` once).
 | `PROXY_DENY_HOSTS` | _(none)_ | Comma list that is always blocked (wins over allow) |
 | `SCRIPT_TIMEOUT_MS` | _(setting)_ | Pins the script time limit (100–60000 ms; otherwise set in Settings) |
 | `SCRIPT_MEMORY_MB` | _(setting)_ | Pins the script memory limit (8–512 MB; otherwise set in Settings) |
+| `RUNS_MAX_ACTIVE` | _(setting)_ | Pins how many collection runs execute at once (1–32, default 4) |
+| `RUNS_MAX_QUEUED` | _(setting)_ | Pins how many runs may wait for a slot (0–500, default 20); further runs get HTTP 429 |
 | `RESPONSE_MAX_BYTES` | `52428800` | Encoded response bytes are truncated at this limit; decompression exceeding the limit at any stage is rejected |
 | `API_BODY_LIMIT_MB` | `25` | Largest JSON body the REST API and `/api/mcp` accept (file uploads travel inline as base64); larger bodies get `413` |
 | `MCP_ALLOWED_ORIGINS` | _(none)_ | Extra browser origins allowed to call `/api/mcp` (cross-origin browser requests are rejected otherwise) |

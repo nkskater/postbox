@@ -4,8 +4,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { startTestServer, type TestServer } from "./helpers/server";
-import type { RunEvent } from "@/core/runner/runner";
 import { createEventStream } from "@/server/event-stream";
+import type { StartRunEvent } from "@/server/runs";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "postbox-runs-"));
 process.env.DATABASE_PATH = path.join(dir, "test.db");
@@ -80,7 +80,7 @@ describe("persisted collection runs", () => {
 
   it("does not emit success when final persistence fails", async () => {
     const input = collection();
-    const events: (RunEvent & { runId: string })[] = [];
+    const events: StartRunEvent[] = [];
     const signal = new AbortController().signal;
     const failure = vi.spyOn(repo, "saveCookies").mockImplementation(() => {
       throw new Error("Storage failed");

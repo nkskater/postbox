@@ -264,10 +264,10 @@ export async function runSchedule(id: string): Promise<{ runId: string }> {
         retainResults: false,
         signal: controller.signal,
         onEvent: (event) => {
-          if (event.type !== "start") return;
+          if (event.type !== "start" && event.type !== "queued") return;
           getDb()
             .update(schedules)
-            .set({ lastRunId: event.runId, lastRunAt: event.startedAt })
+            .set({ lastRunId: event.runId, lastRunAt: event.type === "start" ? event.startedAt : Date.now() })
             .where(eq(schedules.id, id))
             .run();
           resolve({ runId: event.runId });

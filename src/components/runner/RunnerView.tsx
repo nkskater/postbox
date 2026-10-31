@@ -183,12 +183,16 @@ export function RunnerView({ folderId }: { folderId: string }) {
       let terminal = false;
       for await (const event of readNdjson(res.body)) {
         if (streamController.current !== controller) return;
-        const e = event as (RunEvent & { runId: string }) | { type: "error"; error: string };
+        const e = event as
+          | ((RunEvent | { type: "queued"; position: number }) & { runId: string })
+          | { type: "error"; error: string };
         if (e.type === "done" || e.type === "error") terminal = true;
         setRun((s) => {
           switch (e.type) {
+            case "queued":
+              return { ...s, runId: e.runId, current: `Queued #${e.position}, waiting for a free run slot` };
             case "start":
-              return { ...s, runId: e.runId, total: e.total, iterations: e.iterations };
+              return { ...s, runId: e.runId, total: e.total, iterations: e.iterations, current: undefined };
             case "request":
               return { ...s, current: `${e.name} (iteration ${e.iteration + 1})` };
             case "result":
