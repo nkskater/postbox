@@ -96,6 +96,7 @@ export const REST_POLICIES: Record<string, Policy> = {
   "POST /api/ws/[id]/send": p("account"),
   "POST /api/ws/[id]/close": p("account"),
   "POST /api/graphql/schema": p("body", "run"),
+  "POST /api/graphql/subscribe": p("body", "run"),
   "POST /api/sse": p("body", "run"),
   "POST /api/oauth2/authorize": p("body", "run"),
   "GET /api/oauth2/tokens": p("query", "read"),
