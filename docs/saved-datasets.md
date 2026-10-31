@@ -79,6 +79,6 @@ The same behavior is available through `list_datasets`, `get_dataset`,
 `import_dataset`, and `export_dataset`. Use `datasetId` for existing datasets;
 `get_dataset` includes version history and references. `includeSecrets: true`
 requires write access. `run_collection` accepts `dataset: {id,version?}` exclusive
-with `dataCsv`, `dataJson`, and `dataRows`. `create_schedule`/`update_schedule`
-accept the same dataset reference and `dataset: null` detaches it. All schemas
+with `dataCsv`, `dataJson`, and `dataRows`. Manage schedule references through
+the REST schedule endpoints documented above. Dataset and runner tool schemas
 are advertised through MCP tool discovery.

@@ -231,6 +231,7 @@ function DatasetEditor({ id, workspaceId }: { id: string | null; workspaceId: st
         onKeyDown={(event) => {
           if ((event.ctrlKey || event.metaKey) && event.key === "s") {
             event.preventDefault();
+            event.stopPropagation();
             if (draft && !busy) {
               saveButton.current?.focus();
               requestAnimationFrame(() => saveButton.current?.click());
