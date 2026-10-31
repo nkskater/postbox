@@ -33,10 +33,9 @@ import {
   authCredentialValues,
   credentialRedactionValues,
   hasMissingUpload,
-  redactSensitiveFields,
   sensitiveFieldValues,
 } from "@/core/retention";
-import { redactStoredValue } from "@/core/variables/resolver";
+import { exampleFromResponse } from "@/core/examples";
 
 type RequestTab = Extract<Tab, { type: "request" }>;
 
@@ -60,6 +59,7 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
   const folders = useApp((s) => s.folders);
   const openSave = useDialogs((s) => s.openSave);
   const openCode = useDialogs((s) => s.openCode);
+  const openExamples = useDialogs((s) => s.openExamples);
   const d = tab.draft;
   const sideBySide = useSetting<string>("layout.requestLayout") === "side-by-side";
   const set = useCallback(
@@ -134,21 +134,21 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
         .filter((variable) => variable.secret)
         .map((variable) => variable.value),
     ]);
-    const example = redactStoredValue(
-      redactSensitiveFields({
-        id: Math.random().toString(36).slice(2),
-        name: `${res.status} ${res.statusText}`,
-        status: res.status,
-        statusText: res.statusText,
-        headers: res.headers.map(([key, value]) => ({ key, value, enabled: true })),
-        body: res.bodyText,
-        createdAt: Date.now(),
-      }),
-      secrets,
-    );
-    const examples = [...(d.examples ?? []), example];
-    await api.requests.update(tab.requestId, { examples });
-    set({ examples });
+    if (!tab.sentTemplate) {
+      toast.error("Send the request again to capture its corresponding template");
+      return;
+    }
+    try {
+      const example = exampleFromResponse(tab.sentTemplate, res, secrets);
+      const { id: _id, createdAt: _createdAt, ...input } = example;
+      const saved = await api.examples.change(tab.requestId, {
+        mutation: { action: "create", example: input },
+      });
+      useApp.getState().onExamplesChanged(tab.requestId, saved.examples);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not save example");
+      return;
+    }
     toast.success("Saved as example");
   };
 
@@ -262,6 +262,13 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
         </Button>
       </div>
 
+      {tab.requestId && (
+        <div className="flex justify-end border-b px-3 py-1">
+          <Button size="sm" variant="ghost" onClick={() => openExamples(tab.requestId)}>
+            Examples ({d.examples?.length ?? 0})
+          </Button>
+        </div>
+      )}
       <Group orientation={sideBySide ? "horizontal" : "vertical"} className="min-h-0 flex-1">
         <Panel defaultSize="45" minSize="15">
           <Tabs defaultValue="params" className="flex h-full min-h-0 flex-col gap-0">

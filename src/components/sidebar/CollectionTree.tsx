@@ -449,6 +449,9 @@ export function CollectionTree() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-44">
                 <DropdownMenuItem onClick={() => openRequest(r.id)}>Open in tab</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => useDialogs.getState().openExamples(r.id)}>
+                  Manage examples
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setRenaming(r.id)}>
                   <Pencil /> Rename
                 </DropdownMenuItem>

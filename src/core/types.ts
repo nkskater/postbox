@@ -227,6 +227,12 @@ export const DEFAULT_SETTINGS: RequestSettings = {
   useCookieJar: true,
 };
 
+/** The editable template paired with a saved response; contains no identity or scripts. */
+export type ExampleRequest = Pick<
+  RequestDef,
+  "method" | "url" | "params" | "headers" | "body" | "auth" | "description"
+>;
+
 export interface ResponseExample {
   id: string;
   name: string;
@@ -235,6 +241,11 @@ export interface ResponseExample {
   headers: KeyValue[];
   body: string;
   createdAt: number;
+  originalRequest?: ExampleRequest;
+  /** Binary response bodies are stored as base64; legacy examples contain UTF-8 text. */
+  bodyEncoding?: "utf8" | "base64";
+  bodyOmitted?: boolean;
+  truncated?: boolean;
 }
 
 /** A request definition as stored/edited (templates, not yet resolved). */

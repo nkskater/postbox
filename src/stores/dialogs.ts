@@ -6,6 +6,8 @@ interface DialogState {
   saveTabId: string | null;
   codeTabId: string | null;
   importOpen: boolean;
+  exampleRequestId: string | null;
+  openExamples(id: string | null): void;
   paletteOpen: boolean;
   shortcutsOpen: boolean;
   /** Tab waiting for "discard unsaved changes?" confirmation. */
@@ -22,6 +24,8 @@ export const useDialogs = create<DialogState>()((set) => ({
   saveTabId: null,
   codeTabId: null,
   importOpen: false,
+  exampleRequestId: null,
+  openExamples: (exampleRequestId) => set({ exampleRequestId }),
   paletteOpen: false,
   shortcutsOpen: false,
   confirmCloseTabId: null,

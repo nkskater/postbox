@@ -243,14 +243,61 @@ export const variableSchema = z.object({
   enabled: z.boolean().default(true),
 });
 
+export const exampleRequestSchema = z.object({
+  method: methodSchema,
+  url: z.string(),
+  params: z.array(keyValueSchema).default([]),
+  headers: z.array(keyValueSchema).default([]),
+  body: bodySchema,
+  auth: authSchema.default({ type: "inherit" }),
+  description: z.string().optional(),
+});
 export const responseExampleSchema = z.object({
   id: z.string().min(1),
-  name: z.string(),
-  status: z.number().int(),
-  statusText: z.string().default(""),
-  headers: z.array(keyValueSchema).default([]),
-  body: z.string().default(""),
-  createdAt: z.number(),
+  name: z.string().trim().min(1).max(300),
+  status: z.number().int().min(100).max(599),
+  statusText: z
+    .string()
+    .max(300)
+    .refine((value) => !/[\r\n\0]/.test(value), "Invalid status text")
+    .default(""),
+  headers: z
+    .array(
+      keyValueSchema.extend({
+        key: z.string().regex(/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/, "Invalid response header name"),
+        value: z
+          .string()
+          .refine((value) => !/[\r\n\0]/.test(value), "Response header values cannot contain line breaks"),
+      }),
+    )
+    .max(1000)
+    .default([]),
+  body: z.string().max(MAX_UPLOAD_BASE64_CHARS).default(""),
+  createdAt: z.number().finite(),
+  originalRequest: exampleRequestSchema.optional(),
+  bodyEncoding: z.enum(["utf8", "base64"]).optional(),
+  bodyOmitted: z.boolean().optional(),
+  truncated: z.boolean().optional(),
+});
+export const exampleInputSchema = responseExampleSchema.omit({ id: true, createdAt: true });
+export const exampleMutationSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("create"), example: exampleInputSchema }),
+  z.object({
+    action: z.literal("update"),
+    exampleId: z.string().min(1),
+    changes: exampleInputSchema.partial(),
+  }),
+  z.object({
+    action: z.literal("duplicate"),
+    exampleId: z.string().min(1),
+    name: z.string().trim().min(1).max(300).optional(),
+  }),
+  z.object({ action: z.literal("delete"), exampleId: z.string().min(1) }),
+  z.object({ action: z.literal("reorder"), exampleIds: z.array(z.string().min(1)).max(100) }),
+]);
+export const exampleCommandSchema = z.object({
+  expectedVersion: z.string().optional(),
+  mutation: exampleMutationSchema,
 });
 
 /** Any subset of a request definition (create, patch, ad-hoc execution). */

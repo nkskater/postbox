@@ -1,7 +1,9 @@
 /**
  * Typed browser-side client for the Postbox REST API.
  */
-import type { CookieInfo, Environment, FolderDef, RequestDef, Variable } from "@/core/types";
+import type { CookieInfo, Environment, FolderDef, RequestDef, ResponseExample, Variable } from "@/core/types";
+import type { z } from "zod";
+import type { exampleCommandSchema } from "@/core/schemas";
 import type { RunSingleResult } from "@/server/context";
 import type { TreeFolderSummary, TreeRequestSummary } from "@/server/repo";
 
@@ -100,6 +102,16 @@ export const api = {
       call<SavedRequest>("PATCH", `/api/requests/${id}`, patch),
     remove: (id: string) => call("DELETE", `/api/requests/${id}`),
     duplicate: (id: string) => call<SavedRequest>("POST", `/api/requests/${id}/duplicate`),
+  },
+  examples: {
+    list: (requestId: string) =>
+      call<{ examples: ResponseExample[]; version: string }>("GET", `/api/requests/${requestId}/examples`),
+    change: (requestId: string, command: z.input<typeof exampleCommandSchema>) =>
+      call<{ examples: ResponseExample[]; version: string; example?: ResponseExample }>(
+        "POST",
+        `/api/requests/${requestId}/examples`,
+        command,
+      ),
   },
   move: (kind: "folder" | "request", id: string, parentId: string | null, index: number) =>
     call("POST", "/api/tree/move", { kind, id, parentId, index }),

@@ -5,7 +5,8 @@
  */
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { ConsoleEntry, RequestDef, Variable } from "@/core/types";
+import type { ConsoleEntry, RequestDef, ExampleRequest, ResponseExample, Variable } from "@/core/types";
+import { exampleRequest } from "@/core/examples";
 import { DEFAULT_SETTINGS, type RequestSettings } from "@/core/types";
 import { getSetting } from "@/lib/settings/runtime";
 import { useDialogs } from "./dialogs";
@@ -37,6 +38,7 @@ export type Tab =
       /** JSON snapshot of the last saved state, for dirty detection. */
       saved: string | null;
       result?: ProxyResult | null;
+      sentTemplate?: ExampleRequest | null;
       sending?: boolean;
       /** Transient tab (single click preview); replaced by the next preview. */
       preview?: boolean;
@@ -126,6 +128,7 @@ function sanitizeStoredTab(tab: Tab): Tab {
     draft,
     saved,
     result: null,
+    sentTemplate: null,
     sending: false,
     credentialsOmitted:
       tab.credentialsOmitted || authCredentialValues(tab.draft.auth).length > 0 || undefined,
@@ -199,6 +202,7 @@ interface AppState {
   saveTab(tabId: string, target?: { folderId: string; name: string }): Promise<boolean>;
   sendTab(tabId: string): Promise<void>;
   cancelSend(tabId: string): void;
+  onExamplesChanged(requestId: string, examples: ResponseExample[]): void;
   onRequestRenamed(id: string, name: string): void;
   onEntityDeleted(kind: "folder" | "request" | "environment", id: string): void;
 
@@ -519,7 +523,8 @@ export const useApp = create<AppState>()(
         const { id: _id, folderId: _f, ...def } = tab.draft;
         try {
           if (tab.requestId) {
-            const saved = await api.requests.update(tab.requestId, def);
+            const { examples: _examples, ...requestFields } = def;
+            const saved = await api.requests.update(tab.requestId, requestFields);
             const draft: RequestDraft = { ...saved, folderId: saved.folderId };
             set((s) => ({
               tabs: s.tabs.map((t) =>
@@ -599,6 +604,7 @@ export const useApp = create<AppState>()(
           const request = getSetting<boolean>("requests.trimUrl")
             ? { ...draftRequest, url: draftRequest.url.trim() }
             : draftRequest;
+          const sentTemplate = structuredClone(exampleRequest(request));
           const result = await api.proxy(
             {
               workspaceId,
@@ -614,7 +620,7 @@ export const useApp = create<AppState>()(
             patchTab({ sending: false });
             return;
           }
-          patchTab({ sending: false, result });
+          patchTab({ sending: false, result, sentTemplate });
           get().log(result.logs);
           result.scriptErrors.forEach((e) =>
             get().log([{ level: "error", source: e.source, message: e.message, timestamp: Date.now() }]),
@@ -639,6 +645,15 @@ export const useApp = create<AppState>()(
         abortControllers.get(tabId)?.abort();
       },
 
+      onExamplesChanged(requestId, examples) {
+        set((state) => ({
+          tabs: state.tabs.map((tab) =>
+            tab.type === "request" && tab.requestId === requestId
+              ? { ...tab, draft: { ...tab.draft, examples } }
+              : tab,
+          ),
+        }));
+      },
       onRequestRenamed(id, name) {
         set((s) => ({
           tabs: s.tabs.map((t) => {

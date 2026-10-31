@@ -26,6 +26,8 @@ import { importSource } from "./import-source";
 import { importSourceFields } from "@/core/convert/import-schema";
 import { isOpenApiResolutionError } from "@/core/convert/openapi-references";
 import * as repo from "./repo";
+import { changeRequestExamples, listRequestExamples } from "./examples";
+import { exampleCommandSchema } from "@/core/schemas";
 import { currentCaller } from "./access-context";
 import { describeCaller } from "./caller";
 import { workspaceRole } from "./authorize";
@@ -1390,6 +1392,39 @@ export function createPostboxMcpServer(): McpServer {
         });
       } catch (err) {
         return errResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "list_request_examples",
+    {
+      title: "List Saved Request Examples",
+      description:
+        "Browse saved request/response pairs and their original request templates; returns an optimistic concurrency version.",
+      inputSchema: { requestId: z.string() },
+    },
+    async ({ requestId }) => {
+      try {
+        return okJson(listRequestExamples(requestId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "manage_request_examples",
+    {
+      title: "Manage Saved Request Examples",
+      description:
+        "Create, update/rename, duplicate, delete or reorder saved examples atomically. Pass the version from list_request_examples to reject stale edits. Credentials and upload bytes are omitted from snapshots.",
+      inputSchema: { requestId: z.string(), command: exampleCommandSchema },
+    },
+    async ({ requestId, command }) => {
+      try {
+        return okJson(changeRequestExamples(requestId, command));
+      } catch (error) {
+        return errResult(error);
       }
     },
   );

@@ -22,6 +22,7 @@ import { SaveRequestDialog } from "@/components/dialogs/SaveRequestDialog";
 import { ShortcutsDialog } from "@/components/dialogs/ShortcutsDialog";
 import { CommandPalette } from "@/components/dialogs/CommandPalette";
 import { ImportDialog } from "@/components/dialogs/ImportDialog";
+import { ExamplesDialog } from "@/components/dialogs/ExamplesDialog";
 import { CodeSnippetDialog } from "@/components/dialogs/CodeSnippetDialog";
 import { TopBar } from "./TopBar";
 import { TabBar } from "./TabBar";
@@ -262,6 +263,7 @@ export function App({ authEnabled }: { authEnabled: boolean }) {
       <ShortcutsDialog />
       <CommandPalette />
       <ImportDialog />
+      <ExamplesDialog />
       <CodeSnippetDialog />
       <Toaster theme={theme} position="bottom-right" richColors closeButton />
     </TooltipProvider>

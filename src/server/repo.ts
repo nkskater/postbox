@@ -15,6 +15,8 @@ import type {
 import type { CookieChanges } from "@/core/http/cookies";
 import { currentCaller } from "./access-context";
 import { actorId, workspaceRole } from "./authorize";
+import { sanitizeExample, validateExamples } from "@/core/examples";
+import { authCredentialValues, sensitiveFieldValues } from "@/core/retention";
 import { DEFAULT_SETTINGS } from "@/core/types";
 import { paramsFromUrl } from "@/lib/url-params";
 import { getDb, schema } from "./db";
@@ -42,6 +44,7 @@ export function rowToFolder(r: FolderRow): FolderDef & { parentId: string | null
 }
 
 export function rowToRequest(r: RequestRow): RequestDef & { folderId: string; sort: number } {
+  const secrets = r.examples?.length ? exampleSecrets(r.workspaceId, r.folderId, r.auth) : [];
   return {
     id: r.id,
     name: r.name,
@@ -55,7 +58,7 @@ export function rowToRequest(r: RequestRow): RequestDef & { folderId: string; so
     testScript: r.testScript,
     settings: { ...DEFAULT_SETTINGS, ...r.settings },
     description: r.description,
-    examples: r.examples,
+    examples: (r.examples ?? []).map((example) => sanitizeExample(example, secrets)),
     folderId: r.folderId,
     sort: r.sort,
   };
@@ -350,6 +353,37 @@ export function getRequest(id: string) {
   return row ? { ...rowToRequest(row), workspaceId: row.workspaceId } : null;
 }
 
+function exampleSecrets(workspaceId: string, folderId: string, auth: RequestDef["auth"]): string[] {
+  const secretVariables = getDb()
+    .select({ value: variables.value })
+    .from(variables)
+    .where(and(eq(variables.workspaceId, workspaceId), eq(variables.type, "secret")))
+    .all()
+    .map((variable) => variable.value);
+  const ancestors = getFolderChain(folderId);
+  return [
+    ...secretVariables,
+    ...authCredentialValues(auth),
+    ...ancestors.flatMap((folder) => [
+      ...authCredentialValues(folder.auth),
+      ...sensitiveFieldValues(folder.headers),
+    ]),
+  ];
+}
+function storedExamples(
+  examples: NonNullable<RequestDef["examples"]>,
+  workspaceId: string,
+  folderId: string,
+  auth: RequestDef["auth"],
+) {
+  const secrets = exampleSecrets(workspaceId, folderId, auth);
+  try {
+    return validateExamples(validateExamples(examples).map((example) => sanitizeExample(example, secrets)));
+  } catch (error) {
+    throw new HttpError(400, error instanceof Error ? error.message : "Invalid examples");
+  }
+}
+
 export function createRequest(workspaceId: string, folderId: string, partial: Partial<RequestDef> = {}) {
   requireFolderIn(workspaceId, folderId);
   const def = defaultRequest(partial);
@@ -371,7 +405,7 @@ export function createRequest(workspaceId: string, folderId: string, partial: Pa
       preRequestScript: def.preRequestScript,
       testScript: def.testScript,
       settings: def.settings,
-      examples: def.examples ?? [],
+      examples: storedExamples(def.examples ?? [], workspaceId, folderId, def.auth),
       description: def.description ?? "",
       createdAt: now(),
       updatedAt: now(),
@@ -382,6 +416,16 @@ export function createRequest(workspaceId: string, folderId: string, partial: Pa
 
 export function updateRequest(id: string, patch: Partial<RequestDef>) {
   const { id: _id, ...rest } = patch;
+  if (rest.examples) {
+    const current = getRequest(id);
+    if (!current) return null;
+    rest.examples = storedExamples(
+      rest.examples,
+      current.workspaceId,
+      current.folderId,
+      rest.auth ?? current.auth,
+    );
+  }
   if (rest.url !== undefined && rest.params === undefined) {
     rest.params = paramsFromUrl(rest.url, getRequest(id)?.params);
   } else if (rest.params?.length === 0) {
