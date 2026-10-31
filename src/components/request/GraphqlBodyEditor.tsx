@@ -13,6 +13,7 @@ import { RefreshCw, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CodeEditor } from "@/components/editor/CodeEditor";
+import { GraphqlSubscriptionPanel } from "./GraphqlSubscriptionPanel";
 import { listOperations, schemaFromSource, summarizeSchema, validateQuery } from "@/core/graphql/schema";
 import type { BodyConfig, RequestDef } from "@/core/types";
 import { useApp } from "@/stores/app";
@@ -62,6 +63,11 @@ export function GraphqlBodyEditor({
   const problems = useMemo(() => validateQuery(body.graphql.query, schema), [body.graphql.query, schema]);
   const operations = useMemo(() => listOperations(body.graphql.query), [body.graphql.query]);
   const named = operations.filter((o) => o.name);
+  const active =
+    operations.length === 1
+      ? operations[0]
+      : operations.find((o) => o.name && o.name === body.graphql.operationName);
+  const isSubscription = active?.type === "subscription";
   const summary = useMemo(() => (schema ? summarizeSchema(schema) : null), [schema]);
   const shown = useMemo(() => {
     if (!summary) return [];
@@ -244,6 +250,7 @@ export function GraphqlBodyEditor({
           </>
         )}
       </Group>
+      {isSubscription && draft && <GraphqlSubscriptionPanel draft={draft} />}
     </div>
   );
 }

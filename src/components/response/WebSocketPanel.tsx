@@ -49,8 +49,11 @@ export function WebSocketPanel({
   useEffect(() => {
     const controller = new AbortController();
     ctrl.current = controller;
-    const add = (e: Omit<LogEntry, "n">) =>
-      setLog((l) => [...l.slice(-(KEPT - 1)), { ...e, n: counter.current++ }]);
+    const add = (e: Omit<LogEntry, "n">) => {
+      // Number outside the updater, which strict mode may run twice.
+      const n = counter.current++;
+      setLog((l) => [...l.slice(-(KEPT - 1)), { ...e, n }]);
+    };
     const { folderId, ...request } = start.current;
     (async () => {
       setLive(true);
