@@ -49,6 +49,10 @@ execute on the machine running Postbox, so VPN-connected Windows users can reach
 - **WebSockets**: enter a `ws://` or `wss://` URL and **Connect** to open a live session with the request's headers and
   auth. Send text or base64 binary frames, see a timestamped log of both directions, then disconnect or reconnect.
   Secrets are redacted and host policy applies. Automation: `POST /api/ws` (NDJSON events), `/api/ws/{id}/send` and `/api/ws/{id}/close`.
+- **Socket.IO**: turn on **Socket.IO connection** in a request's Settings (namespace, path, ack timeout), then **Connect**.
+  Emit named events with JSON arguments, optionally waiting for an acknowledgement (timeouts are reported). Saved
+  listeners filter incoming events. Works with Socket.IO v3/v4 servers over WebSocket. Automation: `POST /api/socketio`,
+  `/api/socketio/{id}/emit` and `/api/socketio/{id}/close`.
 - **Server-sent events**: **Stream** opens the request as an event stream and shows events live (event, id, data),
   reconnecting with `Last-Event-ID` and the server's `retry` delay. Variables, auth, inherited headers and host policy
   apply; scripts do not run. Up to 1000 events by default; secrets are redacted. Also available as `POST /api/sse` (NDJSON).

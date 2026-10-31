@@ -83,7 +83,7 @@ export const POST = route(async (req: Request) => {
   } catch (err) {
     throw new HttpError(400, (err as Error).message);
   }
-  const session = registerSession(oauth2Owner(), input.workspaceId, connection);
+  const session = registerSession(oauth2Owner(), input.workspaceId, { kind: "ws", connection });
   sessionId = session.id;
   touchSession(session);
   events.send({ type: "session", id: session.id });
