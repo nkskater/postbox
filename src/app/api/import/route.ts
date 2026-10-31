@@ -1,5 +1,6 @@
 /**
- * POST /api/import — import Postman collection/environment or OpenAPI content.
+ * POST /api/import — import supported API collections, specifications or SoapUI XML projects.
+ * Preview: { workspaceId, content, preview: true } (SoapUI, no writes).
  * Body: { workspaceId, content } or { workspaceId, url } to fetch a spec server-side.
  */
 import { z } from "zod";
@@ -18,6 +19,7 @@ export const POST = route(async (req: Request) => {
         content: z.string().optional(),
         url: z.string().url().optional(),
         includeCredentials: z.boolean().optional(),
+        preview: z.boolean().optional(),
       })
       .refine((v) => v.content || v.url, {
         message: "content or url is required",
@@ -29,7 +31,7 @@ export const POST = route(async (req: Request) => {
       {
         method: "GET",
         url: input.url,
-        headers: [["Accept", "application/json, application/yaml, */*"]],
+        headers: [["Accept", "application/json, application/yaml, application/xml, text/xml, */*"]],
         settings: { ...DEFAULT_SETTINGS, useCookieJar: false },
       },
       { policy: getPolicy() },
@@ -38,10 +40,11 @@ export const POST = route(async (req: Request) => {
     content = res.bodyText;
   }
   try {
-    return json(
-      importContent(input.workspaceId, content, input.url, { includeCredentials: input.includeCredentials }),
-      201,
-    );
+    const outcome = importContent(input.workspaceId, content, input.url, {
+      includeCredentials: input.includeCredentials,
+      preview: input.preview,
+    });
+    return json(outcome, outcome.kind === "preview" ? 200 : 201);
   } catch (err) {
     throw new HttpError(400, (err as Error).message);
   }

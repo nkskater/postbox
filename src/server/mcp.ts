@@ -1396,18 +1396,24 @@ export function createPostboxMcpServer(): McpServer {
     {
       title: "Import API Collections and Specifications",
       description:
-        "Import a Postman Collection (v2.0/v2.1), Postman Environment, or OpenAPI 3.x / Swagger 2.0 specification (JSON or YAML), HAR 1.2 recordings, Hoppscotch, Thunder Client or Insomnia (v4/v5) exports from raw text or a URL into a workspace. Hoppscotch, Thunder Client and Insomnia require explicit includeCredentials consent.",
+        "Import a Postman Collection (v2.0/v2.1), Postman Environment, or OpenAPI 3.x / Swagger 2.0 specification (JSON or YAML), HAR 1.2 recordings, Hoppscotch, Thunder Client or Insomnia (v4/v5) exports, and SoapUI XML projects from raw text or a URL into a workspace. SoapUI supports a non-persisting preview and omits recognized credentials by default. Hoppscotch, Thunder Client and Insomnia require explicit includeCredentials consent.",
       inputSchema: {
         workspaceId: z.string().optional().describe("Workspace ID (defaults to primary workspace)"),
+        preview: z
+          .boolean()
+          .optional()
+          .describe("Preview SoapUI XML source counts and diagnostics without importing any data"),
         includeCredentials: z
           .boolean()
           .optional()
-          .describe("Explicitly allow credentials in Hoppscotch, Thunder Client and Insomnia exports"),
-        content: z.string().optional().describe("Raw JSON or YAML specification content"),
+          .describe(
+            "Allow recognized import credentials; required for Hoppscotch/Thunder Client/Insomnia, opt-in for SoapUI",
+          ),
+        content: z.string().optional().describe("Raw JSON, YAML or SoapUI XML project content"),
         url: z.string().url().optional().describe("URL to fetch the specification from"),
       },
     },
-    async ({ workspaceId, content, url, includeCredentials }) => {
+    async ({ workspaceId, content, url, includeCredentials, preview }) => {
       try {
         if (!content && !url) throw new Error("Provide either `content` or `url`");
         const wsId = resolveWorkspaceId(workspaceId);
@@ -1417,7 +1423,7 @@ export function createPostboxMcpServer(): McpServer {
             {
               method: "GET",
               url,
-              headers: [["Accept", "application/json, application/yaml, */*"]],
+              headers: [["Accept", "application/json, application/yaml, application/xml, text/xml, */*"]],
               settings: { ...DEFAULT_SETTINGS, useCookieJar: false },
             },
             { policy: getPolicy() },
@@ -1427,7 +1433,7 @@ export function createPostboxMcpServer(): McpServer {
           }
           raw = res.bodyText;
         }
-        const outcome = importContent(wsId, raw, url, { includeCredentials });
+        const outcome = importContent(wsId, raw, url, { includeCredentials, preview });
         return okJson(outcome);
       } catch (err) {
         return errResult(err);

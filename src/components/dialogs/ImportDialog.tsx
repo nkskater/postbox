@@ -21,6 +21,7 @@ import { useApp, type RequestDraft } from "@/stores/app";
 import { useDialogs } from "@/stores/dialogs";
 import { parseCurl } from "@/core/convert/curl";
 import { paramsFromUrl } from "@/lib/url-params";
+import { SoapUiImport } from "./SoapUiImport";
 import { DEFAULT_SETTINGS } from "@/core/types";
 
 export interface Outcome {
@@ -420,6 +421,7 @@ export function ImportDialog() {
   const setOpen = useDialogs((s) => s.setImportOpen);
   const { workspaceId, refreshTree, refreshEnvironments, refreshVariables, openDraft } = useApp();
 
+  const [soapUiBusy, setSoapUiBusy] = useState(false);
   const [uiState, setUiState] = useState<ImportDialogState>(() => ({
     open,
     text: "",
@@ -469,74 +471,78 @@ export function ImportDialog() {
   const { text, link, busy, drag, batchSummary, textError, linkError, includeCredentials, warnings } =
     uiState;
 
+  const blocked = busy || soapUiBusy;
   return (
-    <Dialog open={open} onOpenChange={(next) => getController().handleOpenChange(next)}>
-      <DialogContent className="sm:max-w-2xl">
+    <Dialog open={open} onOpenChange={(next) => !soapUiBusy && getController().handleOpenChange(next)}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Import</DialogTitle>
           <DialogDescription>
             Postman collection (v2.0/v2.1) or environment, OpenAPI 3 / Swagger 2 (JSON or YAML), Hoppscotch
-            exports, or a cURL command.
+            exports, SoapUI XML projects, or a cURL command.
           </DialogDescription>
         </DialogHeader>
         <label className="flex items-center gap-2 text-xs">
           <Checkbox
             checked={includeCredentials}
-            disabled={busy}
+            disabled={blocked}
             onCheckedChange={(value) => getController().setIncludeCredentials(value === true)}
           />
-          Include authentication and secret values from Hoppscotch, Thunder Client or Insomnia exports
+          Include recognized authentication and secret values from imported projects
         </label>
         <Tabs defaultValue="file">
           <TabsList>
-            <TabsTrigger value="file" disabled={busy}>
+            <TabsTrigger value="file" disabled={blocked}>
               File
             </TabsTrigger>
-            <TabsTrigger value="text" disabled={busy}>
+            <TabsTrigger value="text" disabled={blocked}>
               Raw text / cURL
             </TabsTrigger>
-            <TabsTrigger value="link" disabled={busy}>
+            <TabsTrigger value="soapui" disabled={blocked}>
+              SoapUI
+            </TabsTrigger>
+            <TabsTrigger value="link" disabled={blocked}>
               Link
             </TabsTrigger>
           </TabsList>
           <TabsContent value="file" className="space-y-3">
             <label
-              aria-disabled={busy}
+              aria-disabled={blocked}
               onDragOver={(e) => {
                 e.preventDefault();
-                if (!busy) getController().setDrag(true);
+                if (!blocked) getController().setDrag(true);
               }}
               onDragLeave={() => {
-                if (!busy) getController().setDrag(false);
+                if (!blocked) getController().setDrag(false);
               }}
               onDrop={(e) => {
                 e.preventDefault();
-                if (busy) return;
+                if (blocked) return;
                 getController().setDrag(false);
                 void getController().importFiles(e.dataTransfer.files);
               }}
               className={`flex h-44 flex-col items-center justify-center gap-2 rounded-md border border-dashed text-muted-foreground ${
-                busy
+                blocked
                   ? "cursor-not-allowed opacity-60"
                   : drag
                     ? "cursor-pointer border-primary bg-primary/5"
                     : "cursor-pointer hover:border-primary"
               }`}
             >
-              {busy ? <Loader2 className="size-6 animate-spin" /> : <FileUp className="size-6" />}
-              <span>{busy ? "Importing files…" : "Drop files here or click to choose"}</span>
-              <span className="text-xs">.json, .har, .yaml, .yml, .txt (multiple allowed)</span>
+              {blocked ? <Loader2 className="size-6 animate-spin" /> : <FileUp className="size-6" />}
+              <span>{blocked ? "Importing files…" : "Drop files here or click to choose"}</span>
+              <span className="text-xs">.json, .har, .yaml, .yml, .xml, .txt (multiple allowed)</span>
               <input
                 type="file"
                 multiple
-                disabled={busy}
-                accept=".json,.har,.yaml,.yml,.txt,.sh"
+                disabled={blocked}
+                accept=".json,.har,.yaml,.yml,.xml,.txt,.sh"
                 className="hidden"
                 onChange={(e) => {
                   const selected = e.currentTarget.files ? Array.from(e.currentTarget.files) : [];
                   // Reset input value so re-selecting a corrected version of the same file fires onChange.
                   e.currentTarget.value = "";
-                  if (!busy && selected.length > 0) {
+                  if (!blocked && selected.length > 0) {
                     void getController().importFiles(selected);
                   }
                 }}
@@ -560,10 +566,10 @@ export function ImportDialog() {
                       <Button
                         size="sm"
                         variant="secondary"
-                        disabled={busy}
+                        disabled={blocked}
                         onClick={() => void getController().retryFailedFiles()}
                       >
-                        {busy ? (
+                        {blocked ? (
                           <Loader2 className="size-3.5 animate-spin" />
                         ) : (
                           <RotateCcw className="size-3.5" />
@@ -574,7 +580,7 @@ export function ImportDialog() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      disabled={busy}
+                      disabled={blocked}
                       onClick={() => getController().clearBatchSummary()}
                     >
                       Dismiss
@@ -611,24 +617,24 @@ export function ImportDialog() {
           <TabsContent value="text" className="space-y-2">
             <Textarea
               className="h-56 font-mono text-xs"
-              disabled={busy}
+              disabled={blocked}
               placeholder={
-                "curl https://api.example.com/users -H 'Accept: application/json'\n\n— or paste Postman / HAR / Hoppscotch / Thunder Client / Insomnia / OpenAPI JSON or YAML —"
+                "curl https://api.example.com/users -H 'Accept: application/json'\n\n— or paste Postman / HAR / Hoppscotch / Thunder Client / Insomnia / OpenAPI JSON or YAML, or SoapUI XML —"
               }
               value={text}
               onChange={(e) => getController().setText(e.target.value)}
             />
             {textError && <p className="text-xs text-destructive">{textError}</p>}
             <div className="flex justify-end">
-              <Button disabled={!text.trim() || busy} onClick={() => void getController().importText()}>
-                {busy && <Loader2 className="size-4 animate-spin" />} Import
+              <Button disabled={!text.trim() || blocked} onClick={() => void getController().importText()}>
+                {blocked && <Loader2 className="size-4 animate-spin" />} Import
               </Button>
             </div>
           </TabsContent>
           <TabsContent value="link" className="space-y-2">
             <Input
               placeholder="https://petstore3.swagger.io/api/v3/openapi.json"
-              disabled={busy}
+              disabled={blocked}
               value={link}
               onChange={(e) => getController().setLink(e.target.value)}
             />
@@ -637,10 +643,21 @@ export function ImportDialog() {
             </p>
             {linkError && <p className="text-xs text-destructive">{linkError}</p>}
             <div className="flex justify-end">
-              <Button disabled={!link.trim() || busy} onClick={() => void getController().importLink()}>
-                {busy && <Loader2 className="size-4 animate-spin" />} Import
+              <Button disabled={!link.trim() || blocked} onClick={() => void getController().importLink()}>
+                {blocked && <Loader2 className="size-4 animate-spin" />} Import
               </Button>
             </div>
+          </TabsContent>
+          <TabsContent value="soapui">
+            <SoapUiImport
+              workspaceId={workspaceId}
+              includeCredentials={includeCredentials}
+              disabled={busy}
+              onBusy={setSoapUiBusy}
+              onImported={async () => {
+                await Promise.all([refreshTree(), refreshEnvironments(), refreshVariables()]);
+              }}
+            />
           </TabsContent>
         </Tabs>
         {warnings.length > 0 && (
