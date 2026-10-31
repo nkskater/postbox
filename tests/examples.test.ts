@@ -161,6 +161,23 @@ describe("paired examples and retention", () => {
     });
     expect(validateExamples([safe])).toHaveLength(1);
   });
+  it("omits current parent credentials and upload bytes when trying a legacy example without a snapshot", () => {
+    const legacy = { ...example(), originalRequest: undefined };
+    const fallback = {
+      ...request,
+      auth: { type: "bearer" as const, bearer: { token: "parent-secret" } },
+      body: {
+        mode: "binary" as const,
+        binary: { fileName: "parent.bin", data: Buffer.from("private upload").toString("base64") },
+      },
+    };
+    const tried = requestFromExample(legacy, fallback);
+    expect(tried.auth).toEqual({ type: "bearer", bearer: { token: "" } });
+    expect(tried.body).toMatchObject({
+      mode: "binary",
+      binary: { data: "", missing: true, fileName: "parent.bin" },
+    });
+  });
   it("rejects invalid statuses, response header injection, duplicate IDs and oversized or malformed bodies", () => {
     for (const patch of [
       { status: 0 },

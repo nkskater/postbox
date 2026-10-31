@@ -157,5 +157,7 @@ export function exampleFromResponse(
   );
 }
 export function requestFromExample(example: ResponseExample, fallback: RequestDef): ExampleRequest {
-  return exampleRequest(example.originalRequest ?? fallback);
+  if (example.originalRequest) return exampleRequest(example.originalRequest);
+  // A legacy fallback follows the same credential/upload policy as a saved snapshot.
+  return sanitizeExample({ ...example, originalRequest: exampleRequest(fallback) }).originalRequest!;
 }
