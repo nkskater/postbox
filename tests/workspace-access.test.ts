@@ -340,3 +340,255 @@ describe("schedule authorization", () => {
     ).toBe(false);
   });
 });
+
+describe("completed run execution details", () => {
+  it("persists separate requests and iterations and grants viewers read access across users", async () => {
+    const { startTestServer } = await import("./helpers/server");
+    const { startRun } = await import("@/server/runs");
+    const server = await startTestServer();
+    try {
+      const collection = repo.createFolder(workspaceId, null, { name: "Recorded executions" });
+      const first = repo.createRequest(workspaceId, collection.id, {
+        name: "Echo",
+        method: "POST",
+        url: `${server.url}/echo?row={{row}}&token={{token}}`,
+        headers: [{ key: "X-Token", value: "{{token}}", enabled: true }],
+        body: { mode: "raw", raw: '{"row":"{{row}}","token":"{{token}}"}', language: "json" },
+      });
+      const second = repo.createRequest(workspaceId, collection.id, {
+        name: "Text",
+        url: `${server.url}/set-cookie`,
+      });
+      repo.replaceVariables(workspaceId, "collection", collection.id, [
+        { key: "token", value: "recorded-secret-123", type: "secret", enabled: true },
+      ]);
+      const { runId, summary } = await withCaller(caller(editor), () =>
+        startRun({
+          workspaceId,
+          folderId: collection.id,
+          environmentId: null,
+          options: { iterations: 2 },
+          data: { columns: ["row"], rows: [{ row: "alpha" }, { row: "beta" }] },
+        }),
+      );
+      expect(summary.results).toHaveLength(4);
+      const { GET } = await import("@/app/api/runs/[id]/route");
+      const read = (user: UserRow) =>
+        GET(request("GET", `/api/runs/${runId}`, user), { params: Promise.resolve({ id: runId }) });
+      const response = await read(viewer);
+      expect(response.status).toBe(200);
+      const saved = await response.json();
+      expect(JSON.stringify(saved)).not.toContain("recorded-secret-123");
+      expect(
+        saved.results.map((r: { iteration: number; sequence: number; requestId: string }) => [
+          r.iteration,
+          r.sequence,
+          r.requestId,
+        ]),
+      ).toEqual([
+        [0, 0, first.id],
+        [0, 1, second.id],
+        [1, 2, first.id],
+        [1, 3, second.id],
+      ]);
+      expect(saved.results[0].executionDetails.request.url).toContain("row=alpha");
+      expect(saved.results[2].executionDetails.request.url).toContain("row=beta");
+      expect(saved.results[0].executionDetails.request.headers).toContainEqual(["X-Token", "********"]);
+      expect(JSON.parse(saved.results[2].executionDetails.response.body.text).body).toContain("beta");
+      expect(
+        saved.results[1].executionDetails.response.headers.filter(
+          ([name]: [string, string]) => name.toLowerCase() === "set-cookie",
+        ),
+      ).toHaveLength(2);
+      expect(saved.results[1].executionDetails.response.body.text).toBe("ok");
+      expect((await read(owner)).status).toBe(200);
+      expect((await read(outsider)).status).toBe(404);
+      const { GET: readLegacy } = await import("@/app/api/runs/[id]/route");
+      expect(
+        (
+          await readLegacy(request("GET", `/api/runs/${ids.run}`, viewer), {
+            params: Promise.resolve({ id: ids.run }),
+          })
+        ).status,
+      ).toBe(200);
+    } finally {
+      await server.close();
+    }
+  });
+});
+
+describe("HAR import authorization and persistence", () => {
+  it("supports REST and MCP imports with saved examples, sanitized credentials and workspace isolation", async () => {
+    const { POST } = await import("@/app/api/import/route");
+    const content = JSON.stringify({
+      log: {
+        version: "1.2",
+        creator: { name: "Fixture", version: "1" },
+        entries: [
+          {
+            request: { method: "GET", url: "https://example.test/echo?token=har-secret&public=yes" },
+            response: {
+              status: 200,
+              statusText: "OK",
+              headers: [
+                { name: "X-Repeat", value: "a" },
+                { name: "X-Repeat", value: "b" },
+              ],
+              content: { mimeType: "application/json", text: '{"token":"har-secret","ok":true}' },
+            },
+          },
+        ],
+      },
+    });
+    expect((await POST(request("POST", "/api/import", outsider, { workspaceId, content }))).status).toBe(404);
+    expect((await POST(request("POST", "/api/import", viewer, { workspaceId, content }))).status).toBe(403);
+    const response = await POST(request("POST", "/api/import", editor, { workspaceId, content }));
+    expect(response.status).toBe(201);
+    const outcome = await response.json();
+    expect(outcome).toMatchObject({ source: "har", kind: "collection", requests: 1 });
+    expect(outcome.warnings.join(" ")).toContain("Credentials redacted");
+    const tree = repo.getFolderTree(outcome.id)!;
+    expect(JSON.stringify(tree)).not.toContain("har-secret");
+    expect(tree.children[0]).toMatchObject({
+      examples: [{ status: 200, headers: [{ value: "a" }, { value: "b" }] }],
+    });
+    const rpc = await mcpRoute.POST(
+      request("POST", "/api/mcp", editor, {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "import_spec", arguments: { workspaceId, content } },
+      }),
+    );
+    const body = await rpc.json();
+    expect(JSON.parse(body.result.content[0].text)).toMatchObject({
+      kind: "collection",
+      source: "har",
+      requests: 1,
+    });
+  });
+});
+
+describe("Hoppscotch import boundaries", () => {
+  it("requires consent, persists batch exports atomically, and supports REST/MCP authorization", async () => {
+    const { POST } = await import("@/app/api/import/route");
+    const content = JSON.stringify([
+      {
+        v: 12,
+        name: "Migrated",
+        folders: [],
+        requests: [
+          {
+            v: "17",
+            name: "One",
+            method: "GET",
+            endpoint: "https://example.test/",
+            auth: { authType: "bearer", authActive: true, token: "consented-token" },
+            body: { contentType: null, body: null },
+          },
+        ],
+      },
+      {
+        v: 2,
+        name: "Imported env",
+        variables: [{ key: "secret", initialValue: "", currentValue: "consented-value", secret: true }],
+      },
+    ]);
+    const send = (user: UserRow, includeCredentials = false) =>
+      POST(request("POST", "/api/import", user, { workspaceId, content, includeCredentials }));
+    expect((await send(editor)).status).toBe(400);
+    expect((await send(outsider, true)).status).toBe(404);
+    expect((await send(viewer, true)).status).toBe(403);
+    const response = await send(editor, true);
+    expect(response.status).toBe(201);
+    const result = await response.json();
+    expect(result).toMatchObject({
+      kind: "batch",
+      items: [
+        { source: "hoppscotch", requests: 1 },
+        { kind: "environment", variables: 1 },
+      ],
+    });
+    expect(repo.getFolderTree(result.items[0].id)?.children[0]).toMatchObject({
+      auth: { type: "bearer", bearer: { token: "consented-token" } },
+    });
+    const rpc = await mcpRoute.POST(
+      request("POST", "/api/mcp", editor, {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "import_spec", arguments: { workspaceId, content, includeCredentials: true } },
+      }),
+    );
+    expect(JSON.parse((await rpc.json()).result.content[0].text).kind).toBe("batch");
+    const before = repo.listEnvironments(workspaceId).length;
+    const invalid = JSON.stringify([
+      { v: 2, name: "Would be imported", variables: [] },
+      { v: 99, name: "Invalid", variables: [] },
+    ]);
+    expect(
+      (
+        await POST(
+          request("POST", "/api/import", editor, { workspaceId, content: invalid, includeCredentials: true }),
+        )
+      ).status,
+    ).toBe(400);
+    expect(repo.listEnvironments(workspaceId)).toHaveLength(before);
+  });
+});
+
+describe("Thunder Client import boundaries", () => {
+  it("requires explicit credentials consent through REST/MCP and retains workspace isolation", async () => {
+    const { POST } = await import("@/app/api/import/route");
+    const content = JSON.stringify({
+      clientName: "Thunder Client",
+      version: "1.2",
+      collectionName: "Thunder",
+      folders: [],
+      requests: [
+        {
+          _id: "one",
+          name: "One",
+          url: "https://example.test/",
+          method: "GET",
+          auth: { type: "bearer", bearer: "consented-token" },
+        },
+      ],
+    });
+    const send = (user: UserRow, includeCredentials = false) =>
+      POST(request("POST", "/api/import", user, { workspaceId, content, includeCredentials }));
+    expect((await send(editor)).status).toBe(400);
+    expect((await send(outsider, true)).status).toBe(404);
+    expect((await send(viewer, true)).status).toBe(403);
+    const response = await send(editor, true);
+    expect(response.status).toBe(201);
+    const result = await response.json();
+    expect(result).toMatchObject({ kind: "collection", source: "thunder-client", requests: 1 });
+    expect(repo.getFolderTree(result.id)?.children[0]).toMatchObject({
+      auth: { type: "bearer", bearer: { token: "consented-token" } },
+    });
+    const rpc = await mcpRoute.POST(
+      request("POST", "/api/mcp", editor, {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "import_spec", arguments: { workspaceId, content, includeCredentials: true } },
+      }),
+    );
+    expect(JSON.parse((await rpc.json()).result.content[0].text)).toMatchObject({
+      kind: "collection",
+      source: "thunder-client",
+    });
+    const env = JSON.stringify({
+      client: "Thunder Client",
+      version: "1.0",
+      environmentName: "Thunder env",
+      variables: [{ name: "key", value: "value", isSecret: true }],
+    });
+    const importedEnv = await POST(
+      request("POST", "/api/import", editor, { workspaceId, content: env, includeCredentials: true }),
+    );
+    expect(importedEnv.status).toBe(201);
+    expect(await importedEnv.json()).toMatchObject({ kind: "environment", variables: 1 });
+  });
+});

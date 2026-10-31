@@ -14,12 +14,24 @@ import { getPolicy, loadScopes, persistScopes, persistOAuth2Token, persistenceSe
 import { newId } from "./defaults";
 import { actorId } from "./authorize";
 import { redactStoredValue } from "@/core/variables/resolver";
-import { executionSettings } from "./execution-settings";
+import { executionSettings, runQueueLimits } from "./execution-settings";
+import { RunQueue, type RunTicket } from "./run-queue";
 
 const { runs, runResults } = schema;
 
 /** Cancellation handles for runs in progress (this process only). */
 const active = new Map<string, AbortController>();
+
+const globalQueue = globalThis as unknown as { __postboxRunQueue?: RunQueue };
+/** Process-wide admission queue shared by every run source. */
+export const runQueue = (globalQueue.__postboxRunQueue ??= new RunQueue(() => runQueueLimits()));
+
+/** Reserve a run slot up front; throws RunQueueFullError (429) when the queue is full. */
+export function reserveRun(): RunTicket {
+  return runQueue.reserve();
+}
+
+export type StartRunEvent = (RunEvent | { type: "queued"; position: number }) & { runId: string };
 
 export interface StartRunInput {
   workspaceId: string;
@@ -29,25 +41,33 @@ export interface StartRunInput {
   data?: DataTable | null;
   selectedRequestIds?: string[] | null;
   source?: "manual" | "schedule" | "mcp" | "api";
-  onEvent?: (e: RunEvent & { runId: string }) => void;
+  onEvent?: (e: StartRunEvent) => void;
   signal?: AbortSignal;
+  /** A slot from reserveRun(); reserved here when omitted. Always released by startRun. */
+  ticket?: RunTicket;
   /** Default true for existing callers. False returns counters with an empty results array. */
   retainResults?: boolean;
 }
 
 export async function startRun(input: StartRunInput): Promise<{ runId: string; summary: RunSummary }> {
-  repo.requireFolderIn(input.workspaceId, input.folderId);
+  let ticket = input.ticket;
+  try {
+    repo.requireFolderIn(input.workspaceId, input.folderId);
+    ticket ??= reserveRun();
+  } catch (err) {
+    ticket?.cancel();
+    throw err;
+  }
   const tree = repo.getFolderTree(input.folderId);
-  if (!tree) throw new Error("Folder not found");
-  const chain = repo.getFolderChain(input.folderId);
-  const ancestors = chain.slice(0, -1);
-  const collectionId = chain[0]?.id ?? input.folderId;
+  if (!tree) {
+    ticket.cancel();
+    throw new Error("Folder not found");
+  }
   const options: RunOptions = { ...DEFAULT_RUN_OPTIONS, ...input.options };
-  const ctx = loadScopes(input.workspaceId, input.environmentId, collectionId);
-  const jar = new CookieJarStore(repo.listCookies(input.workspaceId));
   const db = getDb();
   const runId = newId();
   const ctrl = new AbortController();
+  const queued = ticket.position > 0;
 
   db.insert(runs)
     .values({
@@ -56,7 +76,7 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
       workspaceId: input.workspaceId,
       folderId: input.folderId,
       name: tree.name,
-      status: "running",
+      status: queued ? "queued" : "running",
       options,
       environmentId: input.environmentId,
       iterations: options.iterations,
@@ -69,6 +89,66 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
   input.signal?.addEventListener("abort", onAbort, { once: true });
   if (input.signal?.aborted) ctrl.abort();
   active.set(runId, ctrl);
+  const cleanup = () => {
+    ticket.release();
+    input.signal?.removeEventListener("abort", onAbort);
+    active.delete(runId);
+  };
+
+  if (queued) {
+    input.onEvent?.({ type: "queued", position: ticket.position, runId });
+    const admitted = await new Promise<boolean>((resolve) => {
+      if (ctrl.signal.aborted) return resolve(false);
+      ctrl.signal.addEventListener("abort", () => resolve(false), { once: true });
+      ticket.ready.then(
+        () => resolve(true),
+        () => resolve(false),
+      );
+    });
+    if (!admitted || ctrl.signal.aborted) {
+      const now = Date.now();
+      db.update(runs).set({ status: "cancelled", finishedAt: now }).where(eq(runs.id, runId)).run();
+      cleanup();
+      const summary: RunSummary = {
+        name: tree.name,
+        status: "cancelled",
+        iterations: options.iterations,
+        totalRequests: 0,
+        failedRequests: 0,
+        totalTests: 0,
+        passedTests: 0,
+        failedTests: 0,
+        durationMs: 0,
+        startedAt: now,
+        finishedAt: now,
+        results: [],
+      };
+      const { results: _results, ...done } = summary;
+      input.onEvent?.({ type: "done", summary: done, runId });
+      return { runId, summary };
+    }
+    db.update(runs).set({ status: "running", startedAt: Date.now() }).where(eq(runs.id, runId)).run();
+  }
+
+  let loaded;
+  try {
+    // Load the tree and scopes only once admitted, so queued runs see current data.
+    const chain = repo.getFolderChain(input.folderId);
+    loaded = {
+      root: repo.getFolderTree(input.folderId) ?? tree,
+      ancestors: chain.slice(0, -1),
+      ctx: loadScopes(input.workspaceId, input.environmentId, chain[0]?.id ?? input.folderId),
+      jar: new CookieJarStore(repo.listCookies(input.workspaceId)),
+    };
+  } catch (err) {
+    db.update(runs)
+      .set({ status: "error", error: (err as Error).message, finishedAt: Date.now() })
+      .where(eq(runs.id, runId))
+      .run();
+    cleanup();
+    throw err;
+  }
+  const { root, ancestors, ctx, jar } = loaded;
 
   const saveResult = (r: RunResult) =>
     db
@@ -92,6 +172,7 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
         path: r.path,
         skipped: r.skipped,
         scriptErrors: r.scriptErrors,
+        executionDetails: r.executionDetails ?? null,
         responseBody: r.responseBody ?? null,
         responseHeaders: r.responseHeaders ?? null,
         createdAt: Date.now(),
@@ -100,7 +181,7 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
 
   try {
     const { summary, scopes } = await runCollection({
-      root: tree,
+      root,
       ancestors,
       scopes: ctx.scopes,
       options,
@@ -161,8 +242,7 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
       .run();
     throw err;
   } finally {
-    input.signal?.removeEventListener("abort", onAbort);
-    active.delete(runId);
+    cleanup();
   }
 }
 
@@ -172,8 +252,13 @@ export function cancelRun(runId: string): boolean {
   return !!c;
 }
 
+/** A queued or running row without an active handle was interrupted (e.g. server restart). */
+function effectiveStatus(id: string, status: string) {
+  return (status === "running" || status === "queued") && !active.has(id) ? "error" : status;
+}
+
 export function listRuns(workspaceId: string, folderId?: string | null, limit = 50) {
-  return getDb()
+  const rows = getDb()
     .select()
     .from(runs)
     .where(
@@ -184,6 +269,7 @@ export function listRuns(workspaceId: string, folderId?: string | null, limit = 
     .orderBy(desc(runs.startedAt))
     .limit(limit)
     .all();
+  return rows.map((r) => ({ ...r, status: effectiveStatus(r.id, r.status) as typeof r.status }));
 }
 
 /** Rebuild a full RunSummary (with results) from the database. */
@@ -204,8 +290,7 @@ export function getRunSummary(
     workspaceId: run.workspaceId,
     folderId: run.folderId,
     name: run.name,
-    // A "running" row without an active handle was interrupted (e.g. server restart).
-    status: (run.status === "running" && !active.has(run.id) ? "error" : run.status) as RunSummary["status"],
+    status: effectiveStatus(run.id, run.status) as RunSummary["status"],
     iterations: run.iterations,
     totalRequests: run.totalRequests || rows.length,
     failedRequests: run.failedRequests,

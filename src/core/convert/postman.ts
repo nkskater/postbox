@@ -15,6 +15,8 @@ import type {
   Variable,
 } from "../types";
 import { DEFAULT_SETTINGS } from "../types";
+import { authCredentialValues, credentialRedactionValues, redactSensitiveFields } from "../retention";
+import { redactStoredValue } from "../variables/resolver";
 
 const id = () => Math.random().toString(36).slice(2, 12) + Math.random().toString(36).slice(2, 6);
 
@@ -343,7 +345,32 @@ export function importPostmanCollection(data: PostmanCollection): ImportedCollec
       enabled: !v.disabled,
       type: v.type === "secret" ? "secret" : "default",
     }));
-  return { root, variables };
+  return {
+    root: sanitizeImportedExamples(root, [
+      ...authCredentialValues(root.auth),
+      ...variables.filter((variable) => variable.type === "secret").map((variable) => variable.value),
+    ]),
+    variables,
+  };
+}
+
+function sanitizeImportedExamples(node: FolderNode, inheritedSecrets: string[]): FolderNode;
+function sanitizeImportedExamples(node: RequestNode, inheritedSecrets: string[]): RequestNode;
+function sanitizeImportedExamples(node: TreeNode, inheritedSecrets: string[]): TreeNode;
+function sanitizeImportedExamples(node: TreeNode, inheritedSecrets: string[]): TreeNode {
+  const secrets = [...inheritedSecrets, ...authCredentialValues(node.auth)];
+  if (node.kind === "folder")
+    return {
+      ...node,
+      children: node.children.map((child) => sanitizeImportedExamples(child, secrets)),
+    };
+  return {
+    ...node,
+    examples: redactStoredValue(
+      redactSensitiveFields(node.examples ?? []),
+      credentialRedactionValues(secrets),
+    ),
+  };
 }
 
 // ------------------------------------------------------------------ environments
@@ -400,22 +427,33 @@ export function exportPostmanEnvironment(
 
 // ------------------------------------------------------------------ export
 
-function exportAuth(a: AuthConfig): PmAuth | null | undefined {
+function exportAuth(a: AuthConfig, includeCredentials = false): PmAuth | null | undefined {
   const arr = (o: Record<string, string>) =>
     Object.entries(o).map(([key, value]) => ({ key, value, type: "string" }));
+  const credential = (value: string) =>
+    includeCredentials || /^\{\{\s*[^{}]+\s*\}\}$/.test(value) ? value : "";
   switch (a.type) {
     case "inherit":
       return undefined;
     case "none":
       return { type: "noauth" };
     case "bearer":
-      return { type: "bearer", bearer: arr({ token: a.bearer.token }) };
+      return { type: "bearer", bearer: arr({ token: credential(a.bearer.token) }) };
     case "basic":
-      return { type: "basic", basic: arr({ username: a.basic.username, password: a.basic.password }) };
+      return {
+        type: "basic",
+        basic: arr({ username: a.basic.username, password: credential(a.basic.password) }),
+      };
     case "digest":
-      return { type: "digest", digest: arr({ username: a.digest.username, password: a.digest.password }) };
+      return {
+        type: "digest",
+        digest: arr({ username: a.digest.username, password: credential(a.digest.password) }),
+      };
     case "apikey":
-      return { type: "apikey", apikey: arr({ key: a.apikey.key, value: a.apikey.value, in: a.apikey.in }) };
+      return {
+        type: "apikey",
+        apikey: arr({ key: a.apikey.key, value: credential(a.apikey.value), in: a.apikey.in }),
+      };
     case "oauth2": {
       const o = a.oauth2;
       return {
@@ -429,11 +467,11 @@ function exportAuth(a: AuthConfig): PmAuth | null | undefined {
                 : "implicit",
           accessTokenUrl: o.accessTokenUrl,
           clientId: o.clientId,
-          clientSecret: o.clientSecret,
+          clientSecret: credential(o.clientSecret),
           scope: o.scope,
           client_authentication: o.clientAuthentication,
           headerPrefix: o.headerPrefix,
-          ...(o.username ? { username: o.username, password: o.password ?? "" } : {}),
+          ...(o.username ? { username: o.username, password: credential(o.password ?? "") } : {}),
         }),
       };
     }
@@ -517,37 +555,59 @@ const events = (pre: string, test: string): PmEvent[] | undefined => {
   return out.length ? out : undefined;
 };
 
-function exportNode(n: TreeNode): PmItem {
+function exportNode(
+  n: TreeNode,
+  opts: { includeSecrets?: boolean; includeCredentials?: boolean },
+  inheritedSecrets: string[],
+): PmItem {
+  const secrets = credentialRedactionValues(
+    opts.includeCredentials ? inheritedSecrets : [...inheritedSecrets, ...authCredentialValues(n.auth)],
+  );
   if (n.kind === "folder") {
     return {
       name: n.name,
       description: n.description || undefined,
-      item: n.children.map(exportNode),
-      auth: exportAuth(n.auth),
+      item: n.children.map((child) => exportNode(child, opts, secrets)),
+      auth: exportAuth(n.auth, opts.includeCredentials),
       event: events(n.preRequestScript, n.testScript),
     };
   }
   const header = n.headers
     .filter((h) => h.key)
-    .map((h) => ({ key: h.key, value: h.value, disabled: !h.enabled, type: "text" }));
+    .map((h) => ({
+      key: h.key,
+      value: h.value,
+      disabled: !h.enabled,
+      type: "text",
+    }));
+  const requestData = {
+    header,
+    body: exportBody(n.body),
+    url: exportUrl(n.url, n.params),
+  };
+  const safeRequestData = redactStoredValue(
+    opts.includeCredentials ? requestData : redactSensitiveFields(requestData),
+    secrets,
+  );
   return {
     name: n.name,
     event: events(n.preRequestScript, n.testScript),
     request: {
       method: n.method,
-      header,
-      body: exportBody(n.body),
-      url: exportUrl(n.url, n.params),
-      auth: exportAuth(n.auth),
+      ...safeRequestData,
+      auth: exportAuth(n.auth, opts.includeCredentials),
       description: n.description || undefined,
     },
-    response: (n.examples ?? []).map((e) => ({
-      name: e.name,
-      code: e.status,
-      status: e.statusText,
-      header: e.headers.map((h) => ({ key: h.key, value: h.value })),
-      body: e.body,
-    })),
+    response: (n.examples ?? []).map((e) => {
+      const safe = redactStoredValue(redactSensitiveFields(e), secrets);
+      return {
+        name: safe.name,
+        code: safe.status,
+        status: safe.statusText,
+        header: safe.headers.map((h) => ({ key: h.key, value: h.value })),
+        body: safe.body,
+      };
+    }),
   };
 }
 
@@ -558,7 +618,7 @@ function exportNode(n: TreeNode): PmItem {
 export function exportPostmanCollection(
   root: FolderNode,
   variables: Variable[] = [],
-  opts: { includeSecrets?: boolean } = {},
+  opts: { includeSecrets?: boolean; includeCredentials?: boolean } = {},
 ): PostmanCollection {
   const pushHeaders = (node: TreeNode, inherited: KeyValue[]): TreeNode => {
     if (node.kind === "request") {
@@ -582,8 +642,14 @@ export function exportPostmanCollection(
       description: root.description || undefined,
       schema: "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     },
-    item: tree.children.map(exportNode),
-    auth: exportAuth(root.auth.type === "inherit" ? { type: "none" } : root.auth),
+    item: tree.children.map((node) => {
+      const secrets = credentialRedactionValues([
+        ...(!opts.includeSecrets ? variables.filter((v) => v.type === "secret").map((v) => v.value) : []),
+        ...(!opts.includeCredentials ? authCredentialValues(root.auth) : []),
+      ]);
+      return exportNode(node, opts, secrets);
+    }),
+    auth: exportAuth(root.auth.type === "inherit" ? { type: "none" } : root.auth, opts.includeCredentials),
     event: events(root.preRequestScript, root.testScript),
     variable: variables.map((v) => ({
       key: v.key,

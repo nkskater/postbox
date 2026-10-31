@@ -28,6 +28,8 @@ services:
       # Empty = configurable under Settings → Request execution; a value pins it.
       SCRIPT_TIMEOUT_MS: ${SCRIPT_TIMEOUT_MS:-}
       SCRIPT_MEMORY_MB: ${SCRIPT_MEMORY_MB:-}
+      RUNS_MAX_ACTIVE: ${RUNS_MAX_ACTIVE:-}
+      RUNS_MAX_QUEUED: ${RUNS_MAX_QUEUED:-}
 
 volumes:
   postbox-data:

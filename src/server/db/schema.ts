@@ -1,3 +1,4 @@
+import type { ExecutionDetails } from "@/core/runner/details";
 /**
  * Drizzle schema for the Postbox SQLite database.
  *
@@ -127,7 +128,7 @@ export const runs = sqliteTable(
       .references(() => workspaces.id, { onDelete: "cascade" }),
     folderId: text("folder_id"),
     name: text("name").notNull(),
-    status: text("status").$type<"running" | "passed" | "failed" | "cancelled" | "error">().notNull(),
+    status: text("status").$type<"queued" | "running" | "passed" | "failed" | "cancelled" | "error">().notNull(),
     options: text("options", { mode: "json" }).$type<RunOptions>().notNull(),
     environmentId: text("environment_id"),
     iterations: integer("iterations").notNull().default(1),
@@ -172,6 +173,7 @@ export const runResults = sqliteTable(
       .$type<{ phase: "prerequest" | "test"; source: string; message: string }[]>()
       .notNull()
       .default([]),
+    executionDetails: text("execution_details", { mode: "json" }).$type<ExecutionDetails>(),
     responseBody: text("response_body"),
     responseHeaders: text("response_headers", { mode: "json" }).$type<[string, string][]>(),
     createdAt: integer("created_at").notNull(),

@@ -27,6 +27,14 @@ import { AuthEditor } from "./AuthEditor";
 import { ScriptEditor } from "./ScriptEditor";
 import { SettingsEditor } from "./SettingsEditor";
 import { cn } from "@/lib/utils";
+import {
+  authCredentialValues,
+  credentialRedactionValues,
+  hasMissingUpload,
+  redactSensitiveFields,
+  sensitiveFieldValues,
+} from "@/core/retention";
+import { redactStoredValue } from "@/core/variables/resolver";
 
 type RequestTab = Extract<Tab, { type: "request" }>;
 
@@ -93,15 +101,41 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
       toast.error("Save the request first");
       return;
     }
-    const example = {
-      id: Math.random().toString(36).slice(2),
-      name: `${res.status} ${res.statusText}`,
-      status: res.status,
-      statusText: res.statusText,
-      headers: res.headers.map(([key, value]) => ({ key, value, enabled: true })),
-      body: res.bodyText,
-      createdAt: Date.now(),
-    };
+    const sent = tab.result?.sent;
+    const sensitiveHeaderValues = (sent?.headers ?? [])
+      .filter(([key]) => /authorization|cookie|token|password|secret|api[-_]?key|credential/i.test(key))
+      .map(([, value]) => value);
+    let sensitiveQueryValues: string[] = [];
+    if (sent?.url) {
+      try {
+        sensitiveQueryValues = [...new URL(sent.url).searchParams.entries()]
+          .filter(([key]) => /authorization|cookie|token|password|secret|api[-_]?key|credential/i.test(key))
+          .map(([, value]) => value);
+      } catch {
+        // Invalid URLs are already reported by the request result.
+      }
+    }
+    const secrets = credentialRedactionValues([
+      ...authCredentialValues(d.auth),
+      ...sensitiveHeaderValues,
+      ...sensitiveQueryValues,
+      ...sensitiveFieldValues(d.body),
+      ...Object.values(useApp.getState().variables)
+        .filter((variable) => variable.secret)
+        .map((variable) => variable.value),
+    ]);
+    const example = redactStoredValue(
+      redactSensitiveFields({
+        id: Math.random().toString(36).slice(2),
+        name: `${res.status} ${res.statusText}`,
+        status: res.status,
+        statusText: res.statusText,
+        headers: res.headers.map(([key, value]) => ({ key, value, enabled: true })),
+        body: res.bodyText,
+        createdAt: Date.now(),
+      }),
+      secrets,
+    );
     const examples = [...(d.examples ?? []), example];
     await api.requests.update(tab.requestId, { examples });
     set({ examples });
@@ -113,6 +147,17 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {(tab.credentialsOmitted || hasMissingUpload(d.body)) && (
+        <div role="status" className="border-b bg-muted/40 px-3 py-1.5 text-[11px] text-muted-foreground">
+          {tab.credentialsOmitted &&
+            (tab.requestId
+              ? "Restoring saved credentials from the workspace database…"
+              : "Unsaved credentials were not retained in browser storage. Re-enter them before saving.")}
+          {tab.credentialsOmitted && hasMissingUpload(d.body) ? " " : ""}
+          {hasMissingUpload(d.body) &&
+            "Restoring saved upload bytes… If this remains, reselect the file before saving or sending."}
+        </div>
+      )}
       {/* Breadcrumb / name / actions */}
       <div className="flex items-center gap-2 px-3 pt-2 pb-1 text-xs">
         <div className="flex min-w-0 items-center gap-1 text-muted-foreground">

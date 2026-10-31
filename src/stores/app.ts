@@ -18,6 +18,13 @@ import {
   type Workspace,
 } from "@/lib/api";
 import { toast } from "sonner";
+import {
+  authCredentialValues,
+  hasMissingUpload,
+  restoreMissingCredentials,
+  restoreMissingUploadBytes,
+  sanitizeRequestDraftForBrowser,
+} from "@/core/retention";
 
 export type RequestDraft = RequestDef & { folderId: string | null };
 
@@ -33,6 +40,8 @@ export type Tab =
       sending?: boolean;
       /** Transient tab (single click preview); replaced by the next preview. */
       preview?: boolean;
+      /** Secrets were removed from browser storage; restored from the saved request after hydration. */
+      credentialsOmitted?: boolean;
     }
   | { id: string; type: "folder"; folderId: string; name: string }
   | { id: string; type: "environment"; environmentId: string; name: string }
@@ -99,6 +108,59 @@ let variableGeneration = 0;
 function abortTab(id: string) {
   abortControllers.get(id)?.abort();
   abortControllers.delete(id);
+}
+
+function sanitizeStoredTab(tab: Tab): Tab {
+  if (tab.type !== "request") return tab;
+  const draft = sanitizeRequestDraftForBrowser(tab.draft);
+  let saved = tab.saved;
+  if (saved) {
+    try {
+      saved = JSON.stringify(sanitizeRequestDraftForBrowser(JSON.parse(saved)));
+    } catch {
+      saved = null;
+    }
+  }
+  return {
+    ...tab,
+    draft,
+    saved,
+    result: null,
+    sending: false,
+    credentialsOmitted:
+      tab.credentialsOmitted || authCredentialValues(tab.draft.auth).length > 0 || undefined,
+  };
+}
+
+export function sanitizeStoredState(value: unknown): {
+  workspaceId: string | null;
+  environmentId: string | null;
+  theme: "dark" | "light";
+  sidebarView: AppState["sidebarView"];
+  consoleOpen: boolean;
+  activeTabId: string | null;
+  tabs: Tab[];
+} {
+  if (!value || typeof value !== "object")
+    return {
+      workspaceId: null,
+      environmentId: null,
+      theme: "dark",
+      sidebarView: "collections",
+      consoleOpen: false,
+      activeTabId: null,
+      tabs: [],
+    };
+  const state = value as Partial<AppState>;
+  return {
+    workspaceId: state.workspaceId ?? null,
+    environmentId: state.environmentId ?? null,
+    theme: state.theme === "light" ? "light" : "dark",
+    sidebarView: state.sidebarView ?? "collections",
+    consoleOpen: state.consoleOpen ?? false,
+    activeTabId: state.activeTabId ?? null,
+    tabs: Array.isArray(state.tabs) ? state.tabs.map(sanitizeStoredTab) : [],
+  };
 }
 
 interface AppState {
@@ -170,7 +232,45 @@ export const useApp = create<AppState>()(
         const current = get().workspaceId;
         const ws = workspaces.find((w) => w.id === current) ?? workspaces[0];
         set({ workspaces });
-        if (ws) await get().setWorkspace(ws.id);
+        if (ws) {
+          await get().setWorkspace(ws.id);
+          const pending = get().tabs.filter(
+            (tab): tab is Extract<Tab, { type: "request" }> =>
+              tab.type === "request" &&
+              !!tab.requestId &&
+              (!!tab.credentialsOmitted || hasMissingUpload(tab.draft.body)),
+          );
+          await Promise.all(
+            pending.map(async (tab) => {
+              try {
+                const saved = await api.requests.get(tab.requestId!);
+                const savedDraft: RequestDraft = { ...saved, folderId: saved.folderId };
+                set((state) => ({
+                  tabs: state.tabs.map((current) => {
+                    if (current.type !== "request" || current.id !== tab.id || current.requestId !== saved.id)
+                      return current;
+                    return {
+                      ...current,
+                      draft: {
+                        ...current.draft,
+                        auth: current.credentialsOmitted
+                          ? restoreMissingCredentials(current.draft.auth, saved.auth)
+                          : current.draft.auth,
+                        body: hasMissingUpload(current.draft.body)
+                          ? restoreMissingUploadBytes(current.draft.body, saved.body)
+                          : current.draft.body,
+                      },
+                      saved: snapshot(savedDraft),
+                      credentialsOmitted: false,
+                    };
+                  }),
+                }));
+              } catch {
+                // Leave omission markers in place so a later save cannot erase the server copy.
+              }
+            }),
+          );
+        }
       },
 
       async setWorkspace(id) {
@@ -393,7 +493,12 @@ export const useApp = create<AppState>()(
         set((s) => ({
           tabs: s.tabs.map((t) =>
             t.id === tabId && t.type === "request"
-              ? { ...t, preview: false, draft: { ...t.draft, ...patch } }
+              ? {
+                  ...t,
+                  ...(patch.auth !== undefined ? { credentialsOmitted: false } : {}),
+                  preview: false,
+                  draft: { ...t.draft, ...patch },
+                }
               : t,
           ),
         }));
@@ -402,6 +507,10 @@ export const useApp = create<AppState>()(
       async saveTab(tabId, target) {
         const tab = get().tabs.find((t) => t.id === tabId);
         if (!tab || tab.type !== "request") return false;
+        if (tab.credentialsOmitted || hasMissingUpload(tab.draft.body)) {
+          toast.error("Restore saved credentials and files, or re-enter them, before saving this request");
+          return false;
+        }
         const { workspaceId } = get();
         if (!workspaceId) return false;
         if (saving.has(tabId)) return false;
@@ -415,7 +524,12 @@ export const useApp = create<AppState>()(
             set((s) => ({
               tabs: s.tabs.map((t) =>
                 t.id === tabId && t.type === "request" && workspace === workspaceGeneration
-                  ? { ...t, draft: t.draft === tab.draft ? draft : t.draft, saved: snapshot(draft) }
+                  ? {
+                      ...t,
+                      draft: t.draft === tab.draft ? draft : t.draft,
+                      saved: snapshot(draft),
+                      credentialsOmitted: false,
+                    }
                   : t,
               ),
             }));
@@ -432,6 +546,7 @@ export const useApp = create<AppState>()(
                   ? {
                       ...t,
                       requestId: saved.id,
+                      credentialsOmitted: false,
                       draft:
                         t.draft === tab.draft
                           ? draft
@@ -573,7 +688,9 @@ export const useApp = create<AppState>()(
     }),
     {
       name: "postbox-ui",
-      version: 1,
+      version: 2,
+      // Existing v1 browser state contains raw auth values and upload bytes.
+      migrate: (persistedState) => sanitizeStoredState(persistedState),
       // Persist UI state and unsaved drafts, but not responses or server data.
       partialize: (s) => ({
         workspaceId: s.workspaceId,
@@ -583,10 +700,7 @@ export const useApp = create<AppState>()(
         consoleOpen: s.consoleOpen,
         // With "Restore tabs on reload" off, tabs are not written to storage.
         activeTabId: getSetting<boolean>("tabs.restore") === false ? null : s.activeTabId,
-        tabs:
-          getSetting<boolean>("tabs.restore") === false
-            ? []
-            : s.tabs.map((t) => (t.type === "request" ? { ...t, result: null, sending: false } : t)),
+        tabs: getSetting<boolean>("tabs.restore") === false ? [] : s.tabs.map(sanitizeStoredTab),
       }),
     },
   ),

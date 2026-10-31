@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { VarInput } from "@/components/editor/VarInput";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+import { base64ByteLength, MAX_UPLOAD_BYTES } from "@/core/retention";
 
 type Row = KeyValue | FormDataField;
 
@@ -159,18 +161,35 @@ export function KeyValueEditor<T extends Row>({
                   {isFile ? (
                     <label className="flex h-7 flex-1 cursor-pointer items-center gap-2 truncate rounded-md border border-dashed px-2 text-muted-foreground hover:border-input">
                       <FileUp className="size-3.5 shrink-0" />
-                      <span className="truncate">{(row as FormDataField).fileName || "Choose file…"}</span>
+                      <span className="truncate">
+                        {(row as FormDataField).fileName || "Choose file…"}
+                        {(row as FormDataField).missing && " (reselect to attach)"}
+                      </span>
                       <input
                         type="file"
                         className="hidden"
                         onChange={async (e) => {
                           const file = e.target.files?.[0];
                           if (!file) return;
+                          const currentUploadBytes = rows.reduce(
+                            (total, field, index) =>
+                              total +
+                              (index !== i && "type" in field && field.type === "file" && field.data
+                                ? base64ByteLength(field.data)
+                                : 0),
+                            0,
+                          );
+                          if (file.size + currentUploadBytes > MAX_UPLOAD_BYTES) {
+                            toast.error("Request uploads must total 5 MiB or less");
+                            e.currentTarget.value = "";
+                            return;
+                          }
                           const data = await readFileBase64(file);
                           update(i, {
                             fileName: file.name,
                             contentType: file.type || "application/octet-stream",
                             data,
+                            missing: false,
                           } as Partial<FormDataField>);
                         }}
                       />

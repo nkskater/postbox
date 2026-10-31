@@ -40,6 +40,7 @@ export function encodeBody(body: BodyConfig, method: string): EncodedBody {
       return encodeMultipart(body.formdata ?? []);
     case "binary":
       if (!body.binary) return {};
+      if (body.binary.missing) throw new Error("Re-select the binary file before sending this request");
       return {
         body: Buffer.from(body.binary.data, "base64"),
         contentType: body.binary.contentType || "application/octet-stream",
@@ -76,6 +77,7 @@ export function encodeMultipart(fields: Extract<BodyConfig, { mode: "formdata" }
     if (!f.enabled || !f.key) continue;
     let head = `--${boundary}\r\nContent-Disposition: form-data; name="${escapeQuotes(f.key)}"`;
     if (f.type === "file") {
+      if (f.missing) throw new Error(`Re-select the file for form-data field "${f.key}" before sending`);
       head += `; filename="${escapeQuotes(f.fileName || "file")}"\r\nContent-Type: ${f.contentType || "application/octet-stream"}\r\n\r\n`;
       parts.push(Buffer.from(head, "utf8"), Buffer.from(f.data ?? "", "base64"), Buffer.from("\r\n"));
     } else {

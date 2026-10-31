@@ -13,7 +13,7 @@ import {
 } from "@codemirror/view";
 import { autocompletion, type CompletionContext } from "@codemirror/autocomplete";
 import type { Extension } from "@codemirror/state";
-import { DYNAMIC_VARIABLES } from "@/core/variables/dynamic";
+import { DYNAMIC_VARIABLE_NAMES, isDynamicVariable } from "@/core/variables/dynamic-catalog";
 import { useMemo } from "react";
 import type { KnownVariable } from "@/stores/app";
 import { useSetting } from "@/stores/settings";
@@ -43,7 +43,7 @@ export function variableExtensions(
   vars: Record<string, KnownVariable>,
   opts: VariableExtOptions = {},
 ): Extension[] {
-  const known = (name: string) => name in vars || name in DYNAMIC_VARIABLES;
+  const known = (name: string) => name in vars || isDynamicVariable(name);
   const missingClass = opts.highlightUnresolved === false ? "pb-var-ok" : "pb-var-missing";
   const decorator = new MatchDecorator({
     regexp: PATTERN,
@@ -78,7 +78,7 @@ export function variableExtensions(
           dom.className = "pb-var-tooltip";
           const v = vars[name];
           if (v) dom.textContent = `${name} = ${v.secret ? "••••••••" : v.value || "(empty)"}   [${v.scope}]`;
-          else if (name in DYNAMIC_VARIABLES)
+          else if (isDynamicVariable(name))
             dom.textContent = `${name}: dynamic variable (generated per request)`;
           else dom.textContent = `${name} is not defined in the active environment, collection or globals`;
           return { dom };
@@ -90,21 +90,24 @@ export function variableExtensions(
 
   const exts: Extension[] = opts.tooltips === false ? [plugin] : [plugin, tooltip];
   if (opts.autocomplete !== false) {
-    const source = (ctx: CompletionContext) => {
-      const before = ctx.matchBefore(/\{\{[^{}]*$/);
-      if (!before) return null;
-      const options = [
-        ...Object.entries(vars).map(([label, v]) => ({
-          label,
-          detail: v.scope,
-          info: v.secret ? "secret" : v.value,
-          apply: `${label}}}`,
-        })),
-        ...Object.keys(DYNAMIC_VARIABLES).map((label) => ({ label, detail: "dynamic", apply: `${label}}}` })),
-      ];
-      return { from: before.from + 2, options, validFor: /^[^{}]*$/ };
-    };
-    exts.push(autocompletion({ override: [source], icons: false }));
+    exts.push(autocompletion({ override: [variableCompletionSource(vars)], icons: false }));
   }
   return exts;
+}
+
+export function variableCompletionSource(vars: Record<string, KnownVariable>) {
+  return (ctx: CompletionContext) => {
+    const before = ctx.matchBefore(/\{\{[^{}]*$/);
+    if (!before) return null;
+    const options = [
+      ...Object.entries(vars).map(([label, v]) => ({
+        label,
+        detail: v.scope,
+        info: v.secret ? "secret" : v.value,
+        apply: `${label}}}`,
+      })),
+      ...DYNAMIC_VARIABLE_NAMES.map((label) => ({ label, detail: "dynamic", apply: `${label}}}` })),
+    ];
+    return { from: before.from + 2, options, validFor: /^[^{}]*$/ };
+  };
 }

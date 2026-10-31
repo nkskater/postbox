@@ -446,6 +446,7 @@ export async function sendRequest(
       isBinary,
       contentType,
       size: decoded.length,
+      truncated: res.truncated,
       headersSize,
       timings: { ...res.timings, total },
       url: url.toString(),

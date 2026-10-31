@@ -57,6 +57,13 @@
       "when": 1793367063096,
       "tag": "0007_complex_ser_duncan",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1793383330826,
+      "tag": "0008_overjoyed_silver_centurion",
+      "breakpoints": true
     }
   ]
 }
