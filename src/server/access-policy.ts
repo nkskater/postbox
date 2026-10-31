@@ -95,6 +95,7 @@ export const REST_POLICIES: Record<string, Policy> = {
   // Bound to the starting user and workspace inside the handlers.
   "GET /api/oauth2/authorize": p("account"),
   "GET /api/oauth2/callback": p("account"),
+  "GET /api/codegen": p("account"),
   "POST /api/codegen": p("body", "read"),
   "POST /api/import": p("body", "write"),
   "POST /api/tree/move": p("move", "write"),
@@ -182,6 +183,7 @@ export const MCP_POLICIES: Record<string, WorkspaceAction | "list" | "create" | 
   duplicate_request: "write",
   move_tree_item: "write",
   send_request: "run",
+  list_code_snippet_targets: "identity",
   generate_code_snippet: "read",
   run_collection: "run",
   list_runs: "read",
