@@ -17,7 +17,8 @@
 export const BOOTSTRAP_SOURCE = String.raw`
 "use strict";
 var __ctx = JSON.parse(__ctx_json);
-var __state = { tests: [], nextRequest: undefined, nextRequestSet: false, skip: false, pending: [], timers: {}, nextTimerId: 0, runRequestCount: 0, activeDone: undefined };
+var __skipSignal = {};
+var __state = { tests: [], nextRequest: undefined, nextRequestSet: false, skip: false, pending: [], timers: {}, nextTimerId: 0, runRequestCount: 0, testCount: 0, activeDone: undefined };
 
 // ---------------------------------------------------------------- utilities
 function __isObj(v) { return v !== null && typeof v === "object"; }
@@ -90,7 +91,7 @@ globalThis.setTimeout = function (fn, ms) {
   var id = ++__state.nextTimerId;
   var timer = { cancelled: false, onError: __state.activeDone };
   __state.timers[id] = timer;
-  var p = __host_sleep(Number(ms) || 0).then(function () {
+  var p = __host_sleep(Number(ms) || 0, id).then(function () {
     delete __state.timers[id];
     if (!timer.cancelled) {
       try { fn.apply(null, args); } catch (e) {
@@ -106,6 +107,7 @@ globalThis.clearTimeout = function (id) {
   var timer = __state.timers[id];
   if (timer) {
     timer.cancelled = true;
+    __host_clear_sleep(id);
     delete __state.timers[id];
   }
 };
@@ -344,11 +346,26 @@ __method("jsonBody", function (path, value) {
 });
 __method("responseTime", function () { return this; });
 __method("jsonSchema", function (schema) {
+  __checkSchema(schema);
   var r = __o(this), data;
   try { data = typeof r.json === "function" ? r.json() : r; } catch (e) { data = undefined; }
   var errors = __validateSchema(data, schema, "$");
   return this.__assert(errors.length === 0, "expected data to satisfy schema but found errors: " + errors.join("; "), "expected data to not satisfy schema");
 });
+
+// Reject unimplemented schema constraints instead of reporting a false pass.
+function __checkSchema(schema) {
+  if (!schema || typeof schema !== "object" || Array.isArray(schema))
+    throw new Error("Only object JSON schemas are supported in Postbox scripts");
+  var supported = ["type", "enum", "const", "required", "properties", "additionalProperties", "items", "minimum", "maximum", "minLength", "maxLength", "pattern", "minItems", "maxItems", "$schema", "$id", "$comment", "title", "description", "default", "examples"];
+  Object.keys(schema).forEach(function (key) {
+    if (supported.indexOf(key) < 0) throw new Error("JSON schema keyword " + key + " is not supported in Postbox scripts");
+  });
+  if (schema.additionalProperties !== undefined && typeof schema.additionalProperties !== "boolean")
+    throw new Error("Schema-valued additionalProperties is not supported in Postbox scripts");
+  if (schema.properties) Object.keys(schema.properties).forEach(function (key) { __checkSchema(schema.properties[key]); });
+  if (schema.items) __checkSchema(schema.items);
+}
 
 // Minimal JSON-schema validator (type, enum, const, required, properties, additionalProperties, items, bounds, pattern).
 function __validateSchema(v, s, path) {
@@ -420,7 +437,7 @@ function VariableScope(name, readonly) {
   this.toObject = function () { return Object.assign({}, bag()); };
   this.toJSON = this.toObject;
   this.replaceIn = function (s) { return __replaceIn(s); };
-  this.unset = function (k) { delete bag()[k]; };
+  this.unset = function (k) { if (readonly) throw new Error("pm.iterationData is read-only"); delete bag()[k]; };
   if (!readonly) {
     this.set = function (k, v) { bag()[k] = __toStore(v); };
     this.clear = function () { __scopes[name] = {}; };
@@ -428,12 +445,13 @@ function VariableScope(name, readonly) {
 }
 
 // ---------------------------------------------------------------- headers / property lists
-function PropertyList(items) {
+function PropertyList(items, caseSensitive) {
+  this.__caseSensitive = !!caseSensitive;
   this.__items = (items || []).map(function (h) { return { key: h.key, value: h.value, disabled: !!h.disabled }; });
 }
 PropertyList.prototype.__find = function (k) {
-  var low = String(k).toLowerCase();
-  for (var i = 0; i < this.__items.length; i++) if (String(this.__items[i].key).toLowerCase() === low && !this.__items[i].disabled) return this.__items[i];
+  var low = this.__caseSensitive ? String(k) : String(k).toLowerCase();
+  for (var i = 0; i < this.__items.length; i++) if ((this.__caseSensitive ? String(this.__items[i].key) : String(this.__items[i].key).toLowerCase()) === low && !this.__items[i].disabled) return this.__items[i];
   return undefined;
 };
 PropertyList.prototype.get = function (k) { var h = this.__find(k); return h ? h.value : undefined; };
@@ -448,9 +466,10 @@ PropertyList.prototype.map = function (fn) { return this.all().map(fn); };
 PropertyList.prototype.filter = function (fn) { return this.all().filter(fn); };
 PropertyList.prototype.count = function () { return this.all().length; };
 PropertyList.prototype.add = function (h) { if (typeof h === "string") { var i = h.indexOf(":"); h = { key: h.slice(0, i).trim(), value: h.slice(i + 1).trim() }; } this.__items.push({ key: h.key, value: __toStore(h.value), disabled: !!h.disabled }); };
-PropertyList.prototype.upsert = function (h) { var e = this.__find(h.key); if (e) e.value = __toStore(h.value); else this.add(h); };
+PropertyList.prototype.upsert = function (h) { var e = this.__find(h.key); if (e) { e.value = __toStore(h.value); if (h.disabled !== undefined) e.disabled = !!h.disabled; } else this.add(h); };
 PropertyList.prototype.remove = function (k) {
-  var pred = typeof k === "function" ? k : function (h) { return String(h.key).toLowerCase() === String(k).toLowerCase(); };
+  var sensitive = this.__caseSensitive;
+  var pred = typeof k === "function" ? k : function (h) { return sensitive ? String(h.key) === String(k) : String(h.key).toLowerCase() === String(k).toLowerCase(); };
   this.__items = this.__items.filter(function (h) { return !pred(h); });
 };
 PropertyList.prototype.clear = function () { this.__items = []; };
@@ -465,7 +484,7 @@ Url.prototype.update = function (raw) {
     var i = p.indexOf("=");
     var dec = function (s) { try { return decodeURIComponent(s.replace(/\+/g, " ")); } catch (e) { return s; } };
     return i >= 0 ? { key: dec(p.slice(0, i)), value: dec(p.slice(i + 1)) } : { key: dec(p), value: "" };
-  }) : []);
+  }) : [], true);
   this.__queryBase = JSON.stringify(this.query.__items);
 };
 Url.prototype.__base = function () { var q = this.__raw.indexOf("?"); return q >= 0 ? this.__raw.slice(0, q) : this.__raw.split("#")[0]; };
@@ -567,7 +586,8 @@ var pm = {
   require: __unsupported("pm.require"),
   expect: __expect,
   test: function (name, fn) {
-    if (typeof fn !== "function") { __recordTest(name, true, undefined, true); return pm; }
+    __state.testCount++;
+    if (typeof fn !== "function") { __recordTest(name, true); return pm; }
     try {
       if (fn.length > 0) {
         var settled = false;
@@ -594,7 +614,7 @@ var pm = {
         var p = ret.then(function () { __recordTest(name, true); }, function (e) { __recordTest(name, false, __errMsg(e)); });
         __state.pending.push(p);
       } else __recordTest(name, true);
-    } catch (e) { __recordTest(name, false, __errMsg(e)); }
+    } catch (e) { if (e === __skipSignal) throw e; __recordTest(name, false, __errMsg(e)); }
     return pm;
   },
   sendRequest: function (req, cb) {
@@ -608,9 +628,13 @@ var pm = {
     if (payload.header && !Array.isArray(payload.header)) {
       payload.header = Object.keys(payload.header).map(function (k) { return { key: k, value: String(payload.header[k]) }; });
     }
-    var p = __host_send(JSON.stringify(payload)).then(function (json) { return __makeResponse(JSON.parse(json)); });
+    var p = __host_send(JSON.stringify(payload), JSON.stringify(__scopes)).then(function (json) { return __makeResponse(JSON.parse(json)); });
     if (typeof cb === "function") {
-      var done = p.then(function (res) { cb(null, res); }, function (err) { cb(err instanceof Error ? err : new Error(String(err)), null); });
+      var onError = __state.activeDone;
+      var invoke = function (err, res) {
+        try { cb(err, res); } catch (e) { if (onError) onError(e); else throw e; }
+      };
+      var done = p.then(function (res) { invoke(null, res); }, function (err) { invoke(err instanceof Error ? err : new Error(String(err)), null); });
       __state.pending.push(done);
     } else __state.pending.push(p.catch(function () {}));
     return p;
@@ -619,26 +643,49 @@ var pm = {
     runRequest: function (requestId, options) {
       if (++__state.runRequestCount > 10)
         return Promise.reject(new Error("Script exceeded the pm.execution.runRequest quota of 10"));
-      var p = __host_run_request(String(requestId), JSON.stringify(options || {})).then(function (json) {
-        var response = JSON.parse(json);
+      var before = JSON.parse(JSON.stringify(__scopes));
+      var p = __host_run_request(String(requestId), JSON.stringify(options || {}), JSON.stringify(before)).then(function (json) {
+        var result = JSON.parse(json);
+        var response = result;
+        if (result && Object.prototype.hasOwnProperty.call(result, "response")) {
+          response = result.response;
+          // Apply only child changes so concurrent calls do not restore stale snapshots.
+          Object.keys(result.scopes).forEach(function (scope) {
+            var after = result.scopes[scope], previous = before[scope];
+            Object.keys(previous).forEach(function (key) {
+              if (!Object.prototype.hasOwnProperty.call(after, key)) delete __scopes[scope][key];
+            });
+            Object.keys(after).forEach(function (key) {
+              if (after[key] !== previous[key]) Object.defineProperty(__scopes[scope], key, { value: after[key], writable: true, enumerable: true, configurable: true });
+            });
+          });
+        }
+        if (result && result.error) throw new Error(result.error);
         return response === null ? null : __makeResponse(response);
       });
       __state.pending.push(p.catch(function () {}));
       return p;
     },
     setNextRequest: function (name) { __state.nextRequest = name === null ? null : String(name); __state.nextRequestSet = true; },
-    skipRequest: function () { __state.skip = true; },
+    skipRequest: function () {
+      if (__ctx.info.eventName !== "prerequest") throw new TypeError("pm.execution.skipRequest is only available in pre-request scripts");
+      __state.skip = true;
+      throw __skipSignal;
+    },
     location: (function () {
       var path = Array.isArray(__ctx.info.location) && __ctx.info.location.length
         ? __ctx.info.location.slice()
         : [__ctx.info.requestName];
-      Object.defineProperty(path, "current", { get: function () { return path[path.length - 1]; } });
+      Object.defineProperty(path, "current", { get: function () { return __ctx.info.locationCurrent || path[path.length - 1]; } });
       return path;
     })()
   }
 };
-pm.test.index = function () { return __state.tests.length; };
-pm.test.skip = function (name) { __recordTest(name, true, undefined, true); return pm; };
+pm.cookies.getAll = function () { return pm.cookies.toObject(); };
+pm.cookies.jar = __unsupported("pm.cookies.jar");
+pm.message = { toJSON: __unsupported("pm.message"), text: __unsupported("pm.message"), json: __unsupported("pm.message") };
+pm.test.index = function () { return __state.testCount; };
+pm.test.skip = function (name) { __state.testCount++; __recordTest(name, true, undefined, true); return pm; };
 pm.expect.fail = __expect.fail;
 
 // Legacy Postman sandbox API.

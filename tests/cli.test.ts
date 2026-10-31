@@ -7,6 +7,8 @@ import path from "node:path";
 import * as XLSX from "xlsx";
 import { startTestServer, type TestServer } from "./helpers/server";
 
+import { conformanceCollection } from "./helpers/sandbox-conformance";
+
 const exec = promisify(execFile);
 let server: TestServer;
 let directory: string;
@@ -63,6 +65,15 @@ function collection(url: string, script = 'pm.test("status", () => pm.response.t
 }
 
 describe("standalone CLI", () => {
+  it("passes the shared sandbox conformance fixture in the standalone bundle", async () => {
+    const file = await fixture("conformance.json", conformanceCollection(server.url));
+    const result = await invoke(["run", file, "--reporters", "json"]);
+    expect(result.stderr).toBe("");
+    expect(result.code).toBe(0);
+    const report = JSON.parse(await readFile(path.join(directory, "postbox-report.json"), "utf8"));
+    expect(report).toMatchObject({ status: "passed", totalRequests: 2, totalTests: 7, failedTests: 0 });
+  });
+
   it("runs CSV iterations with environment/globals and exports JSON, JUnit and HTML", async () => {
     const input = await fixture(
       "collection.json",

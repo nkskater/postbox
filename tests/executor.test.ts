@@ -98,4 +98,19 @@ describe("executor", () => {
     expect(r.sent?.url).toContain("********");
     expect(JSON.stringify(r.logs)).not.toContain("topsecret");
   });
+  it("resolves pm.sendRequest using variables changed earlier in the same script", async () => {
+    const r = await execute({
+      request: request({
+        preRequestScript: `
+        pm.variables.set("fresh", "updated");
+        const res = await pm.sendRequest("{{base}}/echo?value={{fresh}}");
+        pm.test("fresh variables", () => pm.expect(res.json().query.value).to.equal("updated"));
+      `,
+      }),
+      ancestors: [],
+      scopes: { ...emptyScopes(), environment: { base: server.url } },
+    });
+    expect(r.scriptErrors).toEqual([]);
+    expect(r.tests[0].passed).toBe(true);
+  });
 });

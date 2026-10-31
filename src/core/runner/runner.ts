@@ -13,7 +13,13 @@ import type {
   RunOptions,
   TestResult,
 } from "../types";
-import { execute, executionPassed, type ExecuteResult, type ScriptError } from "../executor";
+import {
+  execute,
+  executionPassed,
+  type ExecuteResult,
+  type ScriptError,
+  type SavedRequestResolver,
+} from "../executor";
 import { recordExecution, type ExecutionDetails } from "./details";
 import type { CookieJarStore } from "../http/cookies";
 import type { HostPolicy } from "../http/policy";
@@ -78,6 +84,7 @@ export type RunEvent =
 
 export interface RunCollectionInput {
   root: FolderNode;
+  resolveRequest?: SavedRequestResolver;
   /** Folders above `root` (when running a sub-folder), collection first. */
   ancestors?: FolderDef[];
   scopes: VariableScopes;
@@ -168,7 +175,15 @@ export async function runCollection(
 ): Promise<{ summary: RunSummary; scopes: VariableScopes }> {
   const startedAt = Date.now();
   const opts = input.options;
-  let items = flattenTree(input.root, input.ancestors);
+  const allItems = flattenTree(input.root, input.ancestors);
+  const resolveRequest: SavedRequestResolver =
+    input.resolveRequest ??
+    ((id) => {
+      const item = allItems.find((item) => item.request.id === id);
+      if (!item) throw new Error("Saved request not found");
+      return item;
+    });
+  let items = allItems;
   if (input.selectedRequestIds?.length) {
     const set = new Set(input.selectedRequestIds);
     items = items.filter((i) => set.has(i.request.id));
@@ -225,6 +240,7 @@ export async function runCollection(
       emit({ type: "request", iteration, sequence, name: item.request.name });
       const r = await execute({
         request: item.request,
+        resolveRequest,
         ancestors: item.ancestors,
         scopes,
         cookieJar: input.cookieJar,

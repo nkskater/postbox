@@ -203,7 +203,7 @@ describe("script sandbox", () => {
            resolve();
          }, 1));
        });
-       pm.test("index", () => pm.expect(pm.test.index()).to.equal(1));
+       pm.test("index", () => pm.expect(pm.test.index()).to.equal(2));
        pm.test("callback error", (done) => done(new Error("expected failure")));
        pm.test("async assertion error", (done) => setTimeout(() => {
          pm.expect(false).to.be.true;
@@ -246,6 +246,7 @@ describe("script sandbox", () => {
       "saved-request",
       { variables: { id: 7 } },
       expect.any(AbortSignal),
+      ctx().scopes,
     );
   });
 
@@ -344,5 +345,118 @@ describe("script sandbox", () => {
     );
     expect(r.tests).toEqual([{ name: "legacy", passed: true, skipped: false }]);
     expect(r.nextRequest).toBe("Next");
+  });
+  it("counts callback tests when declared and records asynchronous sendRequest assertion failures", async () => {
+    const result = await runScript(
+      `
+      pm.test("callback", (done) => {
+        pm.sendRequest("https://example.com", () => { pm.expect(false).to.be.true; done(); });
+      });
+      pm.test("index", () => pm.expect(pm.test.index()).to.equal(2));
+    `,
+      ctx(),
+      {
+        host: {
+          sendRequest: async () => ({
+            code: 200,
+            status: "OK",
+            headers: [],
+            body: "",
+            responseTime: 1,
+            responseSize: 0,
+          }),
+        },
+      },
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.tests).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "callback", passed: false }),
+        expect.objectContaining({ name: "index", passed: true }),
+      ]),
+    );
+  });
+
+  it("cancels long timers without waiting for their original deadline", async () => {
+    const result = await runScript(
+      `const timer = setTimeout(() => { throw new Error("unreached"); }, 60000); clearTimeout(timer);`,
+      ctx(),
+      { limits: { timeoutMs: 50 } },
+    );
+    expect(result.error).toBeUndefined();
+  });
+
+  it("keeps query keys case-sensitive and preserves header disable mutations", async () => {
+    const result = await runScript(
+      `
+      pm.request.url.query.add({ key: "X", value: "upper" });
+      pm.request.url.query.upsert({ key: "x", value: "lower" });
+      pm.request.headers.upsert({ key: "accept", value: "text/plain", disabled: true });
+      pm.iterationData.unset("readonly");
+    `,
+      ctx(),
+    );
+    expect(result.error).toMatch(/read-only/);
+    expect(result.request.url).toContain("x=lower&X=upper");
+    expect(result.request.headers[0]).toMatchObject({ value: "text/plain", disabled: true });
+  });
+
+  it("enforces runRequest quotas at the host boundary even if guest helpers are replaced", async () => {
+    const runRequest = vi.fn(async () => null);
+    const result = await runScript(
+      `for (let i = 0; i < 11; i++) await __host_run_request("saved", "{}", JSON.stringify(__scopes));`,
+      ctx(),
+      { host: { runRequest } },
+    );
+    expect(result.error).toMatch(/runRequest quota of 10/);
+    expect(runRequest).toHaveBeenCalledTimes(10);
+    const invalid = await runScript(`await __host_run_request("saved", "{}", '{"local":{}}');`, ctx(), {
+      host: { runRequest },
+    });
+    expect(invalid.error).toMatch(/Invalid.*scopes/);
+    expect(runRequest).toHaveBeenCalledTimes(10);
+  });
+
+  it("stops pre-request script execution immediately when skipped", async () => {
+    const result = await runScript(
+      `pm.execution.skipRequest(); throw new Error("unreached");`,
+      ctx({ info: { ...ctx().info, eventName: "prerequest" } }),
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.skipRequest).toBe(true);
+    const post = await runScript(
+      `pm.execution.skipRequest();`,
+      ctx({ info: { ...ctx().info, eventName: "test" } }),
+    );
+    expect(post.error).toMatch(/only available in pre-request/);
+    expect(post.skipRequest).toBe(false);
+  });
+
+  it("aborts pending host work when externally cancelled", async () => {
+    const controller = new AbortController();
+    let hostSignal: AbortSignal | undefined;
+    const result = await runScript(`await pm.sendRequest("https://example.com");`, ctx(), {
+      signal: controller.signal,
+      host: {
+        sendRequest: async (_spec, signal) => {
+          hostSignal = signal;
+          controller.abort();
+          return new Promise(() => {});
+        },
+      },
+    });
+    expect(result.error).toMatch(/cancelled/);
+    expect(hostSignal?.aborted).toBe(true);
+  });
+  it("reports unsupported JSON schema constraints instead of silently passing", async () => {
+    const result = await runScript(
+      `pm.test("unsupported schema", () => pm.expect({ id: 1 }).to.have.jsonSchema({ allOf: [{ type: "string" }] }));`,
+      ctx(),
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.tests[0]).toMatchObject({
+      passed: false,
+      error: "JSON schema keyword allOf is not supported in Postbox scripts",
+    });
   });
 });
