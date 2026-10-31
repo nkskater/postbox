@@ -14,6 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { VarInput } from "@/components/editor/VarInput";
 import { ResponseViewer } from "@/components/response/ResponseViewer";
 import { EventStreamPanel } from "@/components/response/EventStreamPanel";
+import { WebSocketPanel } from "@/components/response/WebSocketPanel";
 import { folderPath, useApp, type RequestDraft, type Tab } from "@/stores/app";
 import { useDialogs } from "@/stores/dialogs";
 import { useSetting } from "@/stores/settings";
@@ -67,11 +68,15 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
   );
 
   const save = () => (tab.requestId ? saveTab(tab.id) : openSave(tab.id));
+  const isWebSocket = /^wss?:\/\//i.test(d.url.trim());
+  const [streamKey, setStreamKey] = useState<number | null>(null);
+  const [wsKey, setWsKey] = useState<number | null>(null);
   const send = () => {
     setStreamKey(null);
+    if (isWebSocket) return setWsKey(Date.now());
+    setWsKey(null);
     return sendTab(tab.id);
   };
-  const [streamKey, setStreamKey] = useState<number | null>(null);
   const crumbs = folderPath(folders, d.folderId);
 
   const onUrlChange = (url: string) => set({ url, params: paramsFromUrl(url, d.params) });
@@ -238,11 +243,16 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
             <Loader2 className="size-4 animate-spin" /> Cancel
           </Button>
         ) : (
-          <Button className="h-9 w-24" onClick={send} title="Send (Ctrl+Enter)">
-            Send
+          <Button
+            className="h-9 w-24"
+            onClick={send}
+            title={isWebSocket ? "Connect (Ctrl+Enter)" : "Send (Ctrl+Enter)"}
+          >
+            {isWebSocket ? "Connect" : "Send"}
           </Button>
         )}
         <Button
+          hidden={isWebSocket}
           variant="outline"
           className="h-9"
           title="Open as a server-sent event stream and show events live"
@@ -323,7 +333,9 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
           )}
         />
         <Panel defaultSize="55" minSize="10">
-          {streamKey !== null ? (
+          {wsKey !== null && isWebSocket ? (
+            <WebSocketPanel key={wsKey} draft={d as RequestDef} onClose={() => setWsKey(null)} />
+          ) : streamKey !== null ? (
             <EventStreamPanel key={streamKey} draft={d as RequestDef} onClose={() => setStreamKey(null)} />
           ) : (
             <ResponseViewer
