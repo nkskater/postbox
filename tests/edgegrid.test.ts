@@ -334,7 +334,8 @@ describe("Akamai EdgeGrid authentication (EG1-HMAC-SHA256)", () => {
       const reqNode = parsedCol.root.children[0] as RequestNode;
       expect(reqNode.auth.type).toBe("edgegrid");
 
-      const exported = exportPostmanCollection(parsedCol.root, []);
+      expect(JSON.stringify(exportPostmanCollection(parsedCol.root, []))).not.toContain("sec-1");
+      const exported = exportPostmanCollection(parsedCol.root, [], { includeCredentials: true });
       const exportedItem = exported.item[0] as { request: { auth: { type: string; edgegrid: unknown[] } } };
       expect(exportedItem.request.auth.type).toBe("edgegrid");
       expect(exportedItem.request.auth.edgegrid).toEqual(

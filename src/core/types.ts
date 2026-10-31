@@ -72,6 +72,23 @@ export interface EdgeGridConfig {
   nonce?: string;
   timestamp?: string;
 }
+export interface AwsSigV4Config {
+  accessKey: string;
+  secretKey: string;
+  /** Temporary (STS) credentials; sent as X-Amz-Security-Token and signed. */
+  sessionToken?: string;
+  /** Defaults to us-east-1. */
+  region?: string;
+  /** Signing name, for example execute-api, s3 or lambda. */
+  service: string;
+  /** Where the signature goes: Authorization header (default) or presigned query parameters. */
+  addTo?: "header" | "query";
+  /** Presigned URL lifetime in seconds (query mode, max 7 days). */
+  expiresSeconds?: number;
+  /** Fixed X-Amz-Date (yyyyMMddTHHmmssZ) for reproducible signatures; defaults to now. */
+  timestamp?: string;
+}
+
 export type HawkAlgorithm = "sha256" | "sha1";
 
 export interface HawkConfig {
@@ -96,7 +113,8 @@ export type AuthConfig =
   | { type: "digest"; digest: { username: string; password: string } }
   | { type: "oauth2"; oauth2: OAuth2Config }
   | { type: "edgegrid"; edgegrid: EdgeGridConfig }
-  | { type: "hawk"; hawk: HawkConfig };
+  | { type: "hawk"; hawk: HawkConfig }
+  | { type: "awsv4"; awsv4: AwsSigV4Config };
 
 export type AuthType = AuthConfig["type"];
 
@@ -190,6 +208,8 @@ export interface PreparedRequest {
   settings: RequestSettings;
   /** Digest credentials need the challenge from the server, so they are applied by the engine. */
   digest?: { username: string; password: string };
+  /** AWS signatures cover the URL, so the engine re-signs after same-origin redirects. */
+  awsv4?: AwsSigV4Config;
 }
 
 export interface Timings {

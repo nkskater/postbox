@@ -22,6 +22,12 @@ export function authCredentialValues(auth: AuthConfig): string[] {
         return [auth.apikey.value];
       case "oauth2":
         return [auth.oauth2.clientSecret, auth.oauth2.password ?? "", auth.oauth2.accessToken];
+      case "edgegrid":
+        return [auth.edgegrid.clientSecret, auth.edgegrid.accessToken, auth.edgegrid.clientToken];
+      case "hawk":
+        return [auth.hawk.authKey];
+      case "awsv4":
+        return [auth.awsv4.secretKey, auth.awsv4.sessionToken ?? ""];
       default:
         return [];
     }
@@ -81,6 +87,19 @@ export function withoutAuthCredentials(auth: AuthConfig): AuthConfig {
         },
       };
     }
+    case "edgegrid":
+      return { ...auth, edgegrid: { ...auth.edgegrid, clientSecret: "", accessToken: "", clientToken: "" } };
+    case "hawk":
+      return { ...auth, hawk: { ...auth.hawk, authKey: "" } };
+    case "awsv4":
+      return {
+        ...auth,
+        awsv4: {
+          ...auth.awsv4,
+          secretKey: "",
+          sessionToken: auth.awsv4.sessionToken === undefined ? undefined : "",
+        },
+      };
     default:
       return auth;
   }
@@ -126,6 +145,34 @@ export function restoreMissingCredentials(current: AuthConfig, saved: AuthConfig
           accessToken: current.oauth2.accessToken || previous.accessToken,
           expiresAt: current.oauth2.expiresAt ?? previous.expiresAt,
           tokenContext: current.oauth2.tokenContext ?? previous.tokenContext,
+        },
+      };
+    }
+    case "edgegrid": {
+      const previous = (saved as typeof current).edgegrid;
+      return {
+        ...current,
+        edgegrid: {
+          ...current.edgegrid,
+          clientSecret: current.edgegrid.clientSecret || previous.clientSecret,
+          accessToken: current.edgegrid.accessToken || previous.accessToken,
+          clientToken: current.edgegrid.clientToken || previous.clientToken,
+        },
+      };
+    }
+    case "hawk":
+      return {
+        ...current,
+        hawk: { ...current.hawk, authKey: current.hawk.authKey || (saved as typeof current).hawk.authKey },
+      };
+    case "awsv4": {
+      const previous = (saved as typeof current).awsv4;
+      return {
+        ...current,
+        awsv4: {
+          ...current.awsv4,
+          secretKey: current.awsv4.secretKey || previous.secretKey,
+          sessionToken: current.awsv4.sessionToken || previous.sessionToken,
         },
       };
     }

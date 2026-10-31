@@ -8,7 +8,7 @@ import {
 import { applyAuth, resolveAuth, resolveEffectiveAuth } from "@/core/http/auth";
 import { importAuth, exportPostmanCollection, isPostmanCollection } from "@/core/convert/postman";
 import { Resolver, redactStoredValue } from "@/core/variables/resolver";
-import type { AuthConfig, PreparedRequest } from "@/core/types";
+import type { AuthConfig, FolderNode, PreparedRequest } from "@/core/types";
 import { DEFAULT_SETTINGS } from "@/core/types";
 import { authSchema, hawkConfigSchema } from "@/core/schemas";
 
@@ -386,7 +386,7 @@ describe("Hawk authentication", () => {
     });
 
     it("exports Hawk auth in Postman collection format", () => {
-      const exported = exportPostmanCollection({
+      const folder = {
         id: "folder-1",
         kind: "folder",
         name: "Hawk Collection",
@@ -406,7 +406,12 @@ describe("Hawk authentication", () => {
         preRequestScript: "",
         testScript: "",
         children: [],
-      });
+      } satisfies FolderNode;
+      const withoutSecrets = exportPostmanCollection(folder);
+      expect(withoutSecrets.auth?.hawk).toEqual(
+        expect.arrayContaining([{ key: "authKey", value: "", type: "string" }]),
+      );
+      const exported = exportPostmanCollection(folder, [], { includeCredentials: true });
 
       expect(isPostmanCollection(exported)).toBe(true);
       expect(exported.auth?.type).toBe("hawk");

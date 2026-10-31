@@ -7,6 +7,7 @@ import type { Resolver } from "../variables/resolver";
 import { sendRequest, type EngineOptions } from "./engine";
 import { createHash } from "node:crypto";
 import { buildEdgeGridAuthHeader } from "./edgegrid";
+import { signAwsRequest } from "./aws-sigv4";
 import { buildHawkHeader } from "./hawk";
 
 /**
@@ -89,6 +90,22 @@ export function resolveAuth(auth: AuthConfig, r: Resolver): AuthConfig {
           dlg: h.dlg !== undefined ? r.resolve(h.dlg) : undefined,
           timestamp: h.timestamp !== undefined ? r.resolve(h.timestamp) : undefined,
           includePayloadHash: h.includePayloadHash,
+        },
+      };
+    }
+    case "awsv4": {
+      const a = auth.awsv4;
+      const opt = (v: string | undefined) => (v !== undefined ? r.resolve(v) : undefined);
+      return {
+        type: "awsv4",
+        awsv4: {
+          ...a,
+          accessKey: r.resolve(a.accessKey),
+          secretKey: r.resolve(a.secretKey),
+          sessionToken: opt(a.sessionToken),
+          region: opt(a.region),
+          service: r.resolve(a.service),
+          timestamp: opt(a.timestamp),
         },
       };
     }
@@ -318,6 +335,34 @@ export async function applyAuth(
         const header = buildHawkHeader(req, auth.hawk);
         setHeader(req, "Authorization", header);
       }
+      return {};
+    }
+    case "awsv4": {
+      if (hasAuthHeader) return {};
+      const config = offline
+        ? {
+            ...auth.awsv4,
+            accessKey: auth.awsv4.accessKey || "<access-key>",
+            secretKey: auth.awsv4.secretKey || "<secret-key>",
+            service: auth.awsv4.service || "<service>",
+          }
+        : auth.awsv4;
+      let signed;
+      try {
+        signed = signAwsRequest(req, config);
+      } catch (err) {
+        // Code generation may run before variables make the URL valid.
+        if (!offline) throw err;
+        setHeader(
+          req,
+          "Authorization",
+          "AWS4-HMAC-SHA256 Credential=<credential>, SignedHeaders=<headers>, Signature=<signature>",
+        );
+        return {};
+      }
+      req.url = signed.url;
+      req.headers = signed.headers;
+      if (!offline) req.awsv4 = auth.awsv4;
       return {};
     }
     default:

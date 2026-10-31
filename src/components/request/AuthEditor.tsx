@@ -5,7 +5,14 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { KeyRound } from "lucide-react";
-import type { AuthConfig, AuthType, EdgeGridConfig, HawkAlgorithm, OAuth2Config } from "@/core/types";
+import type {
+  AuthConfig,
+  AuthType,
+  AwsSigV4Config,
+  EdgeGridConfig,
+  HawkAlgorithm,
+  OAuth2Config,
+} from "@/core/types";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -23,6 +30,7 @@ const TYPES: { type: AuthType; label: string }[] = [
   { type: "oauth2", label: "OAuth 2.0" },
   { type: "edgegrid", label: "Akamai EdgeGrid" },
   { type: "hawk", label: "Hawk Authentication" },
+  { type: "awsv4", label: "AWS Signature" },
 ];
 
 export function defaultAuth(type: AuthType): AuthConfig {
@@ -70,6 +78,8 @@ export function defaultAuth(type: AuthType): AuthConfig {
           includePayloadHash: false,
         },
       };
+    case "awsv4":
+      return { type, awsv4: { accessKey: "", secretKey: "", region: "us-east-1", service: "" } };
     default:
       return { type } as AuthConfig;
   }
@@ -216,6 +226,9 @@ export function AuthEditor({
           onChange={(oauth2) => onChange({ ...auth, oauth2 })}
           folderId={folderId}
         />
+      )}
+      {auth.type === "awsv4" && (
+        <AwsSigV4Editor config={auth.awsv4} onChange={(awsv4) => onChange({ ...auth, awsv4 })} />
       )}
       {auth.type === "edgegrid" && (
         <EdgeGridEditor config={auth.edgegrid} onChange={(edgegrid) => onChange({ ...auth, edgegrid })} />
@@ -465,6 +478,83 @@ function OAuth2Editor({
         </>
       )}
     </>
+  );
+}
+
+function AwsSigV4Editor({
+  config,
+  onChange,
+}: {
+  config: AwsSigV4Config;
+  onChange: (c: AwsSigV4Config) => void;
+}) {
+  const set = (patch: Partial<AwsSigV4Config>) => onChange({ ...config, ...patch });
+  return (
+    <div className="flex flex-col gap-3">
+      <Field label="Add auth data to">
+        <Select
+          value={config.addTo ?? "header"}
+          onValueChange={(v) => set({ addTo: v === "query" ? "query" : undefined })}
+        >
+          <SelectTrigger size="sm" className="w-64 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="header" className="text-xs">
+              Request headers
+            </SelectItem>
+            <SelectItem value="query" className="text-xs">
+              Request URL (presigned)
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </Field>
+      <Field label="Access Key">
+        <VarInput value={config.accessKey} onChange={(accessKey) => set({ accessKey })} placeholder="AKIA…" />
+      </Field>
+      <Field label="Secret Key">
+        <VarInput
+          masked
+          value={config.secretKey}
+          onChange={(secretKey) => set({ secretKey })}
+          placeholder="Secret access key"
+        />
+      </Field>
+      <Field label="AWS Region">
+        <VarInput
+          value={config.region ?? ""}
+          onChange={(region) => set({ region: region || undefined })}
+          placeholder="us-east-1"
+        />
+      </Field>
+      <Field label="Service Name">
+        <VarInput
+          value={config.service}
+          onChange={(service) => set({ service })}
+          placeholder="execute-api, s3, lambda…"
+        />
+      </Field>
+      <Field label="Session Token">
+        <VarInput
+          masked
+          value={config.sessionToken ?? ""}
+          onChange={(sessionToken) => set({ sessionToken: sessionToken || undefined })}
+          placeholder="For temporary (STS) credentials (optional)"
+        />
+      </Field>
+      {config.addTo === "query" && (
+        <Field label="Expires (seconds)">
+          <VarInput
+            value={config.expiresSeconds !== undefined ? String(config.expiresSeconds) : ""}
+            onChange={(v) => {
+              const n = Number(v);
+              set({ expiresSeconds: v && Number.isInteger(n) && n > 0 ? Math.min(n, 604800) : undefined });
+            }}
+            placeholder="3600"
+          />
+        </Field>
+      )}
+    </div>
   );
 }
 
