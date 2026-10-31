@@ -42,7 +42,7 @@ execute on the machine running Postbox, so VPN-connected Windows users can reach
 
 - **Request builder**: every method; params, headers and body (raw JSON/XML/text/HTML/JS, form-data with file upload,
   urlencoded, binary, GraphQL); auth (Bearer, Basic, API key, Digest, NTLMv2, OAuth 1.0 (HMAC/RSA/PLAINTEXT in header, query or body),
-  OAuth 2.0 client-credentials/password/manual, Hawk, Akamai EdgeGrid,
+  OAuth 2.0 client-credentials/password/authorization code with PKCE (browser sign-in)/manual, Hawk, Akamai EdgeGrid,
   AWS Signature V4 with session tokens, header or presigned-URL mode, and re-signing on same-origin redirects,
   Atlassian ASAP JWTs signed with RS/PS/ES keys);
   per-request settings (timeout, redirects, SSL verify, cookie jar). Multi-tab editing with unsaved-draft persistence.
@@ -549,7 +549,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the design. Planned work is tracked a
 - [x] Server-side settings: script limits, global default headers, User-Agent
 - [ ] Settings: history retention, full backup/restore, notifications, locale
 - [ ] Settings: outbound proxy, CA/client certificates, MCP controls, shortcut rebinding
-- [ ] OAuth 2.0 authorization-code + PKCE flow
+- [x] OAuth 2.0 authorization-code + PKCE flow
 - [ ] Desktop wrapper
 
 ## License

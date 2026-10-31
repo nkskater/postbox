@@ -150,9 +150,19 @@ export function importAuth(a: PmAuth | null | undefined): AuthConfig {
           ? "password"
           : p.grant_type === "client_credentials"
             ? "client_credentials"
-            : "manual";
+            : p.grant_type === "authorization_code" || p.grant_type === "authorization_code_with_pkce"
+              ? "authorization_code"
+              : "manual";
       const o: OAuth2Config = {
         grantType: grant,
+        ...(grant === "authorization_code"
+          ? {
+              authUrl: p.authUrl ?? "",
+              ...(p.redirect_uri ? { redirectUri: p.redirect_uri } : {}),
+              ...(p.grant_type === "authorization_code" ? { usePkce: false } : {}),
+              ...(p.challengeAlgorithm === "plain" ? { codeChallengeMethod: "plain" as const } : {}),
+            }
+          : {}),
         accessTokenUrl: p.accessTokenUrl ?? "",
         clientId: p.clientId ?? "",
         clientSecret: p.clientSecret ?? "",
@@ -556,7 +566,18 @@ function exportAuth(a: AuthConfig, includeCredentials = false): PmAuth | null | 
               ? "password_credentials"
               : o.grantType === "client_credentials"
                 ? "client_credentials"
-                : "implicit",
+                : o.grantType === "authorization_code"
+                  ? o.usePkce === false
+                    ? "authorization_code"
+                    : "authorization_code_with_pkce"
+                  : "implicit",
+          ...(o.grantType === "authorization_code"
+            ? {
+                authUrl: o.authUrl ?? "",
+                ...(o.redirectUri ? { redirect_uri: o.redirectUri } : {}),
+                ...(o.usePkce !== false ? { challengeAlgorithm: o.codeChallengeMethod ?? "S256" } : {}),
+              }
+            : {}),
           accessTokenUrl: o.accessTokenUrl,
           clientId: o.clientId,
           clientSecret: credential(o.clientSecret),
