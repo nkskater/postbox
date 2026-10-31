@@ -25,6 +25,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { VarInput } from "@/components/editor/VarInput";
 import { useApp } from "@/stores/app";
+import { OAuthTokensDialog } from "@/components/dialogs/OAuthTokensDialog";
 
 const TYPES: { type: AuthType; label: string }[] = [
   { type: "inherit", label: "Inherit auth from parent" },
@@ -408,6 +409,7 @@ function OAuth2Editor({
 }) {
   const set = (patch: Partial<OAuth2Config>) => onChange({ ...config, ...patch });
   const [loading, setLoading] = useState(false);
+  const [managing, setManaging] = useState(false);
   const [now] = useState(() => Date.now());
   const { workspaceId, environmentId } = useApp();
 
@@ -612,6 +614,13 @@ function OAuth2Editor({
               placeholder="https://auth.example.com/oauth/token"
             />
           </Field>
+          <Field label="Revocation URL">
+            <VarInput
+              value={config.revocationUrl ?? ""}
+              onChange={(revocationUrl) => set({ revocationUrl: revocationUrl || undefined })}
+              placeholder="Optional; https://auth.example.com/oauth/revoke"
+            />
+          </Field>
           <Field label="Client ID">
             <VarInput value={config.clientId} onChange={(clientId) => set({ clientId })} />
           </Field>
@@ -680,6 +689,10 @@ function OAuth2Editor({
                 Clear tokens
               </Button>
             )}
+            <Button size="sm" variant="ghost" onClick={() => setManaging(true)}>
+              Manage saved tokens
+            </Button>
+            <OAuthTokensDialog open={managing} onOpenChange={setManaging} />
           </div>
           <p className="pl-[172px] text-muted-foreground">
             {config.grantType === "authorization_code"

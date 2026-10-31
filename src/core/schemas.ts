@@ -98,6 +98,7 @@ export const oauth2ConfigSchema: z.ZodType<OAuth2Config> = z.object({
   grantType: z.enum(["client_credentials", "password", "authorization_code", "manual"]),
   authUrl: z.string().optional(),
   redirectUri: z.string().optional(),
+  revocationUrl: z.string().optional(),
   usePkce: z.boolean().optional(),
   codeChallengeMethod: z.enum(["S256", "plain"]).optional(),
   accessTokenUrl: z.string().default(""),
