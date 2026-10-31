@@ -1,7 +1,8 @@
+import dnsPromises from "node:dns/promises";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import * as grpc from "@grpc/grpc-js";
 import {
   MAX_GRPC_RESPONSE_MESSAGES,
@@ -307,6 +308,42 @@ describe("gRPC calls", () => {
     const deny = { policy: new HostPolicy([], ["127.0.0.0/8"]) };
     await expect(call("Unary", [{}], {}, deny)).rejects.toThrow(/PROXY_DENY_HOSTS|denied/);
     await expect(call("Unary", [{}], { url: secureUrl }, deny)).rejects.toThrow(/PROXY_DENY_HOSTS|denied/);
+  });
+
+  it("falls back to the next resolved address when none can be reached", async () => {
+    const port = plainUrl.split(":").at(-1);
+    const lookup = vi.spyOn(dnsPromises, "lookup").mockResolvedValue([
+      { address: "::1", family: 6 },
+      { address: "127.0.0.1", family: 4 },
+    ] as never);
+    try {
+      const events = await call("Unary", [{ text: "dual" }], { url: `grpc://dual-stack.test:${port}` });
+      expect(of(events, "message")[0].message).toMatchObject({ text: "echo dual" });
+      expect(of(events, "status")).toHaveLength(1);
+      expect(of(events, "status")[0].codeName).toBe("OK");
+    } finally {
+      lookup.mockRestore();
+    }
+  });
+
+  it("checks every resolved address against the host policy", async () => {
+    const port = plainUrl.split(":").at(-1);
+    const lookup = vi.spyOn(dnsPromises, "lookup").mockResolvedValue([
+      { address: "127.0.0.1", family: 4 },
+      { address: "10.1.2.3", family: 4 },
+    ] as never);
+    try {
+      await expect(
+        call(
+          "Unary",
+          [{}],
+          { url: `grpc://rebind.test:${port}` },
+          { policy: new HostPolicy([], ["10.0.0.0/8"]) },
+        ),
+      ).rejects.toThrow(/PROXY_DENY_HOSTS|denied/);
+    } finally {
+      lookup.mockRestore();
+    }
   });
 
   it("supports TLS and verifies certificates unless disabled", async () => {

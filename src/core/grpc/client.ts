@@ -118,22 +118,26 @@ export async function startGrpcCall(
   }
   const { tls, hostname, port } = parseTarget(url);
   policy.assert(hostname);
-  const address = net.isIP(hostname) ? hostname : (await dns.lookup(hostname)).address;
-  policy.assert(hostname, address);
-  const target = net.isIPv6(address) ? `ipv6:[${address}]:${port}` : `ipv4:${address}:${port}`;
+  const addresses = net.isIP(hostname)
+    ? [hostname]
+    : (await dns.lookup(hostname, { all: true })).map((a) => a.address);
+  // Every candidate must pass the policy, not just the one tried first.
+  for (const address of addresses) policy.assert(hostname, address);
+  const targets = addresses.map((a) => (net.isIPv6(a) ? `ipv6:[${a}]:${port}` : `ipv4:${a}:${port}`));
 
   const credentials = tls
     ? grpc.credentials.createSsl(null, null, null, { rejectUnauthorized: input.verifySsl })
     : grpc.credentials.createInsecure();
-  const client = new grpc.Client(target, credentials, {
+  const channelOptions: grpc.ChannelOptions = {
     "grpc.enable_http_proxy": 0,
     "grpc.max_receive_message_length": MAX_GRPC_MESSAGE_BYTES,
     "grpc.max_send_message_length": MAX_GRPC_MESSAGE_BYTES,
     "grpc.default_authority": url.host,
     ...(tls && !net.isIP(hostname) ? { "grpc.ssl_target_name_override": hostname } : {}),
-  });
+  };
 
   const now = () => Date.now();
+  // One absolute deadline covers every address tried.
   const callOptions: grpc.CallOptions = { deadline: new Date(Date.now() + input.timeoutMs) };
   const serialize = (b: Buffer) => b;
   const deserialize = (b: Buffer) => b;
@@ -142,17 +146,20 @@ export async function startGrpcCall(
     let settled = false;
     let received = 0;
     let receivedBytes = 0;
+    let heardFromServer = false;
+    let client: grpc.Client | undefined;
     let call:
       | grpc.ClientUnaryCall
       | grpc.ClientReadableStream<Buffer>
       | grpc.ClientWritableStream<Buffer>
-      | grpc.ClientDuplexStream<Buffer, Buffer>;
+      | grpc.ClientDuplexStream<Buffer, Buffer>
+      | undefined;
 
     const finish = () => {
       if (settled) return;
       settled = true;
       opts.signal?.removeEventListener("abort", onAbort);
-      client.close();
+      client?.close();
       onEvent({ type: "done", at: now() });
       resolve();
     };
@@ -161,11 +168,12 @@ export async function startGrpcCall(
 
     const onMessage = (buf: Buffer) => {
       if (settled) return;
+      heardFromServer = true;
       received++;
       receivedBytes += buf.length;
       if (received > MAX_GRPC_RESPONSE_MESSAGES || receivedBytes > MAX_GRPC_RESPONSE_BYTES) {
         onEvent({ type: "error", error: "Response limit exceeded; call cancelled", at: now() });
-        call.cancel();
+        call?.cancel();
         return;
       }
       try {
@@ -178,7 +186,92 @@ export async function startGrpcCall(
         });
       } catch (err) {
         onEvent({ type: "error", error: `Could not decode response: ${(err as Error).message}`, at: now() });
-        call.cancel();
+        call?.cancel();
+      }
+    };
+
+    /** Start the call against one resolved address. */
+    const attempt = (index: number) => {
+      client = new grpc.Client(targets[index], credentials, channelOptions);
+      const path = info.path;
+      if (info.clientStreaming && info.serverStreaming) {
+        const duplex = client.makeBidiStreamRequest(path, serialize, deserialize, metadata, callOptions);
+        duplex.on("data", onMessage);
+        call = duplex;
+      } else if (info.clientStreaming) {
+        call = client.makeClientStreamRequest(
+          path,
+          serialize,
+          deserialize,
+          metadata,
+          callOptions,
+          (err, value) => {
+            if (!err && value) onMessage(value as Buffer);
+          },
+        );
+      } else if (info.serverStreaming) {
+        const readable = client.makeServerStreamRequest(
+          path,
+          serialize,
+          deserialize,
+          encoded[0],
+          metadata,
+          callOptions,
+        );
+        readable.on("data", onMessage);
+        call = readable;
+      } else {
+        call = client.makeUnaryRequest(
+          path,
+          serialize,
+          deserialize,
+          encoded[0],
+          metadata,
+          callOptions,
+          (err, value) => {
+            if (!err && value) onMessage(value as Buffer);
+          },
+        );
+      }
+
+      call.on("metadata", (md: grpc.Metadata) => {
+        heardFromServer = true;
+        onEvent({ type: "metadata", metadata: flatten(md), at: now() });
+      });
+      // Failures arrive as a status; the listener only stops Node treating them as uncaught.
+      (call as NodeJS.EventEmitter).on("error", () => undefined);
+      call.on("status", (s: grpc.StatusObject) => {
+        // No connection could be made, so nothing reached a server: try the next address
+        // (for example a name that resolves to ::1 first while the server listens on IPv4).
+        if (
+          s.code === grpc.status.UNAVAILABLE &&
+          s.details.startsWith("No connection established") &&
+          !heardFromServer &&
+          index + 1 < targets.length &&
+          !opts.signal?.aborted
+        ) {
+          client?.close();
+          attempt(index + 1);
+          return;
+        }
+        onEvent({
+          type: "status",
+          code: s.code,
+          codeName: grpc.status[s.code] ?? String(s.code),
+          details: s.details,
+          trailers: flatten(s.metadata),
+          at: now(),
+        });
+        finish();
+      });
+
+      if (info.clientStreaming) {
+        const writable = call as grpc.ClientWritableStream<Buffer>;
+        encoded.forEach((buf, i) => {
+          writable.write(buf);
+          if (index === 0) onEvent({ type: "sent", index: i, message: input.messages[i], at: now() });
+        });
+        writable.end();
       }
     };
 
@@ -187,64 +280,7 @@ export async function startGrpcCall(
       finish();
       return;
     }
-
-    const path = info.path;
-    if (info.clientStreaming && info.serverStreaming) {
-      call = client.makeBidiStreamRequest(path, serialize, deserialize, metadata, callOptions);
-      (call as grpc.ClientDuplexStream<Buffer, Buffer>).on("data", onMessage);
-    } else if (info.clientStreaming) {
-      call = client.makeClientStreamRequest(
-        path,
-        serialize,
-        deserialize,
-        metadata,
-        callOptions,
-        (err, value) => {
-          if (!err && value) onMessage(value as Buffer);
-        },
-      );
-    } else if (info.serverStreaming) {
-      call = client.makeServerStreamRequest(path, serialize, deserialize, encoded[0], metadata, callOptions);
-      (call as grpc.ClientReadableStream<Buffer>).on("data", onMessage);
-    } else {
-      call = client.makeUnaryRequest(
-        path,
-        serialize,
-        deserialize,
-        encoded[0],
-        metadata,
-        callOptions,
-        (err, value) => {
-          if (!err && value) onMessage(value as Buffer);
-        },
-      );
-    }
-
-    call.on("metadata", (md: grpc.Metadata) =>
-      onEvent({ type: "metadata", metadata: flatten(md), at: now() }),
-    );
-    // Failures arrive as a status; the listener only stops Node treating them as uncaught.
-    (call as NodeJS.EventEmitter).on("error", () => undefined);
-    call.on("status", (s: grpc.StatusObject) => {
-      onEvent({
-        type: "status",
-        code: s.code,
-        codeName: grpc.status[s.code] ?? String(s.code),
-        details: s.details,
-        trailers: flatten(s.metadata),
-        at: now(),
-      });
-      finish();
-    });
-
-    if (info.clientStreaming) {
-      const writable = call as grpc.ClientWritableStream<Buffer>;
-      encoded.forEach((buf, i) => {
-        writable.write(buf);
-        onEvent({ type: "sent", index: i, message: input.messages[i], at: now() });
-      });
-      writable.end();
-    }
+    attempt(0);
   });
   return { finished };
 }

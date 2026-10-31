@@ -58,7 +58,9 @@ event with its code, not an HTTP error. The request's **Timeout** is the call de
 closing the connection cancels the call. Responses stop at 1000 messages or 8 MiB.
 
 The target host is resolved and checked against `PROXY_ALLOW_HOSTS`/`PROXY_DENY_HOSTS`
-before connecting to the vetted address, and environment proxies are not used.
+before connecting to the vetted address, and environment proxies are not used. When a
+name resolves to several addresses, every one must pass the policy; if a connection cannot
+be made to the first, the next is tried.
 
 ## Describing definitions
 
