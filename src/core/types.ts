@@ -107,6 +107,36 @@ export interface OAuth1Config {
   addEmptyParamsToSign?: boolean;
 }
 
+export const ASAP_ALGORITHMS = [
+  "RS256",
+  "RS384",
+  "RS512",
+  "PS256",
+  "PS384",
+  "PS512",
+  "ES256",
+  "ES384",
+  "ES512",
+] as const;
+export type AsapAlgorithm = (typeof ASAP_ALGORITHMS)[number];
+
+export interface AsapConfig {
+  /** Defaults to RS256. */
+  algorithm?: AsapAlgorithm;
+  issuer: string;
+  subject?: string;
+  /** One audience, or several separated by commas. */
+  audience: string;
+  /** Key ID (kid): the key's path in the issuer's public key repository. */
+  keyId: string;
+  /** PEM private key; usually a {{secret}} variable reference. */
+  privateKey: string;
+  /** Lifetime as seconds or a duration (30m, 1h); at most one hour. */
+  expiry?: string;
+  /** Extra claims as a JSON object. */
+  additionalClaims?: string;
+}
+
 export interface AwsSigV4Config {
   accessKey: string;
   secretKey: string;
@@ -150,7 +180,8 @@ export type AuthConfig =
   | { type: "edgegrid"; edgegrid: EdgeGridConfig }
   | { type: "hawk"; hawk: HawkConfig }
   | { type: "awsv4"; awsv4: AwsSigV4Config }
-  | { type: "oauth1"; oauth1: OAuth1Config };
+  | { type: "oauth1"; oauth1: OAuth1Config }
+  | { type: "asap"; asap: AsapConfig };
 
 export type AuthType = AuthConfig["type"];
 

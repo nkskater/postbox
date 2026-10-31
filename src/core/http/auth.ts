@@ -9,6 +9,7 @@ import { createHash } from "node:crypto";
 import { buildEdgeGridAuthHeader } from "./edgegrid";
 import { signAwsRequest } from "./aws-sigv4";
 import { signOAuth1Request } from "./oauth1";
+import { createAsapToken } from "./asap";
 import { buildHawkHeader } from "./hawk";
 
 /**
@@ -91,6 +92,23 @@ export function resolveAuth(auth: AuthConfig, r: Resolver): AuthConfig {
           dlg: h.dlg !== undefined ? r.resolve(h.dlg) : undefined,
           timestamp: h.timestamp !== undefined ? r.resolve(h.timestamp) : undefined,
           includePayloadHash: h.includePayloadHash,
+        },
+      };
+    }
+    case "asap": {
+      const a = auth.asap;
+      const opt = (v: string | undefined) => (v !== undefined ? r.resolve(v) : undefined);
+      return {
+        type: "asap",
+        asap: {
+          ...a,
+          issuer: r.resolve(a.issuer),
+          subject: opt(a.subject),
+          audience: r.resolve(a.audience),
+          keyId: r.resolve(a.keyId),
+          privateKey: r.resolve(a.privateKey),
+          expiry: opt(a.expiry),
+          additionalClaims: opt(a.additionalClaims),
         },
       };
     }
@@ -356,6 +374,17 @@ export async function applyAuth(
         }
         const header = buildHawkHeader(req, auth.hawk);
         setHeader(req, "Authorization", header);
+      }
+      return {};
+    }
+    case "asap": {
+      if (hasAuthHeader) return {};
+      try {
+        setHeader(req, "Authorization", `Bearer ${createAsapToken(auth.asap).token}`);
+      } catch (err) {
+        // Code generation may run before the key variable is resolved.
+        if (!offline) throw err;
+        setHeader(req, "Authorization", "Bearer <asap-token>");
       }
       return {};
     }

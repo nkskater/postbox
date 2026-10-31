@@ -28,6 +28,8 @@ export function authCredentialValues(auth: AuthConfig): string[] {
         return [auth.hawk.authKey];
       case "awsv4":
         return [auth.awsv4.secretKey, auth.awsv4.sessionToken ?? ""];
+      case "asap":
+        return [auth.asap.privateKey];
       case "oauth1":
         return [auth.oauth1.consumerSecret, auth.oauth1.tokenSecret ?? "", auth.oauth1.privateKey ?? ""];
       default:
@@ -93,6 +95,8 @@ export function withoutAuthCredentials(auth: AuthConfig): AuthConfig {
       return { ...auth, edgegrid: { ...auth.edgegrid, clientSecret: "", accessToken: "", clientToken: "" } };
     case "hawk":
       return { ...auth, hawk: { ...auth.hawk, authKey: "" } };
+    case "asap":
+      return { ...auth, asap: { ...auth.asap, privateKey: "" } };
     case "oauth1":
       return {
         ...auth,
@@ -176,6 +180,14 @@ export function restoreMissingCredentials(current: AuthConfig, saved: AuthConfig
       return {
         ...current,
         hawk: { ...current.hawk, authKey: current.hawk.authKey || (saved as typeof current).hawk.authKey },
+      };
+    case "asap":
+      return {
+        ...current,
+        asap: {
+          ...current.asap,
+          privateKey: current.asap.privateKey || (saved as typeof current).asap.privateKey,
+        },
       };
     case "oauth1": {
       const previous = (saved as typeof current).oauth1;

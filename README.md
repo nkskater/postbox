@@ -43,7 +43,8 @@ execute on the machine running Postbox, so VPN-connected Windows users can reach
 - **Request builder**: every method; params, headers and body (raw JSON/XML/text/HTML/JS, form-data with file upload,
   urlencoded, binary, GraphQL); auth (Bearer, Basic, API key, Digest, OAuth 1.0 (HMAC/RSA/PLAINTEXT in header, query or body),
   OAuth 2.0 client-credentials/password/manual, Hawk, Akamai EdgeGrid,
-  AWS Signature V4 with session tokens, header or presigned-URL mode, and re-signing on same-origin redirects);
+  AWS Signature V4 with session tokens, header or presigned-URL mode, and re-signing on same-origin redirects,
+  Atlassian ASAP JWTs signed with RS/PS/ES keys);
   per-request settings (timeout, redirects, SSL verify, cookie jar). Multi-tab editing with unsaved-draft persistence.
 - **Collections**: nested folders, drag & drop, rename, duplicate, search. Auth, headers and scripts set on a collection or folder are inherited by everything inside.
 - **Scripts**: sandboxed (QuickJS/WASM, with memory and time limits) Postman-compatible `pm.*` API: variables, `pm.request`,
