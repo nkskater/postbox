@@ -206,10 +206,13 @@ export function AuthEditor({
         />
       )}
       {auth.type === "edgegrid" && (
-        <EdgeGridEditor
-          config={auth.edgegrid}
-          onChange={(edgegrid) => onChange({ ...auth, edgegrid })}
-        />
+        <EdgeGridEditor config={auth.edgegrid} onChange={(edgegrid) => onChange({ ...auth, edgegrid })} />
+      )}
+      {auth.type !== "inherit" && auth.type !== "none" && (
+        <p role="note" className="text-[11px] text-muted-foreground">
+          Saved authentication credentials stay in the workspace database. Browser drafts and collection
+          exports omit them by default.
+        </p>
       )}
     </div>
   );

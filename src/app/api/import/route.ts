@@ -13,7 +13,12 @@ export const POST = route(async (req: Request) => {
   const input = await parseBody(
     req,
     z
-      .object({ workspaceId: z.string(), content: z.string().optional(), url: z.string().url().optional() })
+      .object({
+        workspaceId: z.string(),
+        content: z.string().optional(),
+        url: z.string().url().optional(),
+        includeCredentials: z.boolean().optional(),
+      })
       .refine((v) => v.content || v.url, {
         message: "content or url is required",
       }),
@@ -33,7 +38,10 @@ export const POST = route(async (req: Request) => {
     content = res.bodyText;
   }
   try {
-    return json(importContent(input.workspaceId, content, input.url), 201);
+    return json(
+      importContent(input.workspaceId, content, input.url, { includeCredentials: input.includeCredentials }),
+      201,
+    );
   } catch (err) {
     throw new HttpError(400, (err as Error).message);
   }

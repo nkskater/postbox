@@ -5,7 +5,7 @@
  */
 import { z } from "zod";
 import * as repo from "@/server/repo";
-import { startRun, listRuns } from "@/server/runs";
+import { startRun, listRuns, reserveRun } from "@/server/runs";
 import { json, parseBody, requireParam, route } from "@/server/http";
 import { createEventStream } from "@/server/event-stream";
 
@@ -39,6 +39,8 @@ export const POST = route(async (req: Request) => {
   // Reject foreign references with a status code before the response turns into a stream.
   repo.requireFolderIn(input.workspaceId, input.folderId);
   if (input.environmentId) repo.requireEnvironmentIn(input.workspaceId, input.environmentId);
+  // Throws 429 while the queue is full, before the response becomes a stream.
+  const ticket = reserveRun();
   const events = createEventStream();
   // Runs persist results even if the subscriber disconnects or falls behind.
   void startRun({
@@ -49,6 +51,7 @@ export const POST = route(async (req: Request) => {
     data: input.data,
     selectedRequestIds: input.selectedRequestIds,
     retainResults: false,
+    ticket,
     onEvent: events.send,
   })
     .catch((err) => events.send({ type: "error", error: (err as Error).message }))

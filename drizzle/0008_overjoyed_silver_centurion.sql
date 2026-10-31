@@ -1,0 +1,1 @@
+ALTER TABLE `run_results` ADD `execution_details` text;

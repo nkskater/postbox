@@ -768,6 +768,33 @@ export const SETTINGS: SettingDef[] = [
     unit: "MB",
     keywords: ["memory", "sandbox", "script"],
   },
+  {
+    key: "execution.maxActiveRuns",
+    category: "execution",
+    label: "Concurrent collection runs",
+    description:
+      "How many collection runs (manual, API, MCP and scheduled) execute at the same time. Further runs wait in a queue.",
+    type: "number",
+    scope: "server",
+    env: "RUNS_MAX_ACTIVE",
+    default: 4,
+    min: 1,
+    max: 32,
+    keywords: ["runner", "queue", "parallel", "concurrency"],
+  },
+  {
+    key: "execution.maxQueuedRuns",
+    category: "execution",
+    label: "Queued collection runs",
+    description: "How many runs may wait for a free slot. When the queue is full, new runs are rejected.",
+    type: "number",
+    scope: "server",
+    env: "RUNS_MAX_QUEUED",
+    default: 20,
+    min: 0,
+    max: 500,
+    keywords: ["runner", "queue", "backlog"],
+  },
 ];
 
 export const SETTINGS_BY_KEY = new Map(SETTINGS.map((s) => [s.key, s]));
