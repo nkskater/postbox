@@ -1,3 +1,4 @@
+import "./build-sandbox.mjs";
 import { build } from "esbuild";
 import { chmod, cp, mkdir, readFile } from "node:fs/promises";
 import { createRequire } from "node:module";

@@ -198,6 +198,7 @@ function applySandboxRequest(r: RequestDef, s: SandboxRequest): RequestDef {
       enabled: !h.disabled,
     })),
     body: bodyFromSandbox(r.body, s.body ?? null),
+    auth: (s.auth as RequestDef["auth"] | undefined) ?? r.auth,
   };
 }
 
@@ -217,7 +218,11 @@ export function toSandboxResponse(res: HttpResponse): SandboxResponse {
 // ------------------------------------------------------------------ pipeline
 
 export async function execute(opts: ExecuteOptions): Promise<ExecuteResult> {
-  return executeInternal(opts, { depth: 0, budget: { remaining: 100 } });
+  return executeInternal(opts, {
+    depth: 0,
+    budget: { remaining: 100 },
+    collections: new Map([[opts.ancestors[0]?.id ?? null, { ...opts.scopes.collection }]]),
+  });
 }
 
 function applyChanges(
@@ -235,7 +240,12 @@ function applyChanges(
 
 async function executeInternal(
   opts: ExecuteOptions,
-  context: { depth: number; budget: { remaining: number } },
+  context: {
+    depth: number;
+    budget: { remaining: number };
+    collections: Map<string | null, Record<string, string>>;
+    variables?: Record<string, string>;
+  },
 ): Promise<ExecuteResult> {
   const secrets = opts.secrets ?? [];
   const logs: ConsoleEntry[] = [];
@@ -243,6 +253,15 @@ async function executeInternal(
   const scriptErrors: ScriptError[] = [];
   let scopes: VariableScopes = structuredClone(opts.scopes);
   let request: RequestDef = structuredClone(opts.request);
+  const effectiveScopes = () => ({ ...scopes, local: { ...scopes.local, ...context.variables } });
+  const collectionId = opts.ancestors[0]?.id ?? null;
+  const initialCollection = { ...scopes.collection };
+  const syncCollection = (current: VariableScopes) => {
+    context.collections.set(
+      collectionId,
+      applyChanges(context.collections.get(collectionId) ?? {}, initialCollection, current.collection),
+    );
+  };
   let nextRequest: string | null | undefined;
   let nextRequestSet = false;
 
@@ -282,11 +301,15 @@ async function executeInternal(
           combinedSignal?.throwIfAborted();
           for (const secret of saved.secrets ?? []) if (!secrets.includes(secret)) secrets.push(secret);
           const before = structuredClone(currentScopes ?? scopes);
-          const sameCollection = saved.ancestors[0]?.id === opts.ancestors[0]?.id;
+          syncCollection(before);
+          const sourceBefore = { ...context.collections.get(collectionId) };
+          const targetId = saved.ancestors[0]?.id ?? null;
+          const sameCollection = targetId === collectionId;
+          if (!context.collections.has(targetId))
+            context.collections.set(targetId, { ...saved.collectionVariables });
           const childScopes = structuredClone(before);
           if (!sameCollection)
-            childScopes.collection = { ...before.collection, ...saved.collectionVariables };
-          const initialCollection = { ...childScopes.collection };
+            childScopes.collection = { ...before.collection, ...context.collections.get(targetId) };
           const overrides = Object.fromEntries(
             Object.entries(options.variables ?? {}).map(([key, value]) => [
               key,
@@ -303,7 +326,7 @@ async function executeInternal(
               secrets,
               signal: combinedSignal,
             },
-            { depth: context.depth + 1, budget: context.budget },
+            { ...context, depth: context.depth + 1, variables: overrides },
           );
           combinedSignal?.throwIfAborted();
           tests.push(...child.tests);
@@ -315,15 +338,15 @@ async function executeInternal(
             if (Object.hasOwn(before.local, key)) returnedScopes.local[key] = before.local[key];
             else delete returnedScopes.local[key];
           }
-          if (!sameCollection) {
-            const collection = applyChanges(
-              saved.collectionVariables ?? {},
-              initialCollection,
-              child.scopes.collection,
-            );
-            saved.onExecution?.({ ...child, scopes: { ...child.scopes, collection } });
-            returnedScopes.collection = before.collection;
-          } else saved.onExecution?.(child);
+          saved.onExecution?.({
+            ...child,
+            scopes: { ...child.scopes, collection: context.collections.get(targetId)! },
+          });
+          returnedScopes.collection = applyChanges(
+            before.collection,
+            sourceBefore,
+            context.collections.get(collectionId)!,
+          );
           return {
             response: child.response ? toSandboxResponse(child.response) : null,
             scopes: returnedScopes,
@@ -353,7 +376,7 @@ async function executeInternal(
           enabled: !h.disabled,
         })),
         body: bodyFromSandbox({ mode: "none" }, spec.body as Record<string, unknown> | null),
-        auth: { type: "none" },
+        auth: spec.auth ?? { type: "none" },
         preRequestScript: "",
         testScript: "",
         settings: { ...DEFAULT_SETTINGS },
@@ -413,6 +436,7 @@ async function executeInternal(
           response,
           info: { ...info(phase), locationCurrent: step.name },
           cookies,
+          variableOverrides: context.variables,
         },
         { host, limits: opts.scriptLimits, secrets, source, signal: opts.signal },
       );
@@ -430,19 +454,22 @@ async function executeInternal(
     return false;
   };
 
-  const base = (): ExecuteResult => ({
-    tests,
-    logs,
-    scriptErrors,
-    scopes,
-    unresolved: [],
-    skipped: false,
-    nextRequest,
-    nextRequestSet,
-  });
+  const base = (): ExecuteResult => {
+    syncCollection(scopes);
+    return {
+      tests,
+      logs,
+      scriptErrors,
+      scopes,
+      unresolved: [],
+      skipped: false,
+      nextRequest,
+      nextRequestSet,
+    };
+  };
 
   // 1. pre-request scripts
-  const jarCookies = jar ? await jar.list() : [];
+  const jarCookies = jar ? await jar.forUrl(new Resolver(effectiveScopes()).resolve(request.url)) : [];
   const skipped = await runPhase("prerequest", undefined, jarCookies);
   if (skipped) return { ...base(), skipped: true };
 
@@ -450,7 +477,7 @@ async function executeInternal(
   if (opts.overrides?.timeoutMs)
     request.settings = { ...request.settings, timeoutMs: opts.overrides.timeoutMs };
   if (opts.overrides?.verifySsl === false) request.settings = { ...request.settings, verifySsl: false };
-  const resolver = new Resolver(scopes);
+  const resolver = new Resolver(effectiveScopes());
   let prepared;
   let oauth2Token: OAuth2Token | undefined;
   try {
@@ -501,7 +528,7 @@ async function executeInternal(
   });
 
   // 4. test scripts
-  const cookiesAfter = jar ? await jar.list() : [];
+  const cookiesAfter = jar ? await jar.forUrl(response.url) : [];
   await runPhase("test", toSandboxResponse(response), cookiesAfter);
 
   return { ...base(), response, unresolved, sent, oauth2Token };

@@ -3,19 +3,20 @@
  * runtime with memory, stack and wall-clock limits. The guest has no access to
  * Node APIs; it can only call the host functions defined below.
  */
+import { randomBytes } from "node:crypto";
 import {
   getQuickJS,
-  shouldInterruptAfterDeadline,
   type QuickJSContext,
   type QuickJSDeferredPromise,
   type QuickJSHandle,
 } from "quickjs-emscripten";
-import type { ConsoleEntry, CookieInfo, TestResult } from "../types";
+import type { AuthConfig, ConsoleEntry, CookieInfo, TestResult } from "../types";
 import type { VariableScopes } from "../variables/resolver";
 import { redactSecrets } from "../variables/resolver";
 import { generateDynamic } from "../variables/dynamic";
 import { CONSOLE_LEVELS, describeIssues, sandboxStateSchema, sendRequestSpecSchema } from "../schemas";
 import { BOOTSTRAP_SOURCE } from "./bootstrap";
+import { LIBRARIES_SOURCE } from "./libraries.generated";
 
 export type ScriptEvent = "prerequest" | "test";
 
@@ -63,6 +64,7 @@ export interface ScriptContext {
   response?: SandboxResponse;
   info: ScriptInfo;
   cookies?: CookieInfo[];
+  variableOverrides?: Record<string, string>;
 }
 
 /** Request object passed to pm.sendRequest (Postman request-definition shape). */
@@ -70,6 +72,7 @@ export interface SendRequestSpec {
   url: string;
   method: string;
   header: SandboxHeader[];
+  auth?: AuthConfig;
   body: {
     mode?: string;
     raw?: string;
@@ -164,11 +167,10 @@ export async function runScript(
 
   const QuickJS = await loadQuickJS();
   const runtime = QuickJS.newRuntime();
-  const deadline = Date.now() + limits.timeoutMs;
+  let deadline = Date.now() + 5000;
   runtime.setMemoryLimit(limits.memoryBytes);
   runtime.setMaxStackSize(1024 * 1024);
-  const deadlineInterrupt = shouldInterruptAfterDeadline(deadline);
-  runtime.setInterruptHandler(() => opts.signal?.aborted === true || deadlineInterrupt(runtime));
+  runtime.setInterruptHandler(() => opts.signal?.aborted === true || Date.now() >= deadline);
   const vm = runtime.newContext();
 
   let disposed = false;
@@ -226,6 +228,19 @@ export async function runScript(
   };
 
   try {
+    define("__host_random", (lengthH) => {
+      const length = vm.getNumber(lengthH);
+      if (!Number.isSafeInteger(length) || length < 0 || length > 65536)
+        throw new Error("Invalid random byte count");
+      return vm.newString(randomBytes(length).toString("hex"));
+    });
+    const libraries = vm.evalCode(LIBRARIES_SOURCE, "postbox-libraries.js");
+    if (libraries.error) {
+      const message = describeError(vm, libraries.error);
+      libraries.error.dispose();
+      return { ...base, error: `Sandbox libraries failed: ${message}` };
+    }
+    libraries.value.dispose();
     define("__host_log", (levelH, msgH) => {
       const raw = vm.getString(levelH);
       const level: ConsoleEntry["level"] = (CONSOLE_LEVELS as readonly string[]).includes(raw)
@@ -333,6 +348,7 @@ export async function runScript(
         response: ctx.response,
         info: ctx.info,
         cookies: ctx.cookies ?? [],
+        variableOverrides: ctx.variableOverrides ?? {},
       }),
     );
     vm.setProp(vm.global, "__ctx_json", ctxStr);
@@ -345,12 +361,13 @@ export async function runScript(
       return { ...base, error: `Sandbox bootstrap failed: ${msg}` };
     }
     boot.value.dispose();
+    deadline = Date.now() + limits.timeoutMs;
 
     // Wrap user code in an async function so top-level `await` works and errors are caught.
     const wrapped =
       "(async function () {\n" +
       code +
-      "\n})().then(function () { return __drain().then(function () { return null; }); }, function (e) { return __drain().then(function () { return e === __skipSignal ? null : __errMsg(e); }); })";
+      "\n})().then(function () { return __drain().then(function () { return null; }); }, function (e) { return __drain().then(function () { return e === __skipSignal ? null : __errMsg(e); }); }).catch(function(e) { return __state.skip ? null : __errMsg(e); })";
     const evalResult = vm.evalCode(wrapped, "script.js");
     if (evalResult.error) {
       const msg = describeError(vm, evalResult.error);

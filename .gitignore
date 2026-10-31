@@ -38,3 +38,6 @@ npm-debug.log*
 CLAUDE.md
 .claude/
 
+
+# sandbox browser bundle, rebuilt by npm scripts
+src/core/scripts/libraries.generated.ts

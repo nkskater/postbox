@@ -296,12 +296,13 @@ describe("script sandbox", () => {
       `pm.test("members", () => {
          pm.expect([1, 1, 2]).to.have.members([1, 2, 1]);
          pm.expect([1, 1, 2]).to.include.members([1, 1]);
-         pm.expect(() => pm.expect([1, 1]).to.have.members([1, 2])).to.throw(/same members/);
+         pm.expect(() => pm.expect([1, 1]).to.have.members([1, 2])).to.throw(/members/);
        });
        pm.test("ordered", () => {
          pm.expect([1, 2, 3]).to.have.ordered.members([1, 2, 3]);
-         pm.expect([1, 2, 3]).to.include.ordered.members([1, 3]);
-         pm.expect(() => pm.expect([1, 2, 3]).to.have.ordered.members([2, 1, 3])).to.throw(/same members/);
+         pm.expect([1, 2, 3]).to.include.ordered.members([1, 2]);
+         pm.expect(() => pm.expect([1, 2, 3]).to.include.ordered.members([1, 3])).to.throw();
+         pm.expect(() => pm.expect([1, 2, 3]).to.have.ordered.members([2, 1, 3])).to.throw(/members/);
        });`,
       ctx(),
     );
@@ -448,7 +449,7 @@ describe("script sandbox", () => {
     expect(result.error).toMatch(/cancelled/);
     expect(hostSignal?.aborted).toBe(true);
   });
-  it("reports unsupported JSON schema constraints instead of silently passing", async () => {
+  it("validates schema combinators instead of silently passing", async () => {
     const result = await runScript(
       `pm.test("unsupported schema", () => pm.expect({ id: 1 }).to.have.jsonSchema({ allOf: [{ type: "string" }] }));`,
       ctx(),
@@ -456,7 +457,41 @@ describe("script sandbox", () => {
     expect(result.error).toBeUndefined();
     expect(result.tests[0]).toMatchObject({
       passed: false,
-      error: "JSON schema keyword allOf is not supported in Postbox scripts",
+      error: expect.stringContaining("must be string"),
     });
+  });
+  it("runs bounded intervals, clears them and surfaces uncaught timer errors", async () => {
+    const result = await runScript(
+      `let count = 0; const interval = setInterval(() => { if (++count === 3) { clearInterval(interval); pm.test("interval", () => pm.expect(count).to.equal(3)); } }, 1);`,
+      ctx(),
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.tests[0]).toMatchObject({ name: "interval", passed: true });
+    const error = await runScript('setTimeout(() => { throw new Error("timer failed"); }, 1);', ctx());
+    expect(error.error).toMatch(/timer failed/);
+  });
+
+  it("exposes binary-safe SDK response streams and correct base64 globals", async () => {
+    const result = await runScript(
+      `pm.test("binary SDK", () => {
+      pm.expect(pm.response.stream.toString("hex")).to.equal("000102ff");
+      pm.expect(atob("YQ==")).to.equal("a");
+      pm.expect(btoa("a")).to.equal("YQ==");
+      pm.expect(() => atob("a")).to.throw();
+    });`,
+      ctx({
+        response: {
+          code: 200,
+          status: "OK",
+          headers: [],
+          body: "",
+          bodyBase64: "AAEC/w==",
+          responseTime: 1,
+          responseSize: 4,
+        },
+      }),
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.tests[0].passed).toBe(true);
   });
 });

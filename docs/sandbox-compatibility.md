@@ -1,39 +1,41 @@
 # Script compatibility
 
-Postbox runs HTTP pre-request and post-response scripts in QuickJS. The same
-executor powers the UI Send action, REST/MCP sends, collection runner, scheduler
-and standalone CLI. This is a supported subset of the
-[Postman sandbox API](https://learning.postman.com/docs/tests-and-scripts/write-scripts/postman-sandbox-reference/overview/),
-not a claim of complete SDK or package compatibility. Remaining work is tracked
-in [LAB-140](https://nkskater.atlassian.net/browse/LAB-140).
+Postbox runs HTTP pre-request and post-response scripts in QuickJS. The UI Send
+action, REST/MCP sends, collection runner, scheduler and standalone CLI share the
+same executor and conformance contract.
 
 ## API inventory
 
-| API                                                      | Supported behavior and boundaries                                                                                                                                                                                                                                                                        |
-| -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pm.globals`, `pm.environment`, `pm.collectionVariables` | `get`, `has`, `set`, `unset`, `clear`, `toObject`, `toJSON`, `replaceIn`; values are stored as strings. Environment changes require a selected environment to persist.                                                                                                                                   |
-| `pm.variables`                                           | Resolution across scopes, local `set`/`unset`, `has`, `toObject`, `replaceIn`. Precedence: global, collection, environment, iteration data, local.                                                                                                                                                       |
-| `pm.iterationData`                                       | Read access with `get`, `has`, `toObject`, `toJSON`, `replaceIn`. Mutation is unsupported.                                                                                                                                                                                                               |
-| `pm.info`                                                | Event, request ID/name, iteration and iteration count.                                                                                                                                                                                                                                                   |
-| `pm.request`                                             | Mutable method, URL string/`Url`, headers and basic body `update`; file contents are hidden. Auth SDK mutations and the full structured URL/body SDK are unsupported.                                                                                                                                    |
-| Header/query lists                                       | `get`, `has`, `one`, `all`, `toObject`, `toJSON`, `each`/`forEach`, `map`, `filter`, `count`, `add`, `upsert`, `remove`, `clear`. Header keys ignore case; query keys preserve case. This is a basic list subset, not the full Collection SDK.                                                           |
-| URL                                                      | `update`, `toString`, `getHost`, `getPath`, `getQueryString`, `addQueryParams`, `removeQueryParams`, `query`.                                                                                                                                                                                            |
-| `pm.response`                                            | `code`, `status`, `headers`, `responseTime`, `responseSize`, cookies, `text`, `json`, `reason`, `dataURI`, `toJSON`, and basic status/header/body assertions. `stream` is text, not a Node Buffer.                                                                                                       |
-| `pm.test`                                                | Synchronous, promise and `done` callback forms; `skip`; `index` counts declarations, including pending tests. Callback tests must finish or the script times out.                                                                                                                                        |
-| `pm.expect`, `require("chai")`                           | BDD subset: equality, types, numeric bounds, includes, keys, properties, lengths, matches, throws, members and response assertions. Ordered and duplicate array member comparisons are covered. The `assert` shim is a truthiness function. Full Chai plugins and SDK extensions are unsupported.        |
-| `jsonSchema` assertion                                   | Object schemas: type, enum, const, required, properties, boolean additionalProperties, items, numeric bounds, string length/pattern and array length. Unsupported constraint keywords fail explicitly instead of silently passing. Full draft validation, references and combinators remain unsupported. |
-| `pm.sendRequest`                                         | Promise and callback forms, using current script variables, host policy and instance request defaults. No filesystem uploads.                                                                                                                                                                            |
-| `pm.execution.runRequest`                                | Saved request ID, promise response, variable overrides, inherited scripts/auth/headers, child assertions and variable changes. See below.                                                                                                                                                                |
-| `pm.execution.location`                                  | Collection/folder/request path; `.current` is the folder or request whose script is running.                                                                                                                                                                                                             |
-| Flow control                                             | `setNextRequest` works in collection runs; `skipRequest` immediately stops a pre-request script and skips the remaining pre-request and post-response scripts. Calling it after a response fails explicitly.                                                                                             |
-| Cookies                                                  | Snapshot `get`, `has`, `getAll`/`toObject` access. The HTTP engine manages the shared cookie jar; `pm.cookies.jar()` fails explicitly.                                                                                                                                                                   |
-| Console/timers                                           | `console.log/info/warn/error/debug`, `setTimeout` and `clearTimeout`. Clearing a timer releases its wait. `setInterval` fails explicitly.                                                                                                                                                                |
-| Legacy globals                                           | `postman` variable helpers/`setNextRequest`, `tests`, response globals, `environment`, `globals`, `data`, `request`, `btoa` and `atob`.                                                                                                                                                                  |
-| Unsupported product APIs                                 | `pm.require`, vault get/set/unset, visualizer set, datasets, mock create, state get/set/unset/clear and streaming message text/json report unsupported behavior. Other `require` modules fail explicitly.                                                                                                |
+| API                                                      | Contract                                                                                                                                                                                                                                                                                                                                   |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `pm.globals`, `pm.environment`, `pm.collectionVariables` | `get`, `has`, `set`, `unset`, `clear`, `toObject`, `toJSON`, `replaceIn`; stored values are strings. Environment changes persist when an environment is selected.                                                                                                                                                                          |
+| `pm.variables`                                           | Scope resolution, local `set`/`unset`, `has`, `toObject`, `replaceIn`. Precedence: global, collection, environment, iteration data, local; saved-request invocation overrides rank above local.                                                                                                                                            |
+| `pm.iterationData`                                       | Read access with `get`, `has`, `toObject`, `toJSON`, `replaceIn`. Writes fail.                                                                                                                                                                                                                                                             |
+| `pm.info`                                                | Event, request ID/name, iteration and iteration count.                                                                                                                                                                                                                                                                                     |
+| `pm.request`                                             | Collection SDK Request, URL, auth, header and body objects. URL/auth/header/body mutations are serialized back into the shared execution pipeline. Existing string `body.update()` behavior remains supported. Attached file contents stay outside the sandbox. Script-added file bodies, proxy and certificate mutations fail explicitly. |
+| `pm.response`                                            | Collection SDK Response, including binary Buffer stream, headers, cookies, text/JSON/JSONP, content information, sizes, data URI and response assertions.                                                                                                                                                                                  |
+| `pm.test`                                                | Synchronous, promise and `done` callback forms, `skip`, and declaration-based `index`. Callback tests must finish or the script times out. Uncaught asynchronous callback/timer errors surface as script errors.                                                                                                                           |
+| `pm.expect`, `require("chai")`                           | Chai 4.5.0 plus Postman's response assertion plugin 2.0.1, including full BDD/TDD assertions, deep Date/RegExp/Map/Set equality, ordered members, throw overloads and invalid-assertion errors.                                                                                                                                            |
+| `jsonSchema` assertion                                   | Ajv 8.20.0 with formats. Supports draft-07 (default), 2019-09 and 2020-12, local references, combinators, boolean schemas and schema-valued additionalProperties. Unknown keywords/drafts fail explicitly. Remote/asynchronous schema loading is unavailable.                                                                              |
+| `require("postman-collection")`                          | Collection SDK 5.3.1, including structured URLs, property lists, RequestAuth/RequestBody and response helpers. Deprecated methods retain upstream errors.                                                                                                                                                                                  |
+| `Buffer`, `require("buffer")`                            | Browser Buffer implementation; no Node host objects cross into QuickJS.                                                                                                                                                                                                                                                                    |
+| `pm.sendRequest`                                         | Promise and callback forms, accepting strings, request definitions or SDK Request objects, with current variables, configured auth, host policy and instance request defaults. No filesystem uploads.                                                                                                                                      |
+| `pm.execution.runRequest`                                | Saved request ID, promise response, invocation overrides, inherited scripts/auth/headers, child assertions and variable changes. See below.                                                                                                                                                                                                |
+| `pm.execution.location`                                  | Full collection/folder/request path. `.current` identifies the folder or request whose script is running.                                                                                                                                                                                                                                  |
+| Flow control                                             | `setNextRequest` controls collection runs. `skipRequest` stops the current pre-request script, skips the remaining pre-request chain and sends no request. Calling it after a response fails. Child flow-control decisions do not alter the root run.                                                                                      |
+| `pm.cookies`                                             | Case-sensitive `get`, `has`, `getAll`/`toObject` snapshot, restricted to cookies applicable to the request's domain/path/scheme. The HTTP engine manages cookie persistence; `jar()` fails explicitly.                                                                                                                                     |
+| Console/timers                                           | `console.log/info/warn/error/debug`, bounded `setTimeout`/`setInterval`, `clearTimeout`/`clearInterval`. Clearing a timer releases its wait.                                                                                                                                                                                               |
+| Legacy globals                                           | `postman` variable helpers/`setNextRequest`, `tests`, response globals, `environment`, `globals`, `data`, `request`, Latin-1 `btoa`/`atob`.                                                                                                                                                                                                |
+
+Product capabilities with their own backlog stories remain explicitly unavailable
+in scripts: vault access (LAB-75), package registry imports via `pm.require`
+(LAB-77), visualizations (LAB-78), datasets (LAB-80), mocks (LAB-81), persistent
+mock state (LAB-82), and streaming message APIs. Other `require` modules fail
+explicitly. These calls cannot silently pretend to perform an unsupported action.
 
 ## Execute a saved request
 
-Copy a saved request's Postbox ID, then call it from either script tab:
+Copy a saved request's Postbox ID and use it in either script tab:
 
 ```javascript
 const response = await pm.execution.runRequest("saved-request-id", {
@@ -43,38 +45,49 @@ pm.test("lookup succeeded", () => pm.expect(response.code).to.equal(200));
 ```
 
 Server sends and runs resolve IDs only within the current workspace. The
-standalone CLI resolves Postbox IDs within the imported collection; imports
-assign new IDs, so source Postman IDs must be updated. A helper request can save
-its runtime ID with `pm.globals.set("helperId", pm.info.requestId)` before later
-requests reference it.
+standalone CLI resolves IDs within the imported collection, including requests
+excluded from the selected run. Imports assign new IDs, so source Postman IDs
+must be updated. A helper can save its runtime ID with
+`pm.globals.set("helperId", pm.info.requestId)` for later requests.
 
-The referenced collection's variables override the root collection's variables;
-environment, data, local values and invocation overrides take precedence over
-both. Overrides do not escape into the caller. Child global/environment/local
-changes return to the calling script, while collection changes stay with their
-owning collection. Server collection variable changes obey the run's
-`persistVariables` option. Await calls whose ordering or variable changes matter.
+The referenced collection's variables override the caller collection's values.
+Environment, iteration data, local variables and invocation overrides take
+precedence over both. Invocation overrides cannot escape back into the caller.
+Child global/environment/local changes return to the calling script; collection
+changes remain with their owning collection. Referenced collection changes stay
+available in memory even with persistence disabled. Server writes obey the run's
+`persistVariables` setting. Await calls when ordering or variable changes matter.
 
-A skipped reference returns `null`. A network failure rejects the promise; child
-script errors and assertions appear with the root request's results. Child
-`setNextRequest` does not change the root run's flow. Referenced executions do not
-create separate history/run-result rows.
+A skipped reference returns `null`. Network failures reject after returning
+partial variable changes. Child assertions and script errors appear in the root
+results. References do not create separate history/run-result rows.
 
-The host enforces at most ten saved-request calls per script, five nested
-references and 100 referenced executions per root request. All host requests
-also count against the script's host-request quota. Caller cancellation and script
-timeouts abort nested HTTP work. Scripts cannot access Node APIs, the filesystem,
-`fetch`, or arbitrary host objects. These limits remain enforced if scripts
-replace their guest-side helpers.
+## Limits and distribution
 
-## Conformance coverage
+The host enforces ten saved-request calls per script, five nested references and
+100 referenced executions per root request. All host requests also count against
+the script's host quota. Caller cancellation and script timeouts abort nested
+HTTP. Timers and intervals share a bounded scheduling quota. Scripts have no Node
+APIs, filesystem, `fetch`, or arbitrary host object references. Host limits still
+apply if scripts replace their guest helpers.
 
-`tests/helpers/sandbox-conformance.ts` defines one deterministic contract for SDK
-mutations, callbacks, child responses/assertions, scopes, location and isolation.
-It runs through the UI's actual Send route, core collection runner and built
-standalone CLI. Focused sandbox and saved-request tests additionally cover quota
-bypass attempts, malformed scope snapshots, external cancellation, timeout
-cleanup, workspace isolation, collection precedence and secret redaction.
+`npm run build:sandbox` bundles the pinned browser libraries as JavaScript source
+for execution inside QuickJS. The normal dev/test/typecheck/lint/build commands
+regenerate this ignored artifact; the standalone CLI builder does the same.
+Trusted library initialization has its own five-second guard and runs within the
+script memory limit, before the user script's timeout starts. The production web
+and CLI bundles include this source, so runtime installations need no bundler.
 
-References: [execution semantics](https://learning.postman.com/docs/tests-and-scripts/write-scripts/postman-sandbox-reference/pm-execution/),
+## Conformance
+
+`tests/helpers/sandbox-conformance.ts` defines one deterministic contract used by
+the actual Send route, collection runner and built standalone CLI. It checks SDK
+URL/auth/body/header mutations reaching HTTP, callback tests, full Chai behavior,
+schema drafts/references, SDK-based sends, saved-request responses, scope
+precedence, locations and isolation. Focused tests cover malformed host messages,
+quotas, nested collection ownership, persistence settings, cookie boundaries,
+redaction, timeout cleanup, external cancellation, intervals and binary streams.
+
+References: [sandbox API](https://learning.postman.com/docs/tests-and-scripts/write-scripts/postman-sandbox-reference/overview/),
+[execution semantics](https://learning.postman.com/docs/tests-and-scripts/write-scripts/postman-sandbox-reference/pm-execution/),
 [test APIs](https://learning.postman.com/docs/tests-and-scripts/write-scripts/postman-sandbox-reference/pm-test-expect/).

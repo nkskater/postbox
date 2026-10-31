@@ -64,7 +64,7 @@ describe("collection runner", () => {
       scopes: { ...scopes(), collection: { value: "root" } },
       options: DEFAULT_RUN_OPTIONS,
     });
-    expect(summary).toMatchObject({ status: "passed", totalRequests: 2, totalTests: 7, failedTests: 0 });
+    expect(summary).toMatchObject({ status: "passed", totalRequests: 2, totalTests: 10, failedTests: 0 });
     expect(after.environment.childResult).toBe("yes");
     expect(after.local.value).toBeUndefined();
   });

@@ -75,7 +75,7 @@ describe("saved request execution", () => {
     expect(response.status).toBe(200);
     const result = await response.json();
     expect(result.scriptErrors).toEqual([]);
-    expect(result.tests).toHaveLength(6);
+    expect(result.tests).toHaveLength(9);
     expect(result.tests.every((test: { passed: boolean }) => test.passed)).toBe(true);
     expect(result.nextRequestSet).toBe(false);
     expect(repo.listVariables(ws.id, "environment", environment.id)).toEqual(
@@ -254,5 +254,69 @@ describe("saved request execution", () => {
     expect(result.scriptErrors).toEqual([]);
     expect(result.tests[0].passed).toBe(true);
     expect(result.scopes.environment.partial).toBe("yes");
+  });
+  it("retains referenced collection changes in memory when persistence is disabled", async () => {
+    const a = {
+      id: "a",
+      name: "A",
+      auth: { type: "none" as const },
+      headers: [],
+      preRequestScript: "",
+      testScript: "",
+    };
+    const b = { ...a, id: "b", name: "B" };
+    const result = await execute({
+      request: request({
+        preRequestScript: `await pm.execution.runRequest("child"); const second = await pm.execution.runRequest("child"); pm.test("counter", () => pm.expect(second.json().query.count).to.equal("1"));`,
+      }),
+      ancestors: [a],
+      scopes: emptyScopes(),
+      resolveRequest: () => ({
+        ancestors: [b],
+        collectionVariables: {},
+        request: request({
+          url: `${server.url}/echo?count={{count}}`,
+          preRequestScript:
+            'pm.collectionVariables.set("count", pm.collectionVariables.get("next") || "0"); pm.collectionVariables.set("next", "1");',
+        }),
+      }),
+    });
+    expect(result.scriptErrors).toEqual([]);
+    expect(result.tests).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "counter", passed: true })]),
+    );
+    expect(result.scopes.collection).toEqual({});
+  });
+
+  it("returns nested changes to the root collection through a different collection", async () => {
+    const a = {
+      id: "a",
+      name: "A",
+      auth: { type: "none" as const },
+      headers: [],
+      preRequestScript: "",
+      testScript: "",
+    };
+    const b = { ...a, id: "b", name: "B" };
+    const result = await execute({
+      request: request({
+        preRequestScript: `await pm.execution.runRequest("in-b"); pm.test("nested owner", () => pm.expect(pm.collectionVariables.get("changed")).to.equal("yes"));`,
+      }),
+      ancestors: [a],
+      scopes: emptyScopes(),
+      resolveRequest: (id) =>
+        id === "in-b"
+          ? {
+              ancestors: [b],
+              request: request({ preRequestScript: 'await pm.execution.runRequest("in-a");' }),
+            }
+          : {
+              ancestors: [a],
+              request: request({ preRequestScript: 'pm.collectionVariables.set("changed", "yes");' }),
+            },
+    });
+    expect(result.scriptErrors).toEqual([]);
+    expect(result.tests[0]).toMatchObject({ name: "nested owner", passed: true });
+    expect(result.scopes.collection.changed).toBe("yes");
   });
 });

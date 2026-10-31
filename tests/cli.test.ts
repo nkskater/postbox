@@ -71,7 +71,7 @@ describe("standalone CLI", () => {
     expect(result.stderr).toBe("");
     expect(result.code).toBe(0);
     const report = JSON.parse(await readFile(path.join(directory, "postbox-report.json"), "utf8"));
-    expect(report).toMatchObject({ status: "passed", totalRequests: 2, totalTests: 7, failedTests: 0 });
+    expect(report).toMatchObject({ status: "passed", totalRequests: 2, totalTests: 10, failedTests: 0 });
   });
 
   it("runs CSV iterations with environment/globals and exports JSON, JUnit and HTML", async () => {

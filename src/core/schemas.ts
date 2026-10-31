@@ -229,6 +229,7 @@ export const sendRequestSpecSchema = z.object({
   url: z.string(),
   method: methodSchema,
   header: z.array(sandboxHeaderSchema).default([]),
+  auth: authSchema.optional(),
   body: sandboxBodySchema.nullable().default(null),
 });
 
@@ -259,6 +260,7 @@ export const sandboxStateSchema = z.object({
     method: methodSchema,
     headers: z.array(sandboxHeaderSchema),
     body: sandboxBodySchema.nullish(),
+    auth: authSchema.optional(),
   }),
 });
 
