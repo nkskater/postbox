@@ -53,6 +53,7 @@ export interface ScriptInfo {
   iterationCount: number;
   requestName: string;
   requestId: string;
+  location?: string[];
 }
 
 export interface ScriptContext {

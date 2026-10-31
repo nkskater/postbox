@@ -249,6 +249,18 @@ describe("script sandbox", () => {
     );
   });
 
+  it("exposes the full execution path and current item", async () => {
+    const r = await runScript(
+      `pm.test("location", () => {
+         pm.expect(pm.execution.location).to.deep.equal(["Collection", "Folder", "Create"]);
+         pm.expect(pm.execution.location.current).to.equal("Create");
+       });`,
+      ctx({ info: { ...ctx().info, location: ["Collection", "Folder", "Create"] } }),
+    );
+    expect(r.error).toBeUndefined();
+    expect(r.tests[0]).toMatchObject({ name: "location", passed: true });
+  });
+
   it("enforces the Postman runRequest limit and reports missing host support", async () => {
     const runRequest = vi.fn(async () => null);
     const limited = await runScript(

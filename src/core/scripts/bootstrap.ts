@@ -628,7 +628,13 @@ var pm = {
     },
     setNextRequest: function (name) { __state.nextRequest = name === null ? null : String(name); __state.nextRequestSet = true; },
     skipRequest: function () { __state.skip = true; },
-    location: [__ctx.info.requestName]
+    location: (function () {
+      var path = Array.isArray(__ctx.info.location) && __ctx.info.location.length
+        ? __ctx.info.location.slice()
+        : [__ctx.info.requestName];
+      Object.defineProperty(path, "current", { get: function () { return path[path.length - 1]; } });
+      return path;
+    })()
   }
 };
 pm.test.index = function () { return __state.tests.length; };
