@@ -1,0 +1,10 @@
+$id: pet.yaml
+$anchor: pet
+type: object
+properties:
+  name: {type: string, example: 'Mochi 🐾'}
+  child: {$ref: '#pet'}
+  metadata:
+    type: object
+    properties:
+      $ref: {type: string, default: literal}

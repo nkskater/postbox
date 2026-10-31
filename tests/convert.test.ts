@@ -202,6 +202,7 @@ paths:
     expect(root.auth).toEqual({ type: "bearer", bearer: { token: "{{token}}" } });
     expect(variables).toEqual([
       { key: "baseUrl", value: "https://api.pets.test/v1", type: "default", enabled: true },
+      { key: "petId", value: "", type: "default", enabled: true },
     ]);
     const pets = root.children.find((c) => c.name === "pets") as FolderNode;
     const list = pets.children[0] as RequestNode;

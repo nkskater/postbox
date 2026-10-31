@@ -18,7 +18,9 @@
  *   (`baseUrl_2`, `baseUrl_3`, …) so every request resolves to its intended host
  *   while remaining editable.
  */
-import YAML from "yaml";
+import { parseSpec, isOpenApi } from "./openapi-document";
+export { parseSpec, isOpenApi } from "./openapi-document";
+import { localReferenceValue, documentSourceUrl } from "./openapi-references";
 import type { AuthConfig, BodyConfig, FolderNode, KeyValue, RequestNode, Variable } from "../types";
 import { DEFAULT_SETTINGS } from "../types";
 import type { ImportedCollection } from "./postman";
@@ -27,46 +29,31 @@ type Obj = Record<string, unknown>;
 const id = () => Math.random().toString(36).slice(2, 12) + Math.random().toString(36).slice(2, 6);
 const METHODS = ["get", "put", "post", "delete", "options", "head", "patch", "trace"];
 
-export function parseSpec(text: string): Obj {
-  const t = text.trim();
-  return (t.startsWith("{") ? JSON.parse(t) : YAML.parse(t)) as Obj;
-}
-
-export function isOpenApi(data: unknown): data is Obj {
-  const d = data as Obj;
-  return (
-    !!d &&
-    typeof d === "object" &&
-    (typeof d.openapi === "string" || typeof d.swagger === "string") &&
-    !!d.paths
-  );
-}
-
-/** Resolve local "#/..." JSON references (one level at a time, cycle-safe via depth). */
-function deref(spec: Obj, value: unknown, depth = 0): Obj {
-  let v = value as Obj;
-  let guard = 0;
-  while (v && typeof v === "object" && typeof v.$ref === "string" && guard++ < 20) {
-    const ref = v.$ref as string;
-    if (!ref.startsWith("#/")) return {};
-    v = ref
-      .slice(2)
-      .split("/")
-      .map((p) => p.replace(/~1/g, "/").replace(/~0/g, "~"))
-      .reduce<unknown>((acc, key) => (acc as Obj | undefined)?.[key], spec) as Obj;
-  }
-  return depth > 50 ? {} : (v ?? {});
+/** Missing, external and reference-only cycles are explicit conversion errors. */
+function deref(spec: Obj, value: unknown): Obj {
+  const resolved = localReferenceValue(spec, value);
+  if (resolved === undefined || resolved === null || resolved === true) return {};
+  if (resolved === false) throw new Error("A false schema has no permitted sample values");
+  if (typeof resolved !== "object" || Array.isArray(resolved))
+    throw new Error("OpenAPI reference target must be an object");
+  return resolved as Obj;
 }
 
 /** Build an example value from a schema (example > default > enum > generated). */
 export function sampleFromSchema(spec: Obj, schemaIn: unknown, depth = 0): unknown {
-  const schema = deref(spec, schemaIn);
+  const resolved = localReferenceValue(spec, schemaIn);
+  if (resolved === true) return null;
+  if (resolved === false) throw new Error("A false schema has no permitted sample values");
+  const schema = deref(spec, resolved);
   if (depth > 6) return null;
   if ("example" in schema) return schema.example;
   if ("default" in schema) return schema.default;
   if (Array.isArray(schema.enum) && schema.enum.length) return schema.enum[0];
   if (Array.isArray(schema.allOf)) {
-    return Object.assign({}, ...schema.allOf.map((s) => sampleFromSchema(spec, s, depth + 1) as Obj));
+    return Object.assign(
+      Object.create(null),
+      ...schema.allOf.map((s) => sampleFromSchema(spec, s, depth + 1) as Obj),
+    );
   }
   for (const k of ["oneOf", "anyOf"])
     if (Array.isArray(schema[k]) && (schema[k] as unknown[]).length)
@@ -77,7 +64,7 @@ export function sampleFromSchema(spec: Obj, schemaIn: unknown, depth = 0): unkno
     case undefined: {
       if (!schema.properties && type === undefined)
         return schema.items ? [sampleFromSchema(spec, schema.items, depth + 1)] : "";
-      const out: Obj = {};
+      const out: Obj = Object.create(null);
       for (const [k, v] of Object.entries((schema.properties as Obj) ?? {}))
         out[k] = sampleFromSchema(spec, v, depth + 1);
       return out;
@@ -126,6 +113,7 @@ interface ResolvedServer {
  * resolving relative URLs against `baseDocUrl`.
  */
 function resolveOpenApiServer(server: Obj | null, baseDocUrl?: string): ResolvedServer {
+  baseDocUrl = documentSourceUrl(server, baseDocUrl);
   if (!server) {
     const fallback = resolveRelativeServerUrl("/", baseDocUrl);
     return { url: fallback, extraVariables: [] };
@@ -323,10 +311,12 @@ function buildBody(spec: Obj, op: Obj, params: Obj[]): { body: BodyConfig; conte
   const pick = json ?? types[0];
   const media = content[pick];
   const examples = media.examples as Record<string, Obj> | undefined;
-  const example =
-    media.example ??
-    (examples ? deref(spec, Object.values(examples)[0]).value : undefined) ??
-    sampleFromSchema(spec, media.schema);
+  const firstExample = examples ? deref(spec, Object.values(examples)[0]) : undefined;
+  const example = Object.hasOwn(media, "example")
+    ? media.example
+    : firstExample && Object.hasOwn(firstExample, "value")
+      ? firstExample.value
+      : sampleFromSchema(spec, media.schema);
   if (pick.includes("x-www-form-urlencoded") || pick.includes("multipart/form-data")) {
     const props = (deref(spec, media.schema).properties ?? {}) as Record<string, Obj>;
     const fields = Object.entries(props).map(([k, v]) => ({
@@ -364,7 +354,7 @@ function buildBody(spec: Obj, op: Obj, params: Obj[]): { body: BodyConfig; conte
       body: {
         mode: "raw",
         language: "json",
-        raw: typeof example === "string" ? example : JSON.stringify(example, null, 2),
+        raw: JSON.stringify(example, null, 2),
       },
       contentType: pick,
     };
@@ -418,9 +408,7 @@ export function importOpenApi(input: string | Obj, opts: { sourceUrl?: string } 
     ? { url: resolveSwaggerBaseUrl(spec, undefined, opts.sourceUrl), extraVariables: [] }
     : resolveOpenApiServer(pickFirstServer(spec, spec.servers), opts.sourceUrl);
 
-  const variables: Variable[] = [
-    { key: "baseUrl", value: rootResolved.url, type: "default", enabled: true },
-  ];
+  const variables: Variable[] = [{ key: "baseUrl", value: rootResolved.url, type: "default", enabled: true }];
   const usedVarKeys = new Set<string>(["baseUrl"]);
 
   // Reserve path parameter names so generated server variable keys never collide with them.
@@ -480,6 +468,13 @@ export function importOpenApi(input: string | Obj, opts: { sourceUrl?: string } 
         const v = p.example ?? deref(spec, p.schema).example ?? deref(spec, p.schema).default ?? p.default;
         return v === undefined ? "" : String(v);
       };
+      for (const parameter of params.filter((p) => p.in === "path")) {
+        const key = String(parameter.name);
+        if (!usedVarKeys.has(key)) {
+          usedVarKeys.add(key);
+          variables.push({ key, value: example(parameter), enabled: true, type: "default" });
+        }
+      }
       const query: KeyValue[] = params
         .filter((p) => p.in === "query")
         .map((p) => ({

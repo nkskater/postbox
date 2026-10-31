@@ -1,0 +1,15 @@
+servers: [{url: ../v2}]
+parameters:
+  - {$ref: '../shared/common.json#/id'}
+get:
+  operationId: readPet
+  responses:
+    '200':
+      description: Pet
+      content:
+        application/json:
+          schema: {$ref: '../models/pet.yaml#pet'}
+post:
+  operationId: createPet
+  requestBody: {$ref: '../shared/common.json#/body'}
+  responses: {'201': {description: Created}}
