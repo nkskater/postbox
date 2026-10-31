@@ -14,7 +14,7 @@ import type {
   TreeNode,
   Variable,
 } from "../types";
-import { DEFAULT_SETTINGS } from "../types";
+import { DEFAULT_SETTINGS, OAUTH1_SIGNATURE_METHODS } from "../types";
 import { authCredentialValues, credentialRedactionValues, redactSensitiveFields } from "../retention";
 import { redactStoredValue } from "../variables/resolver";
 
@@ -184,6 +184,29 @@ export function importAuth(a: PmAuth | null | undefined): AuthConfig {
           dlg: p.dlg || undefined,
           timestamp: p.timestamp || undefined,
           includePayloadHash: p.includePayloadHash === "true" || (p.includePayloadHash as unknown) === true,
+        },
+      };
+    }
+    case "oauth1": {
+      const bool = (v: unknown) => v === true || v === "true";
+      return {
+        type: "oauth1",
+        oauth1: {
+          consumerKey: p.consumerKey ?? "",
+          consumerSecret: p.consumerSecret ?? "",
+          token: p.token || undefined,
+          tokenSecret: p.tokenSecret || undefined,
+          signatureMethod: OAUTH1_SIGNATURE_METHODS.find((m) => m === p.signatureMethod),
+          privateKey: p.privateKey || undefined,
+          addTo: p.addParamsToHeader !== undefined && !bool(p.addParamsToHeader) ? "query" : undefined,
+          timestamp: p.timestamp || undefined,
+          nonce: p.nonce || undefined,
+          version: p.version ?? undefined,
+          realm: p.realm || undefined,
+          callback: p.callback || undefined,
+          verifier: p.verifier || undefined,
+          includeBodyHash: bool(p.includeBodyHash) || undefined,
+          addEmptyParamsToSign: bool(p.addEmptyParamsToSign) || undefined,
         },
       };
     }
@@ -539,6 +562,25 @@ function exportAuth(a: AuthConfig, includeCredentials = false): PmAuth | null | 
         type: "hawk",
         hawk: arr(raw),
       };
+    }
+    case "oauth1": {
+      const o = a.oauth1;
+      const raw: Record<string, string> = {
+        consumerKey: o.consumerKey,
+        consumerSecret: credential(o.consumerSecret),
+        signatureMethod: o.signatureMethod ?? "HMAC-SHA1",
+        addParamsToHeader: String((o.addTo ?? "header") === "header"),
+      };
+      if (o.token) raw.token = o.token;
+      if (o.tokenSecret) raw.tokenSecret = credential(o.tokenSecret);
+      if (o.privateKey) raw.privateKey = credential(o.privateKey);
+      for (const key of ["timestamp", "nonce", "version", "realm", "callback", "verifier"] as const) {
+        const value = o[key];
+        if (value !== undefined) raw[key] = value;
+      }
+      if (o.includeBodyHash) raw.includeBodyHash = "true";
+      if (o.addEmptyParamsToSign) raw.addEmptyParamsToSign = "true";
+      return { type: "oauth1", oauth1: arr(raw) };
     }
     case "awsv4": {
       const w = a.awsv4;

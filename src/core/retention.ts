@@ -28,6 +28,8 @@ export function authCredentialValues(auth: AuthConfig): string[] {
         return [auth.hawk.authKey];
       case "awsv4":
         return [auth.awsv4.secretKey, auth.awsv4.sessionToken ?? ""];
+      case "oauth1":
+        return [auth.oauth1.consumerSecret, auth.oauth1.tokenSecret ?? "", auth.oauth1.privateKey ?? ""];
       default:
         return [];
     }
@@ -91,6 +93,16 @@ export function withoutAuthCredentials(auth: AuthConfig): AuthConfig {
       return { ...auth, edgegrid: { ...auth.edgegrid, clientSecret: "", accessToken: "", clientToken: "" } };
     case "hawk":
       return { ...auth, hawk: { ...auth.hawk, authKey: "" } };
+    case "oauth1":
+      return {
+        ...auth,
+        oauth1: {
+          ...auth.oauth1,
+          consumerSecret: "",
+          tokenSecret: auth.oauth1.tokenSecret === undefined ? undefined : "",
+          privateKey: auth.oauth1.privateKey === undefined ? undefined : "",
+        },
+      };
     case "awsv4":
       return {
         ...auth,
@@ -165,6 +177,18 @@ export function restoreMissingCredentials(current: AuthConfig, saved: AuthConfig
         ...current,
         hawk: { ...current.hawk, authKey: current.hawk.authKey || (saved as typeof current).hawk.authKey },
       };
+    case "oauth1": {
+      const previous = (saved as typeof current).oauth1;
+      return {
+        ...current,
+        oauth1: {
+          ...current.oauth1,
+          consumerSecret: current.oauth1.consumerSecret || previous.consumerSecret,
+          tokenSecret: current.oauth1.tokenSecret || previous.tokenSecret,
+          privateKey: current.oauth1.privateKey || previous.privateKey,
+        },
+      };
+    }
     case "awsv4": {
       const previous = (saved as typeof current).awsv4;
       return {
