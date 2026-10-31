@@ -7,6 +7,23 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import type { SoapUiCounts, SoapUiDiagnostic } from "@/core/convert/soapui";
 
+const COUNT_LABELS: Record<keyof SoapUiCounts, string> = {
+  interfaces: "Interfaces",
+  endpoints: "Endpoints",
+  resources: "Resources",
+  testSuites: "Test suites",
+  testCases: "Test cases",
+  requestDefinitions: "Saved request definitions",
+  requestTestSteps: "Request test steps",
+  convertedRequests: "Converted requests",
+  skippedRequests: "Skipped requests",
+  unsupportedTestSteps: "Unsupported steps",
+  assertions: "Source assertions",
+  scripts: "Source scripts",
+  attachments: "Attachments",
+  properties: "Source properties",
+};
+
 interface Preview {
   kind: "preview";
   name: string;
@@ -175,7 +192,7 @@ export function SoapUiImport({
           <dl className="grid grid-cols-2 gap-x-4 gap-y-1">
             {Object.entries(current.sourceCounts).map(([key, value]) => (
               <div key={key} className="flex justify-between gap-2">
-                <dt>{key.replace(/([a-z])([A-Z])/g, "$1 $2")}</dt>
+                <dt>{COUNT_LABELS[key as keyof SoapUiCounts] ?? key}</dt>
                 <dd>{value}</dd>
               </div>
             ))}

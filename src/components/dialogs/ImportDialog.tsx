@@ -488,7 +488,8 @@ export function ImportDialog() {
             disabled={blocked}
             onCheckedChange={(value) => getController().setIncludeCredentials(value === true)}
           />
-          Include recognized authentication and secret values from imported projects
+          Include recognized authentication and secret values from SoapUI, Hoppscotch, Thunder Client or
+          Insomnia exports
         </label>
         <Tabs defaultValue="file">
           <TabsList>
