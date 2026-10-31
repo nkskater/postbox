@@ -61,6 +61,8 @@ export interface OAuth2Config {
   clientAuthentication: "header" | "body";
   /** Token obtained previously (or entered manually). */
   accessToken: string;
+  /** Refresh token from the last authorization-code sign-in; used when the access token expires. */
+  refreshToken?: string;
   tokenType?: string;
   /** epoch ms when the cached token expires */
   expiresAt?: number;

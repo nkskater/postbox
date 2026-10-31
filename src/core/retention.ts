@@ -23,7 +23,12 @@ export function authCredentialValues(auth: AuthConfig): string[] {
       case "apikey":
         return [auth.apikey.value];
       case "oauth2":
-        return [auth.oauth2.clientSecret, auth.oauth2.password ?? "", auth.oauth2.accessToken];
+        return [
+          auth.oauth2.clientSecret,
+          auth.oauth2.password ?? "",
+          auth.oauth2.accessToken,
+          auth.oauth2.refreshToken ?? "",
+        ];
       case "edgegrid":
         return [auth.edgegrid.clientSecret, auth.edgegrid.accessToken, auth.edgegrid.clientToken];
       case "hawk":
@@ -90,6 +95,7 @@ export function withoutAuthCredentials(auth: AuthConfig): AuthConfig {
           clientSecret: "",
           password: oauth2.password === undefined ? undefined : "",
           accessToken: "",
+          refreshToken: undefined,
           expiresAt: undefined,
           tokenContext: undefined,
         },
@@ -168,6 +174,7 @@ export function restoreMissingCredentials(current: AuthConfig, saved: AuthConfig
           clientSecret: current.oauth2.clientSecret || previous.clientSecret,
           password: current.oauth2.password || previous.password,
           accessToken: current.oauth2.accessToken || previous.accessToken,
+          refreshToken: current.oauth2.refreshToken || previous.refreshToken,
           expiresAt: current.oauth2.expiresAt ?? previous.expiresAt,
           tokenContext: current.oauth2.tokenContext ?? previous.tokenContext,
         },

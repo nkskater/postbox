@@ -484,11 +484,16 @@ function OAuth2Editor({
         const data = await authorizeInBrowser();
         set({
           accessToken: data.accessToken ?? "",
+          refreshToken: data.refreshToken,
           tokenType: data.tokenType,
           expiresAt: data.expiresAt,
           tokenContext: data.tokenContext,
         });
-        toast.success("Signed in; access token saved to this request");
+        toast.success(
+          data.refreshToken
+            ? "Signed in; it will refresh automatically when it expires"
+            : "Signed in; access token saved to this request",
+        );
         return;
       }
       const res = await fetch("/api/oauth2/token", {
@@ -652,8 +657,28 @@ function OAuth2Editor({
               <span className="text-muted-foreground">
                 {config.expiresAt > now
                   ? `Expires ${new Date(config.expiresAt).toLocaleTimeString()}`
-                  : "Token expired"}
+                  : config.refreshToken
+                    ? "Expired; refreshes on next send"
+                    : "Token expired"}
               </span>
+            )}
+            {config.refreshToken && <span className="text-muted-foreground">Refresh token saved</span>}
+            {(config.accessToken || config.refreshToken) && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() =>
+                  set({
+                    accessToken: "",
+                    refreshToken: undefined,
+                    expiresAt: undefined,
+                    tokenContext: undefined,
+                    tokenType: undefined,
+                  })
+                }
+              >
+                Clear tokens
+              </Button>
             )}
           </div>
           <p className="pl-[172px] text-muted-foreground">

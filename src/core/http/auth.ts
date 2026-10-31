@@ -174,6 +174,7 @@ export interface OAuth2Token {
   expiresAt?: number;
   raw: Record<string, unknown>;
   contextKey?: string;
+  refreshToken?: string;
 }
 
 /** In-process token cache so repeated sends/runs don't fetch a new token every time. */
@@ -260,6 +261,9 @@ async function requestToken(
     expiresAt: Date.now() + ttl,
     raw: json,
     contextKey: cacheKey(o, engine.oauth2CacheScope),
+    ...(typeof json.refresh_token === "string" && json.refresh_token
+      ? { refreshToken: json.refresh_token }
+      : {}),
   };
 }
 
@@ -301,19 +305,29 @@ export async function getOAuth2Token(o: OAuth2Config, engine?: EngineOptions): P
     exp <= Date.now() + MAX_CACHE_TTL &&
     exp - 30_000 > Date.now();
   const key = cacheKey(o, engine?.oauth2CacheScope);
-  // Authorization-code tokens come from an interactive login and are used as saved.
-  const interactive = o.grantType === "manual" || o.grantType === "authorization_code";
-  if (interactive || (o.accessToken && o.tokenContext === key && fresh(o.expiresAt))) {
-    return o.accessToken
+  const saved = (): OAuth2Token | null =>
+    o.accessToken
       ? {
           accessToken: o.accessToken,
           tokenType: o.tokenType ?? "Bearer",
           expiresAt: o.expiresAt,
           contextKey: o.tokenContext,
           raw: {},
+          ...(o.refreshToken ? { refreshToken: o.refreshToken } : {}),
         }
       : null;
+  if (o.grantType === "authorization_code") {
+    // Tokens come from an interactive sign-in; they are refreshed but never silently re-acquired.
+    if (!o.accessToken) return null;
+    if (o.tokenContext && o.tokenContext !== key)
+      throw new Error(
+        "OAuth 2.0: the client settings changed since sign-in. Get a new access token in the Auth tab.",
+      );
+    if (o.expiresAt === undefined || fresh(o.expiresAt) || !o.refreshToken) return saved();
+    return refreshOAuth2Token(o, key, engine);
   }
+  if (o.grantType === "manual" || (o.accessToken && o.tokenContext === key && fresh(o.expiresAt)))
+    return saved();
   for (const [cachedKey, entry] of tokenCache) {
     if (!fresh(entry.expiresAt)) tokenCache.delete(cachedKey);
   }
@@ -327,6 +341,33 @@ export async function getOAuth2Token(o: OAuth2Config, engine?: EngineOptions): P
   tokenCache.set(key, { token, expiresAt: Math.min(token.expiresAt!, Date.now() + MAX_CACHE_TTL) });
   while (tokenCache.size > MAX_CACHE_SIZE) tokenCache.delete(tokenCache.keys().next().value!);
   return token;
+}
+
+/** Refreshes in flight, so concurrent sends with the same refresh token share one request. */
+const refreshing = new Map<string, Promise<OAuth2Token>>();
+
+/** Exchange the refresh token (RFC 6749 section 6); keeps the old one unless the provider rotates it. */
+export function refreshOAuth2Token(
+  o: OAuth2Config,
+  key: string,
+  engine: EngineOptions = {},
+): Promise<OAuth2Token> {
+  const refreshToken = o.refreshToken ?? "";
+  const flight = `${key}:${createHash("sha256").update(refreshToken).digest("hex")}`;
+  const existing = refreshing.get(flight);
+  if (existing) return existing;
+  const params: Record<string, string> = { grant_type: "refresh_token", refresh_token: refreshToken };
+  if (o.scope) params.scope = o.scope;
+  const pending = requestToken(o, params, engine)
+    .then((token) => ({ ...token, contextKey: key, refreshToken: token.refreshToken ?? refreshToken }))
+    .catch((err: Error) => {
+      throw new Error(
+        `${err.message.replace("token request", "token refresh")}. Sign in again in the Auth tab.`,
+      );
+    })
+    .finally(() => refreshing.delete(flight));
+  refreshing.set(flight, pending);
+  return pending;
 }
 
 function setHeader(req: PreparedRequest, name: string, value: string) {
