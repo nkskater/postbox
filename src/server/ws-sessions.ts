@@ -7,9 +7,12 @@
 import { nanoid } from "nanoid";
 import type { WsConnection } from "@/core/ws/client";
 import type { SocketIoConnection } from "@/core/socketio/client";
+import type { MqttConnection } from "@/core/mqtt/client";
 
 type Connection =
-  { kind: "ws"; connection: WsConnection } | { kind: "socketio"; connection: SocketIoConnection };
+  | { kind: "ws"; connection: WsConnection }
+  | { kind: "socketio"; connection: SocketIoConnection }
+  | { kind: "mqtt"; connection: MqttConnection };
 const closeIdle = (c: Connection) =>
   c.kind === "ws" ? c.connection.close(1001, "Idle timeout") : c.connection.close();
 

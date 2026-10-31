@@ -53,6 +53,10 @@ execute on the machine running Postbox, so VPN-connected Windows users can reach
   Emit named events with JSON arguments, optionally waiting for an acknowledgement (timeouts are reported). Saved
   listeners filter incoming events. Works with Socket.IO v3/v4 servers over WebSocket. Automation: `POST /api/socketio`,
   `/api/socketio/{id}/emit` and `/api/socketio/{id}/close`.
+- **MQTT**: enter an `mqtt://` or `mqtts://` broker URL and **Connect** (Basic auth supplies the username and password).
+  Subscriptions (topic filters with QoS) and the connection profile (client ID, MQTT 3.1.1/5, clean session,
+  keepalive) are saved on the request. Publish text or binary with QoS and retain, and see a timestamped history.
+  Automation: `POST /api/mqtt`, then `/api/mqtt/{id}/publish`, `/subscribe`, `/unsubscribe` and `/close`.
 - **Server-sent events**: **Stream** opens the request as an event stream and shows events live (event, id, data),
   reconnecting with `Last-Event-ID` and the server's `retry` delay. Variables, auth, inherited headers and host policy
   apply; scripts do not run. Up to 1000 events by default; secrets are redacted. Also available as `POST /api/sse` (NDJSON).

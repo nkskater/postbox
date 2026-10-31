@@ -219,6 +219,18 @@ export interface RequestSettings {
   socketPath?: string;
   /** Present when this request is a Socket.IO connection rather than an HTTP exchange. */
   socketio?: SocketIoSettings;
+  /** MQTT connection profile for mqtt:// and mqtts:// URLs (credentials come from Basic auth). */
+  mqtt?: MqttSettings;
+}
+
+export interface MqttSettings {
+  clientId?: string;
+  /** 4 = MQTT 3.1.1 (default), 5 = MQTT 5. */
+  protocolVersion?: 4 | 5;
+  clean?: boolean;
+  keepalive?: number;
+  /** Subscribed to on connect. */
+  subscriptions?: { topic: string; qos?: 0 | 1 | 2 }[];
 }
 
 export interface SocketIoSettings {
