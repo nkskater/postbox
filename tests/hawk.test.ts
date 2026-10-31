@@ -219,7 +219,10 @@ describe("Hawk authentication", () => {
         buildHawkHeader(req, { authId: "id", authKey: "key", algorithm: "sha512" as unknown as "sha256" }),
       ).toThrow(/Unsupported Hawk algorithm/);
       expect(() =>
-        buildHawkHeader({ ...req, url: "not-a-valid-url" }, { authId: "id", authKey: "key", algorithm: "sha256" }),
+        buildHawkHeader(
+          { ...req, url: "not-a-valid-url" },
+          { authId: "id", authKey: "key", algorithm: "sha256" },
+        ),
       ).toThrow(/Invalid URL/);
     });
   });
@@ -465,5 +468,48 @@ describe("Hawk authentication", () => {
       expect(redacted.hawk.authKey).toBe("********");
       expect(redacted.hawk.authId).toBe("public-id");
     });
+  });
+});
+
+// Expected values produced by the reference hawk@9.0.2 client and crypto helpers.
+describe("Hawk escaping matches the reference implementation", () => {
+  const config = {
+    authId: "dh37fgj492je",
+    authKey: "werxhqb98rpaxn39848xrunpaw3489ruxnpa98w4rxn",
+    algorithm: "sha256" as const,
+    timestamp: "1353832234",
+    nonce: "j4h3g2",
+  };
+  const req = { method: "GET", url: "http://example.com:8000/resource/1?b=1&a=2", headers: [] };
+
+  it.each([
+    ["a\\b", 'ext="a\\\\b"', "TPYHhLoxkgiUT9hzHRuJYhMJ2VksVO+nc5lytAO1IX0="],
+    ['a"b', 'ext="a\\"b"', "xsvHFmY7JwXpj+HB4AnbEwcTvt6TaLO6vpNM3EBQ2h4="],
+  ])("escapes ext %j in the header and MAC", (ext, attr, mac) => {
+    expect(buildHawkHeader(req, { ...config, ext })).toBe(
+      `Hawk id="dh37fgj492je", ts="1353832234", nonce="j4h3g2", ${attr}, mac="${mac}"`,
+    );
+  });
+
+  it("escapes newlines and backslashes in the normalized string", () => {
+    const normalized = generateHawkNormalizedString({
+      ts: "1353832234",
+      nonce: "j4h3g2",
+      method: "GET",
+      resource: "/resource/1?b=1&a=2",
+      host: "example.com",
+      port: "8000",
+      ext: "line1\nline2\\x",
+    });
+    expect(normalized).toBe(
+      "hawk.1.header\n1353832234\nj4h3g2\nGET\n/resource/1?b=1&a=2\nexample.com\n8000\n\nline1\\nline2\\\\x\n",
+    );
+    expect(calculateHawkMac(normalized, config.authKey)).toBe("2uvIJnP4hIQVvJ4HaxIRStMhc8iRP4U1kxSG16+vva4=");
+  });
+
+  it("rejects header attributes that cannot be sent safely", () => {
+    expect(() => buildHawkHeader(req, { ...config, ext: "line1\nline2" })).toThrow(/cannot be sent/);
+    expect(() => buildHawkHeader(req, { ...config, authId: 'a"b' })).toThrow(/quotes or backslashes/);
+    expect(() => buildHawkHeader(req, { ...config, app: "a\\b" })).toThrow(/quotes or backslashes/);
   });
 });

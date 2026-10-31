@@ -40,6 +40,22 @@ export function calculatePayloadHash(
   return hash.digest("base64");
 }
 
+/** Hawk escapes backslashes and newlines in extension data before normalizing. */
+function escapeNormalizedExt(ext: string | undefined): string {
+  return (ext ?? "").replace(/\\/g, "\\\\").replace(/\n/g, "\\n");
+}
+
+/** Escape a quoted header attribute; control characters cannot be carried at all. */
+function headerAttribute(name: string, value: string, escape: boolean): string {
+  if (/[^\x20-\x7E\x80-\xFF]/.test(value)) {
+    throw new Error(`Hawk ${name} contains characters that cannot be sent in a header`);
+  }
+  if (!escape && /["\\]/.test(value)) {
+    throw new Error(`Hawk ${name} cannot contain quotes or backslashes`);
+  }
+  return `${name}="${escape ? value.replace(/\\/g, "\\\\").replace(/"/g, '\\"') : value}"`;
+}
+
 /**
  * Generate the normalized request string for Hawk version 1 header verification.
  */
@@ -53,7 +69,7 @@ export function generateHawkNormalizedString(options: HawkNormalizedOptions): st
     `${options.host.toLowerCase()}\n` +
     `${options.port}\n` +
     `${options.hash || ""}\n` +
-    `${options.ext || ""}\n`;
+    `${escapeNormalizedExt(options.ext)}\n`;
 
   if (options.app) {
     normalized += `${options.app}\n${options.dlg || ""}\n`;
@@ -136,12 +152,16 @@ export function buildHawkHeader(
 
   const mac = calculateHawkMac(normalized, config.authKey, algorithm);
 
-  const parts: string[] = [`id="${config.authId}"`, `ts="${ts}"`, `nonce="${nonce}"`];
+  const parts: string[] = [
+    headerAttribute("id", config.authId, false),
+    headerAttribute("ts", ts, false),
+    headerAttribute("nonce", nonce, false),
+  ];
   if (hash) parts.push(`hash="${hash}"`);
-  if (config.ext) parts.push(`ext="${config.ext}"`);
-  if (config.app) parts.push(`app="${config.app}"`);
-  if (config.dlg) parts.push(`dlg="${config.dlg}"`);
-  if (config.user) parts.push(`user="${config.user}"`);
+  if (config.ext) parts.push(headerAttribute("ext", config.ext, true));
+  if (config.app) parts.push(headerAttribute("app", config.app, false));
+  if (config.dlg) parts.push(headerAttribute("dlg", config.dlg, false));
+  if (config.user) parts.push(headerAttribute("user", config.user, false));
   parts.push(`mac="${mac}"`);
 
   return `Hawk ${parts.join(", ")}`;
