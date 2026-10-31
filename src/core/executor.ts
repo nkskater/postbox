@@ -309,7 +309,7 @@ async function executeInternal(
             context.collections.set(targetId, { ...saved.collectionVariables });
           const childScopes = structuredClone(before);
           if (!sameCollection)
-            childScopes.collection = { ...before.collection, ...context.collections.get(targetId) };
+            childScopes.collection = { ...context.collections.get(targetId) };
           const overrides = Object.fromEntries(
             Object.entries(options.variables ?? {}).map(([key, value]) => [
               key,

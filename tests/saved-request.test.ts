@@ -102,7 +102,7 @@ describe("saved request execution", () => {
     expect(server.requests.slice(before).some((r) => r.url.includes("foreign"))).toBe(false);
   });
 
-  it("uses referenced collection precedence, persists its changes and redacts its secrets", async () => {
+  it("isolates referenced collection variables, persists its changes and redacts its secrets", async () => {
     const ws = repo.createWorkspace("Cross collection");
     const root = repo.createFolder(ws.id, null);
     const target = repo.createFolder(ws.id, null);
@@ -125,7 +125,7 @@ describe("saved request execution", () => {
     );
     const child = repo.createRequest(ws.id, target.id, {
       url: `${server.url}/echo?source={{source}}&fallback={{fallback}}`,
-      testScript: `pm.test("precedence", () => pm.expect(pm.response.json().query).to.deep.equal({ source: "target", fallback: "root-only" }));
+      testScript: `pm.test("precedence", () => pm.expect(pm.response.json().query).to.deep.equal({ source: "target", fallback: "{{fallback}}" }));
         console.log(pm.collectionVariables.get("secret")); pm.collectionVariables.set("secret", "rotated-child-secret"); console.log(pm.collectionVariables.get("secret")); pm.collectionVariables.set("changed", "yes"); pm.environment.set("nested", "yes");`,
     });
     const result = await context.runSingleRequest({
