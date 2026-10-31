@@ -3,16 +3,17 @@
  * Request tab: name/breadcrumb, method + URL bar, configuration tabs and the
  * response panel in a resizable vertical split.
  */
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import { ChevronRight, Code2, Loader2, Save } from "lucide-react";
 import { toast } from "sonner";
-import { HTTP_METHODS, type KeyValue } from "@/core/types";
+import { HTTP_METHODS, type KeyValue, type RequestDef } from "@/core/types";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { VarInput } from "@/components/editor/VarInput";
 import { ResponseViewer } from "@/components/response/ResponseViewer";
+import { EventStreamPanel } from "@/components/response/EventStreamPanel";
 import { folderPath, useApp, type RequestDraft, type Tab } from "@/stores/app";
 import { useDialogs } from "@/stores/dialogs";
 import { useSetting } from "@/stores/settings";
@@ -66,7 +67,11 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
   );
 
   const save = () => (tab.requestId ? saveTab(tab.id) : openSave(tab.id));
-  const send = () => sendTab(tab.id);
+  const send = () => {
+    setStreamKey(null);
+    return sendTab(tab.id);
+  };
+  const [streamKey, setStreamKey] = useState<number | null>(null);
   const crumbs = folderPath(folders, d.folderId);
 
   const onUrlChange = (url: string) => set({ url, params: paramsFromUrl(url, d.params) });
@@ -237,6 +242,14 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
             Send
           </Button>
         )}
+        <Button
+          variant="outline"
+          className="h-9"
+          title="Open as a server-sent event stream and show events live"
+          onClick={() => setStreamKey(d.url.trim() ? Date.now() : null)}
+        >
+          Stream
+        </Button>
       </div>
 
       <Group orientation={sideBySide ? "horizontal" : "vertical"} className="min-h-0 flex-1">
@@ -310,12 +323,16 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
           )}
         />
         <Panel defaultSize="55" minSize="10">
-          <ResponseViewer
-            result={tab.result}
-            sending={tab.sending}
-            onCancel={() => cancelSend(tab.id)}
-            onSaveExample={tab.requestId ? saveExample : undefined}
-          />
+          {streamKey !== null ? (
+            <EventStreamPanel key={streamKey} draft={d as RequestDef} onClose={() => setStreamKey(null)} />
+          ) : (
+            <ResponseViewer
+              result={tab.result}
+              sending={tab.sending}
+              onCancel={() => cancelSend(tab.id)}
+              onSaveExample={tab.requestId ? saveExample : undefined}
+            />
+          )}
         </Panel>
       </Group>
     </div>
