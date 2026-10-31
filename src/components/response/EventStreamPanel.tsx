@@ -53,6 +53,7 @@ export function EventStreamPanel({
         if (!res.ok || !res.body)
           throw new Error((await res.json().catch(() => ({}))).error ?? res.statusText);
         for await (const raw of readNdjson(res.body)) {
+          if (ctrl.current !== controller) break;
           const m = raw as Message;
           if (m.type === "open")
             setStatus(
@@ -69,10 +70,11 @@ export function EventStreamPanel({
           else if (m.type === "error") setStatus(m.error);
         }
       } catch (err) {
-        if (!controller.signal.aborted) setStatus((err as Error).message);
-        else setStatus("Stopped");
+        // A superseded run (remount, strict-mode double effect) must not touch the current one's state.
+        if (ctrl.current !== controller) return;
+        setStatus(controller.signal.aborted ? "Stopped" : (err as Error).message);
       } finally {
-        setLive(false);
+        if (ctrl.current === controller) setLive(false);
       }
     })();
     return () => controller.abort();
