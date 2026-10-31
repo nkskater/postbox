@@ -89,10 +89,13 @@ function escaped(value: string, language: string, quote: string): string {
     if ((language === "dart" || language === "kotlin") && char === "$") return "\\$";
     if (language === "ruby" && char === "#") return "\\#";
     if (language === "ocaml" && point < 32) return `\\${point.toString(10).padStart(3, "0")}`;
-    if (language === "c" && point < 32) return `\\${point.toString(8).padStart(3, "0")}`;
+    if ((language === "c" || language === "objective-c") && point < 32)
+      return `\\${point.toString(8).padStart(3, "0")}`;
     if (char === "\n") return "\\n";
     if (char === "\r") return "\\r";
     if (char === "\t") return "\\t";
+    if (language === "ocaml" && (point === 0x2028 || point === 0x2029))
+      return Array.from(Buffer.from(char), (byte) => `\\${byte.toString(10).padStart(3, "0")}`).join("");
     if (point < 32 || point === 0x2028 || point === 0x2029) {
       const hex = point.toString(16).padStart(4, "0");
       return language === "swift" || language === "rust" ? `\\u{${hex}}` : `\\u${hex}`;

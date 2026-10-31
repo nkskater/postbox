@@ -24,7 +24,15 @@ const NOISE = new Set(["user-agent", "accept-encoding"]);
 const shellQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 const jsString = (s: string) => JSON.stringify(s);
 const pyString = (s: string) => JSON.stringify(s);
-const psString = (s: string) => `'${s.replace(/'/g, "''")}'`;
+const psString = (s: string) => {
+  // PowerShell also treats typographic quotes as delimiters. An encoded
+  // expression keeps those and multiline values out of the source grammar.
+  if (/[\u2018\u2019\u201c\u201d\x00-\x1f]/.test(s)) {
+    const bytes = btoa(Array.from(new TextEncoder().encode(s), (byte) => String.fromCharCode(byte)).join(""));
+    return `([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${bytes}')))`;
+  }
+  return `'${s.replace(/'/g, "''")}'`;
+};
 
 export function visibleHeaders(r: CodegenRequest): [string, string][] {
   return r.headers.filter(([k, v]) => {

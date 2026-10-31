@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import vm from "node:vm";
-import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { execFileSync, spawnSync } from "node:child_process";
 import generators from "postman-code-generators";
 import { CODEGEN_LANGUAGES, type CodegenLanguage, type CodegenOptions } from "@/core/convert/codegen-targets";
 import { generateCodeSnippet } from "@/core/convert/codegen-extended";
@@ -16,6 +19,7 @@ const request: CodegenRequest = {
   ],
   body: { mode: "raw", language: "json", raw },
 };
+const hasCpp = spawnSync("g++", ["--version"]).status === 0;
 const javascript = CODEGEN_LANGUAGES.filter((t) => t.editor === "javascript");
 
 // Run generated JavaScript with fake clients, asserting the arguments actually
@@ -349,4 +353,32 @@ describe("code snippet target contract", () => {
     const python = await generateCodeSnippet("python", { ...request, socketPath });
     expect(python.warnings.join(" ")).toContain("local socket");
   });
+  it.skipIf(!hasCpp).each(["c-libcurl", "cpp-libcurl", "objective-c-nsurlsession"] as const)(
+    "compiles %s payload literals without changing control characters or backslash-u text",
+    async (language) => {
+      const raw = "literal \\u0022 \\u2028 \\0 \b\f\v\t\r\n Unicode: café 日本語 🚀 \u2028";
+      const { code } = await generateCodeSnippet(language, {
+        ...request,
+        body: { mode: "raw", language: "text", raw },
+      });
+      const literal =
+        language === "objective-c-nsurlsession"
+          ? code.match(/initWithData:\[@("(?:\\[\s\S]|[^"\\])*") dataUsingEncoding/)?.[1]
+          : code.match(/const char \*data = (.*);/)?.[1];
+      expect(literal).toBeTruthy();
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "postbox-codegen-c-"));
+      try {
+        const source = path.join(dir, "payload.cpp"),
+          binary = path.join(dir, "payload");
+        fs.writeFileSync(
+          source,
+          `#include <cstdio>\nint main() {const char *data=${literal}; std::fwrite(data,1,${Buffer.byteLength(raw)},stdout);}`,
+        );
+        execFileSync("g++", [source, "-o", binary]);
+        expect(execFileSync(binary)).toEqual(Buffer.from(raw));
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
 });
