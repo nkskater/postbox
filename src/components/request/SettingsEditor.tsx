@@ -1,5 +1,5 @@
 "use client";
-import type { RequestSettings } from "@/core/types";
+import type { HttpVersionMode, RequestSettings } from "@/core/types";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 
@@ -106,6 +106,23 @@ export function SettingsEditor({
           </Row>
         </>
       )}
+      <Row
+        title="HTTP version"
+        hint="Auto negotiates HTTP/2 over TLS and falls back to HTTP/1.1. HTTP/2 requires it (plain http:// uses prior knowledge). Not used with sockets or NTLM."
+      >
+        <select
+          aria-label="HTTP version"
+          className="h-8 rounded border bg-background px-2 text-xs"
+          value={settings.httpVersion ?? "http1"}
+          onChange={(e) =>
+            set({ httpVersion: e.target.value === "http1" ? undefined : (e.target.value as HttpVersionMode) })
+          }
+        >
+          <option value="http1">HTTP/1.1</option>
+          <option value="auto">Auto (HTTP/2 if offered)</option>
+          <option value="http2">HTTP/2 only</option>
+        </select>
+      </Row>
       <Row
         title="Unix socket or named pipe"
         hint="Connect here instead of over TCP; the URL still sets the path and Host. The server must allow it in PROXY_ALLOW_SOCKETS."

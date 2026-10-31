@@ -205,6 +205,9 @@ export type AuthConfig =
 
 export type AuthType = AuthConfig["type"];
 
+/** Transport selection: HTTP/1.1 only, negotiate HTTP/2 via ALPN with fallback, or require HTTP/2. */
+export type HttpVersionMode = "http1" | "auto" | "http2";
+
 export interface RequestSettings {
   followRedirects: boolean;
   maxRedirects: number;
@@ -217,6 +220,12 @@ export interface RequestSettings {
    * TCP. The URL still supplies the path, query and Host header. Must be in PROXY_ALLOW_SOCKETS.
    */
   socketPath?: string;
+  /**
+   * HTTP version selection; absent means "http1". "auto" offers h2 over TLS and falls back to
+   * HTTP/1.1; "http2" requires it (cleartext http:// uses prior knowledge). Not used with
+   * socketPath or NTLM.
+   */
+  httpVersion?: HttpVersionMode;
   /** Present when this request is a Socket.IO connection rather than an HTTP exchange. */
   socketio?: SocketIoSettings;
   /** MQTT connection profile for mqtt:// and mqtts:// URLs (credentials come from Basic auth). */
@@ -381,6 +390,8 @@ export interface HttpResponse {
   statusText: string;
   httpVersion: string;
   headers: [string, string][];
+  /** HTTP/2 response trailers, when the server sent any. */
+  trailers?: [string, string][];
   /** base64 body (raw bytes after decompression) */
   bodyBase64: string;
   /** body decoded as utf-8 (empty for binary payloads) */

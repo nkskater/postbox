@@ -407,6 +407,12 @@ export function ResponseViewer({
 
       <TabsContent value="headers" className="min-h-0 flex-1 overflow-auto p-3">
         <KeyValueTable rows={res?.headers ?? []} />
+        {res?.trailers && res.trailers.length > 0 && (
+          <div className="mt-4">
+            <div className="mb-1 text-xs font-medium text-muted-foreground">Trailers</div>
+            <KeyValueTable rows={res.trailers} />
+          </div>
+        )}
       </TabsContent>
 
       <TabsContent value="cookies" className="min-h-0 flex-1 overflow-auto p-3">
