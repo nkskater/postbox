@@ -27,7 +27,7 @@ export function formatEdgeGridTimestamp(date = new Date()): string {
 
 /**
  * Compute the SHA-256 base64 content hash.
- * Empty for GET/HEAD/OPTIONS or empty body.
+ * Only POST bodies are hashed (as in Akamai's SDKs); other methods sign an empty hash.
  * Truncates body up to maxBodySize (default 128KB).
  */
 export function makeContentHash(
@@ -36,7 +36,7 @@ export function makeContentHash(
   maxBodySize = DEFAULT_MAX_BODY_SIZE,
 ): string {
   const m = (method ?? "GET").toUpperCase();
-  if (m === "GET" || m === "HEAD" || m === "OPTIONS" || !body) {
+  if (m !== "POST" || !body) {
     return "";
   }
   const buf = typeof body === "string" ? Buffer.from(body, "utf-8") : body;
@@ -48,9 +48,7 @@ export function makeContentHash(
   return createHash("sha256").update(chunk).digest("base64");
 }
 
-function normalizeHeaderEntries(
-  headers?: [string, string][] | Record<string, string>,
-): [string, string][] {
+function normalizeHeaderEntries(headers?: [string, string][] | Record<string, string>): [string, string][] {
   if (!headers) return [];
   if (Array.isArray(headers)) {
     return headers.map(([k, v]) => [k.toLowerCase(), v]);
@@ -61,7 +59,7 @@ function normalizeHeaderEntries(
 /**
  * Canonicalize request headers according to EdgeGrid specification.
  * Normalizes header names to lowercase, collapses whitespace in values,
- * sorts alphabetically, and joins with tab characters.
+ * keeps the configured headersToSign order, and joins with tab characters.
  */
 export function canonicalizeHeaders(
   headers?: [string, string][] | Record<string, string>,
@@ -82,15 +80,11 @@ export function canonicalizeHeaders(
     const matched = entries.filter(([k]) => k === name);
     if (matched.length > 0) {
       // In EdgeGrid, header values have whitespace collapsed and trimmed
-      const value = matched
-        .map(([, v]) => v.trim().replace(/\s+/g, " "))
-        .join(",");
+      const value = matched.map(([, v]) => v.trim().replace(/\s+/g, " ")).join(",");
       parts.push(`${name}:${value}`);
     }
   }
 
-  if (parts.length === 0) return "";
-  parts.sort();
   return parts.join("\t");
 }
 
@@ -178,10 +172,7 @@ export function createSignature(dataToSign: string, signingKey: string): string 
 /**
  * Build the full Authorization header value for an Akamai EdgeGrid request.
  */
-export function buildEdgeGridAuthHeader(
-  config: EdgeGridConfig,
-  req: EdgeGridSignOptions,
-): string {
+export function buildEdgeGridAuthHeader(config: EdgeGridConfig, req: EdgeGridSignOptions): string {
   const clientToken = config.clientToken?.trim() ?? "";
   const clientSecret = config.clientSecret?.trim() ?? "";
   const accessToken = config.accessToken?.trim() ?? "";

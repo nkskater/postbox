@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
 import {
   DEFAULT_MAX_BODY_SIZE,
   buildEdgeGridAuthHeader,
@@ -48,14 +50,11 @@ describe("Akamai EdgeGrid authentication (EG1-HMAC-SHA256)", () => {
       expect(makeContentHash(Buffer.alloc(0), "POST")).toBe("");
     });
 
-    it("returns SHA-256 base64 hash of body for POST/PUT", () => {
+    it("hashes POST bodies only", () => {
       const body = JSON.stringify({ message: "hello edgegrid" });
-      const hash = makeContentHash(body, "POST");
-      expect(hash).toBeTruthy();
-      expect(typeof hash).toBe("string");
-      // Check deterministic hash
-      const expected = makeContentHash(body, "POST");
-      expect(hash).toBe(expected);
+      expect(makeContentHash(body, "POST")).toBe("x4GBJsxn/Ex9iwgv+2HM6xbdy7kQL2fTFYcXracgHsI=");
+      expect(makeContentHash(body, "PUT")).toBe("");
+      expect(makeContentHash(body, "PATCH")).toBe("");
     });
 
     it("truncates body to maxBodySize before hashing", () => {
@@ -72,7 +71,7 @@ describe("Akamai EdgeGrid authentication (EG1-HMAC-SHA256)", () => {
       expect(canonicalizeHeaders([["Content-Type", "application/json"]], "")).toBe("");
     });
 
-    it("lowercases header names, collapses whitespace, sorts alphabetically, and joins with tabs", () => {
+    it("lowercases header names, collapses whitespace, keeps configured order, and joins with tabs", () => {
       const headers: [string, string][] = [
         ["X-Custom-Header", "   value1    extra   "],
         ["Content-Type", "application/json"],
@@ -80,7 +79,7 @@ describe("Akamai EdgeGrid authentication (EG1-HMAC-SHA256)", () => {
       ];
 
       const canonical = canonicalizeHeaders(headers, "X-Custom-Header, Content-Type");
-      expect(canonical).toBe("content-type:application/json\tx-custom-header:value1 extra");
+      expect(canonical).toBe("x-custom-header:value1 extra\tcontent-type:application/json");
     });
 
     it("handles array of headersToSign", () => {
@@ -89,7 +88,7 @@ describe("Akamai EdgeGrid authentication (EG1-HMAC-SHA256)", () => {
         ["X-Header", "test"],
       ];
       const canonical = canonicalizeHeaders(headers, ["X-Header", "Content-Type"]);
-      expect(canonical).toBe("content-type:application/json\tx-header:test");
+      expect(canonical).toBe("x-header:test\tcontent-type:application/json");
     });
   });
 
@@ -140,7 +139,9 @@ describe("Akamai EdgeGrid authentication (EG1-HMAC-SHA256)", () => {
         url: "https://akab-example.luna.akamaiapis.net/test/endpoint",
       });
 
-      expect(header).toMatch(/^EG1-HMAC-SHA256 client_token=akaa-client-token-xxx;access_token=akaa-access-token-yyy;timestamp=20261030T12:34:56\+0000;nonce=test-nonce-123e4567-e89b-12d3-a456-426614174000;signature=.+$/);
+      expect(header).toMatch(
+        /^EG1-HMAC-SHA256 client_token=akaa-client-token-xxx;access_token=akaa-access-token-yyy;timestamp=20261030T12:34:56\+0000;nonce=test-nonce-123e4567-e89b-12d3-a456-426614174000;signature=.+$/,
+      );
     });
 
     it("generates timestamp and nonce when not provided", () => {
@@ -306,7 +307,10 @@ describe("Akamai EdgeGrid authentication (EG1-HMAC-SHA256)", () => {
       });
 
       const col = {
-        info: { name: "Test Col", schema: "https://schema.getpostman.com/json/collection/v2.1.0/collection.json" },
+        info: {
+          name: "Test Col",
+          schema: "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+        },
         item: [
           {
             name: "EdgeGrid Req",
@@ -360,5 +364,66 @@ describe("Akamai EdgeGrid authentication (EG1-HMAC-SHA256)", () => {
       expect(redacted.auth.edgegrid.clientSecret).toBe("********");
       expect(redacted.auth.edgegrid.clientToken).toBe("c-token");
     });
+  });
+});
+
+describe("EdgeGrid official SDK fixtures", () => {
+  const fixtures = JSON.parse(
+    fs.readFileSync(path.join(__dirname, "fixtures/edgegrid/test_data.json"), "utf-8"),
+  ) as {
+    base_url: string;
+    access_token: string;
+    client_token: string;
+    client_secret: string;
+    max_body: number;
+    headers_to_sign: string[];
+    nonce: string;
+    timestamp: string;
+    tests: {
+      testName: string;
+      request: { method: string; path: string; data?: string; headers?: Record<string, string>[] };
+      expectedAuthorization: string;
+    }[];
+  };
+
+  // The SDK's own test.js asserts a different value for this case than its JSON file does.
+  const sdkAssertions: Record<string, string> = {
+    "POST inside limit": "hXm4iCxtpN22m4cbZb4lVLW5rhX8Ca82vCFqXzSTPe4=",
+  };
+
+  it.each(fixtures.tests.map((t) => [t.testName, t] as const))("%s", (name, t) => {
+    const header = buildEdgeGridAuthHeader(
+      {
+        clientToken: fixtures.client_token,
+        clientSecret: fixtures.client_secret,
+        accessToken: fixtures.access_token,
+        headersToSign: fixtures.headers_to_sign.join(","),
+        maxBodySize: fixtures.max_body,
+        nonce: fixtures.nonce,
+        timestamp: fixtures.timestamp,
+      },
+      {
+        method: t.request.method,
+        url: new URL(t.request.path, fixtures.base_url).toString(),
+        headers: (t.request.headers ?? []).flatMap((h) => Object.entries(h)),
+        body: t.request.data,
+      },
+    );
+    const expected = sdkAssertions[name]
+      ? t.expectedAuthorization.replace(/signature=.*$/, `signature=${sdkAssertions[name]}`)
+      : t.expectedAuthorization;
+    expect(header).toBe(expected);
+  });
+
+  it("keeps the configured headersToSign order", () => {
+    expect(
+      canonicalizeHeaders(
+        [
+          ["X-A", "a"],
+          ["X-Z", "z"],
+        ],
+        "X-Z,X-A",
+      ),
+    ).toBe("x-z:z\tx-a:a");
   });
 });
