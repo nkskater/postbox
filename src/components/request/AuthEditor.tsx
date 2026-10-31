@@ -5,10 +5,11 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { KeyRound } from "lucide-react";
-import type { AuthConfig, AuthType, OAuth2Config } from "@/core/types";
+import type { AuthConfig, AuthType, HawkAlgorithm, OAuth2Config } from "@/core/types";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { VarInput } from "@/components/editor/VarInput";
 import { useApp } from "@/stores/app";
 
@@ -20,6 +21,7 @@ const TYPES: { type: AuthType; label: string }[] = [
   { type: "apikey", label: "API Key" },
   { type: "digest", label: "Digest Auth" },
   { type: "oauth2", label: "OAuth 2.0" },
+  { type: "hawk", label: "Hawk Authentication" },
 ];
 
 export function defaultAuth(type: AuthType): AuthConfig {
@@ -44,6 +46,16 @@ export function defaultAuth(type: AuthType): AuthConfig {
           clientAuthentication: "header",
           accessToken: "",
           headerPrefix: "Bearer",
+        },
+      };
+    case "hawk":
+      return {
+        type,
+        hawk: {
+          authId: "",
+          authKey: "",
+          algorithm: "sha256",
+          includePayloadHash: false,
         },
       };
     default:
@@ -192,6 +204,102 @@ export function AuthEditor({
           onChange={(oauth2) => onChange({ ...auth, oauth2 })}
           folderId={folderId}
         />
+      )}
+      {auth.type === "hawk" && (
+        <>
+          <Field label="Hawk Auth ID">
+            <VarInput
+              value={auth.hawk.authId}
+              onChange={(authId) => onChange({ ...auth, hawk: { ...auth.hawk, authId } })}
+              placeholder="Hawk Auth ID"
+            />
+          </Field>
+          <Field label="Hawk Auth Key">
+            <VarInput
+              masked
+              value={auth.hawk.authKey}
+              onChange={(authKey) => onChange({ ...auth, hawk: { ...auth.hawk, authKey } })}
+              placeholder="Hawk Auth Key"
+            />
+          </Field>
+          <Field label="Algorithm">
+            <Select
+              value={auth.hawk.algorithm}
+              onValueChange={(algorithm) =>
+                onChange({ ...auth, hawk: { ...auth.hawk, algorithm: algorithm as HawkAlgorithm } })
+              }
+            >
+              <SelectTrigger size="sm" className="w-64 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="sha256" className="text-xs">
+                  SHA-256
+                </SelectItem>
+                <SelectItem value="sha1" className="text-xs">
+                  SHA-1
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label="Include Payload Hash">
+            <div className="flex items-center gap-2">
+              <Switch
+                checked={auth.hawk.includePayloadHash ?? false}
+                onCheckedChange={(includePayloadHash) =>
+                  onChange({ ...auth, hawk: { ...auth.hawk, includePayloadHash } })
+                }
+              />
+              <span className="text-muted-foreground text-xs">
+                Calculate cryptographic hash of the request body
+              </span>
+            </div>
+          </Field>
+          <Field label="User">
+            <VarInput
+              value={auth.hawk.user ?? ""}
+              onChange={(user) => onChange({ ...auth, hawk: { ...auth.hawk, user: user || undefined } })}
+              placeholder="User"
+            />
+          </Field>
+          <Field label="Nonce">
+            <VarInput
+              value={auth.hawk.nonce ?? ""}
+              onChange={(nonce) => onChange({ ...auth, hawk: { ...auth.hawk, nonce: nonce || undefined } })}
+              placeholder="Auto-generated if empty"
+            />
+          </Field>
+          <Field label="Extra Data (ext)">
+            <VarInput
+              value={auth.hawk.ext ?? ""}
+              onChange={(ext) => onChange({ ...auth, hawk: { ...auth.hawk, ext: ext || undefined } })}
+              placeholder="Application-specific data"
+            />
+          </Field>
+          <Field label="App ID">
+            <VarInput
+              value={auth.hawk.app ?? ""}
+              onChange={(app) => onChange({ ...auth, hawk: { ...auth.hawk, app: app || undefined } })}
+              placeholder="Application ID"
+            />
+          </Field>
+          <Field label="Delegation (dlg)">
+            <VarInput
+              value={auth.hawk.dlg ?? ""}
+              onChange={(dlg) => onChange({ ...auth, hawk: { ...auth.hawk, dlg: dlg || undefined } })}
+              placeholder="Delegation ID"
+            />
+          </Field>
+          <Field label="Timestamp">
+            <VarInput
+              value={auth.hawk.timestamp ?? ""}
+              onChange={(timestamp) =>
+                onChange({ ...auth, hawk: { ...auth.hawk, timestamp: timestamp || undefined } })
+              }
+              placeholder="Auto-generated if empty"
+            />
+          </Field>
+        </>
       )}
       {auth.type !== "inherit" && auth.type !== "none" && (
         <p role="note" className="text-[11px] text-muted-foreground">

@@ -155,6 +155,24 @@ export function importAuth(a: PmAuth | null | undefined): AuthConfig {
       };
       return { type: "oauth2", oauth2: o };
     }
+    case "hawk": {
+      return {
+        type: "hawk",
+        hawk: {
+          authId: p.authId ?? "",
+          authKey: p.authKey ?? "",
+          algorithm: p.algorithm === "sha1" ? "sha1" : "sha256",
+          user: p.user || undefined,
+          nonce: p.nonce || undefined,
+          ext: p.ext || p.extraData || undefined,
+          app: p.app || undefined,
+          dlg: p.dlg || undefined,
+          timestamp: p.timestamp || undefined,
+          includePayloadHash:
+            p.includePayloadHash === "true" || (p.includePayloadHash as unknown) === true,
+        },
+      };
+    }
     default:
       return { type: "none" };
   }
@@ -455,6 +473,25 @@ function exportAuth(a: AuthConfig, includeCredentials = false): PmAuth | null | 
           headerPrefix: o.headerPrefix,
           ...(o.username ? { username: o.username, password: credential(o.password ?? "") } : {}),
         }),
+      };
+    }
+    case "hawk": {
+      const h = a.hawk;
+      const raw: Record<string, string> = {
+        authId: h.authId,
+        authKey: h.authKey,
+        algorithm: h.algorithm,
+      };
+      if (h.user !== undefined) raw.user = h.user;
+      if (h.nonce !== undefined) raw.nonce = h.nonce;
+      if (h.ext !== undefined) raw.ext = h.ext;
+      if (h.app !== undefined) raw.app = h.app;
+      if (h.dlg !== undefined) raw.dlg = h.dlg;
+      if (h.timestamp !== undefined) raw.timestamp = h.timestamp;
+      if (h.includePayloadHash !== undefined) raw.includePayloadHash = String(h.includePayloadHash);
+      return {
+        type: "hawk",
+        hawk: arr(raw),
       };
     }
   }
