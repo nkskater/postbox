@@ -14,7 +14,7 @@ import type {
   TreeNode,
   Variable,
 } from "../types";
-import { DEFAULT_SETTINGS, OAUTH1_SIGNATURE_METHODS } from "../types";
+import { ASAP_ALGORITHMS, DEFAULT_SETTINGS, OAUTH1_SIGNATURE_METHODS } from "../types";
 import { authCredentialValues, credentialRedactionValues, redactSensitiveFields } from "../retention";
 import { redactStoredValue } from "../variables/resolver";
 
@@ -184,6 +184,27 @@ export function importAuth(a: PmAuth | null | undefined): AuthConfig {
           dlg: p.dlg || undefined,
           timestamp: p.timestamp || undefined,
           includePayloadHash: p.includePayloadHash === "true" || (p.includePayloadHash as unknown) === true,
+        },
+      };
+    }
+    case "asap": {
+      const claims = (p as Record<string, unknown>).claims;
+      return {
+        type: "asap",
+        asap: {
+          algorithm: ASAP_ALGORITHMS.find((alg) => alg === p.alg),
+          issuer: p.issuer ?? p.iss ?? "",
+          subject: p.subject || p.sub || undefined,
+          audience: p.audience ?? p.aud ?? "",
+          keyId: p.kid ?? p.keyId ?? "",
+          privateKey: p.privateKey ?? "",
+          expiry: p.exp || p.expiry || undefined,
+          additionalClaims:
+            claims === undefined || claims === ""
+              ? undefined
+              : typeof claims === "string"
+                ? claims
+                : JSON.stringify(claims),
         },
       };
     }
@@ -562,6 +583,20 @@ function exportAuth(a: AuthConfig, includeCredentials = false): PmAuth | null | 
         type: "hawk",
         hawk: arr(raw),
       };
+    }
+    case "asap": {
+      const s = a.asap;
+      const raw: Record<string, string> = {
+        alg: s.algorithm ?? "RS256",
+        issuer: s.issuer,
+        audience: s.audience,
+        kid: s.keyId,
+        privateKey: credential(s.privateKey),
+      };
+      if (s.subject) raw.subject = s.subject;
+      if (s.expiry) raw.exp = s.expiry;
+      if (s.additionalClaims) raw.claims = s.additionalClaims;
+      return { type: "asap", asap: arr(raw) };
     }
     case "oauth1": {
       const o = a.oauth1;

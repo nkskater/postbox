@@ -6,6 +6,8 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { KeyRound } from "lucide-react";
 import type {
+  AsapAlgorithm,
+  AsapConfig,
   AuthConfig,
   AuthType,
   AwsSigV4Config,
@@ -15,7 +17,7 @@ import type {
   OAuth1SignatureMethod,
   OAuth2Config,
 } from "@/core/types";
-import { OAUTH1_SIGNATURE_METHODS } from "@/core/types";
+import { ASAP_ALGORITHMS, OAUTH1_SIGNATURE_METHODS } from "@/core/types";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
@@ -36,6 +38,7 @@ const TYPES: { type: AuthType; label: string }[] = [
   { type: "edgegrid", label: "Akamai EdgeGrid" },
   { type: "hawk", label: "Hawk Authentication" },
   { type: "awsv4", label: "AWS Signature" },
+  { type: "asap", label: "ASAP (Atlassian)" },
 ];
 
 export function defaultAuth(type: AuthType): AuthConfig {
@@ -83,6 +86,8 @@ export function defaultAuth(type: AuthType): AuthConfig {
           includePayloadHash: false,
         },
       };
+    case "asap":
+      return { type, asap: { algorithm: "RS256", issuer: "", audience: "", keyId: "", privateKey: "" } };
     case "oauth1":
       return { type, oauth1: { consumerKey: "", consumerSecret: "", signatureMethod: "HMAC-SHA1" } };
     case "awsv4":
@@ -233,6 +238,9 @@ export function AuthEditor({
           onChange={(oauth2) => onChange({ ...auth, oauth2 })}
           folderId={folderId}
         />
+      )}
+      {auth.type === "asap" && (
+        <AsapEditor config={auth.asap} onChange={(asap) => onChange({ ...auth, asap })} />
       )}
       {auth.type === "oauth1" && (
         <OAuth1Editor config={auth.oauth1} onChange={(oauth1) => onChange({ ...auth, oauth1 })} />
@@ -488,6 +496,75 @@ function OAuth2Editor({
         </>
       )}
     </>
+  );
+}
+
+function AsapEditor({ config, onChange }: { config: AsapConfig; onChange: (c: AsapConfig) => void }) {
+  const set = (patch: Partial<AsapConfig>) => onChange({ ...config, ...patch });
+  return (
+    <div className="flex flex-col gap-3">
+      <Field label="Algorithm">
+        <Select
+          value={config.algorithm ?? "RS256"}
+          onValueChange={(v) => set({ algorithm: v as AsapAlgorithm })}
+        >
+          <SelectTrigger size="sm" className="w-64 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {ASAP_ALGORITHMS.map((alg) => (
+              <SelectItem key={alg} value={alg} className="text-xs">
+                {alg}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Field>
+      <Field label="Issuer">
+        <VarInput value={config.issuer} onChange={(issuer) => set({ issuer })} placeholder="my-service" />
+      </Field>
+      <Field label="Subject">
+        <VarInput
+          value={config.subject ?? ""}
+          onChange={(subject) => set({ subject: subject || undefined })}
+          placeholder="Optional; defaults to the issuer on the receiving side"
+        />
+      </Field>
+      <Field label="Audience">
+        <VarInput
+          value={config.audience}
+          onChange={(audience) => set({ audience })}
+          placeholder="other-service (comma-separate several)"
+        />
+      </Field>
+      <Field label="Key ID">
+        <VarInput value={config.keyId} onChange={(keyId) => set({ keyId })} placeholder="my-service/key-1" />
+      </Field>
+      <Field label="Private Key">
+        <VarInput
+          masked
+          value={config.privateKey}
+          onChange={(privateKey) => set({ privateKey })}
+          placeholder="{{asapPrivateKey}} (a secret variable holding the PEM key)"
+        />
+      </Field>
+      <Field label="Expiry">
+        <VarInput
+          value={config.expiry ?? ""}
+          onChange={(expiry) => set({ expiry: expiry || undefined })}
+          placeholder="1h (max), 30m or seconds"
+        />
+      </Field>
+      <Field label="Additional claims">
+        <Textarea
+          className="min-h-16 font-mono text-xs"
+          value={config.additionalClaims ?? ""}
+          onChange={(e) => set({ additionalClaims: e.target.value || undefined })}
+          placeholder='{"scope": "read"}'
+          spellCheck={false}
+        />
+      </Field>
+    </div>
   );
 }
 

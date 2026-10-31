@@ -5,6 +5,7 @@
  */
 import { z } from "zod";
 import type {
+  AsapConfig,
   AuthConfig,
   AwsSigV4Config,
   BodyConfig,
@@ -166,6 +167,25 @@ export const oauth1ConfigSchema: z.ZodType<OAuth1Config> = z.object({
   addEmptyParamsToSign: z.boolean().optional(),
 });
 
+export const asapConfigSchema: z.ZodType<AsapConfig> = z.object({
+  algorithm: z
+    .enum(["RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512"])
+    .optional(),
+  issuer: z.string().default(""),
+  subject: z.string().optional(),
+  audience: z.string().default(""),
+  keyId: z.string().default(""),
+  privateKey: z
+    .string()
+    .max(64 * 1024)
+    .default(""),
+  expiry: z.string().optional(),
+  additionalClaims: z
+    .string()
+    .max(16 * 1024)
+    .optional(),
+});
+
 export const authSchema: z.ZodType<AuthConfig> = z.discriminatedUnion("type", [
   z.object({ type: z.literal("inherit") }),
   z.object({ type: z.literal("none") }),
@@ -188,6 +208,7 @@ export const authSchema: z.ZodType<AuthConfig> = z.discriminatedUnion("type", [
   z.object({ type: z.literal("hawk"), hawk: hawkConfigSchema }),
   z.object({ type: z.literal("awsv4"), awsv4: awsSigV4ConfigSchema }),
   z.object({ type: z.literal("oauth1"), oauth1: oauth1ConfigSchema }),
+  z.object({ type: z.literal("asap"), asap: asapConfigSchema }),
 ]);
 
 export const settingsPatchSchema = z.object({
