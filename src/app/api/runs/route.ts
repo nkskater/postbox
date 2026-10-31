@@ -4,6 +4,9 @@
  * GET  /api/runs?workspaceId=&folderId= — list recent runs.
  */
 import { z } from "zod";
+import { datasetRefSchema } from "@/core/runner/datasets";
+import { requireDatasetRef } from "@/server/datasets";
+import { HttpError } from "@/server/errors";
 import * as repo from "@/server/repo";
 import { startRun, listRuns, reserveRun } from "@/server/runs";
 import { json, parseBody, requireParam, route } from "@/server/http";
@@ -26,6 +29,7 @@ const schema = z.object({
     })
     .optional(),
   data: z.object({ columns: z.array(z.string()), rows: z.array(z.record(z.string(), z.string())) }).nullish(),
+  dataset: datasetRefSchema.nullish(),
   selectedRequestIds: z.array(z.string()).nullish(),
 });
 
@@ -39,6 +43,9 @@ export const POST = route(async (req: Request) => {
   // Reject foreign references with a status code before the response turns into a stream.
   repo.requireFolderIn(input.workspaceId, input.folderId);
   if (input.environmentId) repo.requireEnvironmentIn(input.workspaceId, input.environmentId);
+  if (input.dataset && input.data)
+    throw new HttpError(400, "Use a dataset reference separately from inline iteration data");
+  if (input.dataset) requireDatasetRef(input.workspaceId, input.dataset, { runnable: true });
   // Throws 429 while the queue is full, before the response becomes a stream.
   const ticket = reserveRun();
   const events = createEventStream();
@@ -49,6 +56,7 @@ export const POST = route(async (req: Request) => {
     environmentId: input.environmentId ?? null,
     options: input.options,
     data: input.data,
+    dataset: input.dataset,
     selectedRequestIds: input.selectedRequestIds,
     retainResults: false,
     ticket,

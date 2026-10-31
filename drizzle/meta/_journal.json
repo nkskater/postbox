@@ -64,6 +64,13 @@
       "when": 1793383330826,
       "tag": "0008_overjoyed_silver_centurion",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1793472170410,
+      "tag": "0009_workable_scarlet_witch",
+      "breakpoints": true
     }
   ]
 }

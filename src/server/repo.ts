@@ -671,6 +671,7 @@ export function persistScopeDiff(
   ownerId: string | null,
   before: Record<string, string>,
   after: Record<string, string>,
+  secretValues: readonly string[] = [],
 ) {
   const changed = Object.keys(after).filter((k) => before[k] !== after[k]);
   const removed = Object.keys(before).filter((k) => !(k in after));
@@ -682,7 +683,14 @@ export function persistScopeDiff(
     if (existing) {
       existing.value = after[key];
       existing.enabled = true;
-    } else next.push({ key, value: after[key], type: "default", enabled: true });
+      if (secretValues.some((secret) => secret && after[key].includes(secret))) existing.type = "secret";
+    } else
+      next.push({
+        key,
+        value: after[key],
+        type: secretValues.some((secret) => secret && after[key].includes(secret)) ? "secret" : "default",
+        enabled: true,
+      });
   }
   replaceVariables(workspaceId, scope, ownerId, next);
   return true;

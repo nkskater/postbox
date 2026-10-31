@@ -7,6 +7,8 @@ import type { ScheduleRow } from "./db/schema";
 import { newId } from "./defaults";
 import { HttpError, notFound } from "./http";
 import * as repo from "./repo";
+import { datasetRefSchema } from "@/core/runner/datasets";
+import { requireDatasetRef } from "./datasets";
 import { startRun } from "./runs";
 import { isRunQueueFullError } from "./run-queue";
 import { actorId, authorize } from "./authorize";
@@ -39,7 +41,7 @@ export function validCron(expression: string): boolean {
 
 const runOptions = z
   .object({
-    iterations: z.number().int().min(1).max(100000).optional(),
+    iterations: z.number().int().min(0).max(100000).optional(),
     delayMs: z.number().int().min(0).max(600000).optional(),
     stopOnFailure: z.boolean().optional(),
     timeoutMs: z
@@ -61,6 +63,7 @@ export const scheduleInput = z
     folderId: z.string().min(1),
     name: z.string().trim().min(1).max(200),
     environmentId: z.string().min(1).nullable().optional(),
+    dataset: datasetRefSchema.nullable().optional(),
     cron: z.string().trim().max(200).refine(validCron, "Invalid cron expression or no future occurrence"),
     options: runOptions.optional(),
     enabled: z.boolean().optional(),
@@ -86,12 +89,23 @@ function scheduleCaller(schedule: ScheduleRow): Caller {
   return caller;
 }
 
-function validateReferences(schedule: Pick<ScheduleRow, "workspaceId" | "folderId" | "environmentId">) {
+function validateReferences(
+  schedule: Pick<
+    ScheduleRow,
+    "workspaceId" | "folderId" | "environmentId" | "datasetId" | "datasetVersion"
+  > & { enabled?: boolean },
+) {
   if (!repo.getWorkspace(schedule.workspaceId)) throw notFound("Workspace");
   const folder = repo.getFolder(schedule.folderId);
   if (!folder || folder.workspaceId !== schedule.workspaceId) {
     throw new HttpError(400, "Folder must belong to the schedule's workspace");
   }
+  if (schedule.datasetId)
+    requireDatasetRef(
+      schedule.workspaceId,
+      { id: schedule.datasetId, version: schedule.datasetVersion ?? undefined },
+      { runnable: schedule.enabled !== false },
+    );
   if (schedule.environmentId) {
     const environment = repo.getEnvironment(schedule.environmentId);
     if (!environment || environment.workspaceId !== schedule.workspaceId) {
@@ -156,6 +170,9 @@ function describe(schedule: ScheduleRow) {
   const running = state.active.has(schedule.id);
   return {
     ...schedule,
+    dataset: schedule.datasetId
+      ? { id: schedule.datasetId, version: schedule.datasetVersion ?? undefined }
+      : null,
     running,
     lastRunStatus:
       (last?.status === "running" || last?.status === "queued") && !running
@@ -181,13 +198,19 @@ export function listSchedules(workspaceId: string, folderId?: string | null) {
 }
 
 export function createSchedule(input: z.input<typeof scheduleInput>) {
-  const parsed = scheduleInput.parse(input);
+  const { dataset, ...parsed } = scheduleInput.parse(input);
   const schedule: ScheduleRow = {
     ...parsed,
     id: newId(),
     createdBy: actorId(),
     environmentId: parsed.environmentId ?? null,
-    options: { ...DEFAULT_RUN_OPTIONS, ...parsed.options },
+    datasetId: dataset?.id ?? null,
+    datasetVersion: dataset?.version ?? null,
+    options: {
+      ...DEFAULT_RUN_OPTIONS,
+      ...(dataset && !parsed.options?.iterations ? { iterations: 0 } : {}),
+      ...parsed.options,
+    },
     enabled: parsed.enabled ?? true,
     lastRunAt: null,
     lastRunId: null,
@@ -202,11 +225,14 @@ export function createSchedule(input: z.input<typeof scheduleInput>) {
 }
 
 export function updateSchedule(id: string, input: z.input<typeof schedulePatch>) {
-  const patch = schedulePatch.parse(input);
+  const { dataset, ...patch } = schedulePatch.parse(input);
   const existing = row(id);
   const schedule = {
     ...existing,
     ...patch,
+    ...(dataset !== undefined
+      ? { datasetId: dataset?.id ?? null, datasetVersion: dataset?.version ?? null }
+      : {}),
     options: { ...existing.options, ...patch.options },
     updatedAt: Date.now(),
   };
@@ -234,7 +260,7 @@ export async function runSchedule(id: string): Promise<{ runId: string }> {
   }
   if (state.active.has(id)) throw new HttpError(409, "This schedule is already running");
   try {
-    validateReferences(schedule);
+    validateReferences({ ...schedule, enabled: true });
     scheduleCaller(schedule);
   } catch (error) {
     unregister(id);
@@ -264,6 +290,9 @@ export async function runSchedule(id: string): Promise<{ runId: string }> {
         folderId: schedule.folderId,
         environmentId: schedule.environmentId,
         options: schedule.options,
+        dataset: schedule.datasetId
+          ? { id: schedule.datasetId, version: schedule.datasetVersion ?? undefined }
+          : null,
         source: "schedule",
         retainResults: false,
         signal: controller.signal,

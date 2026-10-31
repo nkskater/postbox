@@ -8,6 +8,7 @@ import type { ExecutionDetails } from "@/core/runner/details";
  */
 import { sqliteTable, text, integer, index, uniqueIndex, primaryKey } from "drizzle-orm/sqlite-core";
 import type {
+  DataTable,
   AuthConfig,
   BodyConfig,
   KeyValue,
@@ -119,6 +120,39 @@ export const variables = sqliteTable(
   (t) => [index("variables_scope_idx").on(t.workspaceId, t.scope, t.ownerId)],
 );
 
+export const datasets = sqliteTable(
+  "datasets",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    latestVersion: integer("latest_version").notNull(),
+    createdBy: text("created_by").references(() => users.id),
+    ...timestamps,
+  },
+  (table) => [index("datasets_workspace_idx").on(table.workspaceId, table.updatedAt)],
+);
+export const datasetVersions = sqliteTable(
+  "dataset_versions",
+  {
+    datasetId: text("dataset_id")
+      .notNull()
+      .references(() => datasets.id, { onDelete: "cascade" }),
+    version: integer("version").notNull(),
+    table: text("data", { mode: "json" }).$type<DataTable>().notNull(),
+    secretColumns: text("secret_columns", { mode: "json" }).$type<string[]>().notNull(),
+    rowCount: integer("row_count").notNull(),
+    columns: text("columns", { mode: "json" }).$type<string[]>().notNull(),
+    missingSecrets: integer("missing_secrets", { mode: "boolean" }).notNull().default(false),
+    createdAt: integer("created_at").notNull(),
+    createdBy: text("created_by").references(() => users.id),
+  },
+  (table) => [primaryKey({ columns: [table.datasetId, table.version] })],
+);
+
 export const runs = sqliteTable(
   "runs",
   {
@@ -128,9 +162,14 @@ export const runs = sqliteTable(
       .references(() => workspaces.id, { onDelete: "cascade" }),
     folderId: text("folder_id"),
     name: text("name").notNull(),
-    status: text("status").$type<"queued" | "running" | "passed" | "failed" | "cancelled" | "error">().notNull(),
+    status: text("status")
+      .$type<"queued" | "running" | "passed" | "failed" | "cancelled" | "error">()
+      .notNull(),
     options: text("options", { mode: "json" }).$type<RunOptions>().notNull(),
     environmentId: text("environment_id"),
+    datasetId: text("dataset_id"),
+    datasetVersion: integer("dataset_version"),
+    datasetName: text("dataset_name"),
     iterations: integer("iterations").notNull().default(1),
     totalRequests: integer("total_requests").notNull().default(0),
     totalTests: integer("total_tests").notNull().default(0),
@@ -234,6 +273,8 @@ export const schedules = sqliteTable("schedules", {
   name: text("name").notNull(),
   folderId: text("folder_id").notNull(),
   environmentId: text("environment_id"),
+  datasetId: text("dataset_id").references(() => datasets.id, { onDelete: "no action" }),
+  datasetVersion: integer("dataset_version"),
   cron: text("cron").notNull(),
   options: text("options", { mode: "json" }).$type<RunOptions>().notNull(),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),

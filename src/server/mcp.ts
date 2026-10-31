@@ -26,6 +26,13 @@ import { importSource } from "./import-source";
 import { importSourceFields } from "@/core/convert/import-schema";
 import { isOpenApiResolutionError } from "@/core/convert/openapi-references";
 import * as repo from "./repo";
+import * as datasets from "./datasets";
+import {
+  datasetRefSchema,
+  datasetCreateSchema,
+  datasetRevisionSchema,
+  datasetPatchSchema,
+} from "@/core/runner/datasets";
 import { changeRequestExamples, listRequestExamples } from "./examples";
 import { exampleCommandSchema } from "@/core/schemas";
 import { currentCaller } from "./access-context";
@@ -1030,6 +1037,11 @@ export function createPostboxMcpServer(): McpServer {
           .array(z.string())
           .optional()
           .describe("Optional subset of request IDs to run (in tree order)"),
+        dataset: datasetRefSchema
+          .optional()
+          .describe(
+            "Saved dataset reference; omit version for latest at admission. Exclusive of inline data.",
+          ),
         dataCsv: z.string().optional().describe("Optional CSV string providing iteration data rows"),
         dataJson: z
           .string()
@@ -1046,6 +1058,11 @@ export function createPostboxMcpServer(): McpServer {
         const folder = repo.getFolder(input.folderId);
         if (!folder) throw new Error(`Folder not found: ${input.folderId}`);
 
+        if (
+          input.dataset &&
+          (input.dataCsv !== undefined || input.dataJson !== undefined || input.dataRows !== undefined)
+        )
+          throw new Error("Use a dataset reference separately from inline iteration data");
         let data: DataTable | null = null;
         let dataWarnings: string[] = [];
         if (input.dataCsv) {
@@ -1064,7 +1081,7 @@ export function createPostboxMcpServer(): McpServer {
           folderId: input.folderId,
           environmentId: input.environmentId ?? null,
           options: {
-            iterations: input.iterations ?? (data?.rows.length ? data.rows.length : 1),
+            iterations: input.iterations ?? (input.dataset ? 0 : data?.rows.length ? data.rows.length : 1),
             delayMs: input.delayMs ?? 0,
             stopOnFailure: input.stopOnFailure ?? false,
             timeoutMs: input.timeoutMs,
@@ -1072,6 +1089,7 @@ export function createPostboxMcpServer(): McpServer {
             persistVariables: input.persistVariables ?? true,
           },
           data,
+          dataset: input.dataset,
           selectedRequestIds: input.selectedRequestIds ?? null,
           source: "mcp",
         });
@@ -1423,6 +1441,146 @@ export function createPostboxMcpServer(): McpServer {
     async ({ requestId, command }) => {
       try {
         return okJson(changeRequestExamples(requestId, command));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "list_datasets",
+    {
+      title: "List Saved Datasets",
+      description:
+        "List versioned iteration datasets with variable columns and row counts, without secret values.",
+      inputSchema: { workspaceId: z.string().optional() },
+    },
+    async ({ workspaceId }) => {
+      try {
+        return okJson(datasets.listDatasets(resolveWorkspaceId(workspaceId)));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "get_dataset",
+    {
+      title: "Get Saved Dataset",
+      description:
+        "Read a dataset version. Secret cells are masked unless includeSecrets:true is explicitly supplied by a workspace editor/owner.",
+      inputSchema: {
+        datasetId: z.string(),
+        version: z.number().int().positive().optional(),
+        includeSecrets: z.boolean().optional(),
+      },
+    },
+    async ({ datasetId, ...options }) => {
+      try {
+        return okJson({
+          ...datasets.getDataset(datasetId, options),
+          versions: datasets.listDatasetVersions(datasetId),
+          references: datasets.datasetReferences(datasetId),
+        });
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "create_dataset",
+    {
+      title: "Create Saved Dataset",
+      description:
+        "Save named iteration data as immutable version 1. Mark secretColumns explicitly; credential-like column names are suggested when omitted.",
+      inputSchema: { workspaceId: z.string().optional(), ...datasetCreateSchema.shape },
+    },
+    async ({ workspaceId, ...input }) => {
+      try {
+        return okJson(datasets.createDataset(resolveWorkspaceId(workspaceId), input));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "create_dataset_version",
+    {
+      title: "Save Dataset Version",
+      description:
+        "Create an immutable version with optimistic expectedVersion. Existing pinned versions remain unchanged; latest references use the new version at admission.",
+      inputSchema: { datasetId: z.string(), ...datasetRevisionSchema.shape },
+    },
+    async ({ datasetId, ...input }) => {
+      try {
+        return okJson(datasets.createDatasetVersion(datasetId, input));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "update_dataset",
+    {
+      title: "Rename Dataset",
+      description: "Update dataset name/description without changing immutable data versions.",
+      inputSchema: { datasetId: z.string(), ...datasetPatchSchema.shape },
+    },
+    async ({ datasetId, ...input }) => {
+      try {
+        return okJson(datasets.updateDataset(datasetId, input));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "delete_dataset",
+    {
+      title: "Delete Saved Dataset",
+      description:
+        "Delete an unreferenced dataset and all versions. Referencing schedules or active/queued runs prevent deletion.",
+      inputSchema: { datasetId: z.string() },
+    },
+    async ({ datasetId }) => {
+      try {
+        return okJson(datasets.deleteDataset(datasetId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "import_dataset",
+    {
+      title: "Import Dataset",
+      description:
+        "Import CSV, JSON records or a Postbox dataset package. CSV loss checks are preserved; packages with omitted secrets require saving a supplied/intentionally blank version before running.",
+      inputSchema: { workspaceId: z.string().optional(), ...datasets.datasetImportSchema.shape },
+    },
+    async ({ workspaceId, ...input }) => {
+      try {
+        return okJson(datasets.importDataset(resolveWorkspaceId(workspaceId), input));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "export_dataset",
+    {
+      title: "Export Dataset",
+      description:
+        "Export a round-trip Postbox dataset package. Secret values are omitted by default; including them requires explicit includeSecrets:true and workspace write access.",
+      inputSchema: {
+        datasetId: z.string(),
+        version: z.number().int().positive().optional(),
+        includeSecrets: z.boolean().optional(),
+      },
+    },
+    async ({ datasetId, ...options }) => {
+      try {
+        return okJson(datasets.exportDataset(datasetId, options));
       } catch (error) {
         return errResult(error);
       }

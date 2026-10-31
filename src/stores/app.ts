@@ -180,8 +180,10 @@ interface AppState {
   /** variable name -> value for highlighting in the active context */
   variables: Record<string, KnownVariable>;
   theme: "dark" | "light";
-  sidebarView: "collections" | "environments" | "history";
+  sidebarView: "collections" | "environments" | "history" | "datasets";
   historyVersion: number;
+  datasetVersion: number;
+  datasetsChanged(): void;
 
   init(): Promise<void>;
   setWorkspace(id: string): Promise<void>;
@@ -230,6 +232,8 @@ export const useApp = create<AppState>()(
       theme: "dark",
       sidebarView: "collections",
       historyVersion: 0,
+      datasetVersion: 0,
+      datasetsChanged: () => set((s) => ({ datasetVersion: s.datasetVersion + 1 })),
 
       async init() {
         const workspaces = await api.workspaces.list();

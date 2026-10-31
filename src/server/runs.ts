@@ -4,7 +4,7 @@
  * Used by /api/runs, the scheduler and the MCP server.
  */
 import { and, desc, eq } from "drizzle-orm";
-import type { DataTable, RunOptions } from "@/core/types";
+import type { DataTable, RunOptions, DatasetRef } from "@/core/types";
 import { DEFAULT_RUN_OPTIONS } from "@/core/types";
 import { runCollection, type RunEvent, type RunResult, type RunSummary } from "@/core/runner/runner";
 import { CookieJarStore } from "@/core/http/cookies";
@@ -16,12 +16,15 @@ import {
   persistScopes,
   persistOAuth2Token,
   persistenceSecrets,
+  updateAdditionalSecrets,
   savedRequestResolver,
 } from "./context";
 import { newId } from "./defaults";
 import { actorId } from "./authorize";
 import { redactStoredValue } from "@/core/variables/resolver";
 import { executionSettings, runQueueLimits } from "./execution-settings";
+import { requireDatasetRef, resolveDataset } from "./datasets";
+import { maskDataset } from "@/core/runner/datasets";
 import { RunQueue, type RunTicket } from "./run-queue";
 
 const { runs, runResults } = schema;
@@ -49,6 +52,7 @@ export interface StartRunInput {
   environmentId: string | null;
   options?: Partial<RunOptions>;
   data?: DataTable | null;
+  dataset?: DatasetRef | null;
   selectedRequestIds?: string[] | null;
   source?: "manual" | "schedule" | "mcp" | "api";
   onEvent?: (e: StartRunEvent) => void;
@@ -72,9 +76,15 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
     onAbort = () => ctrl.abort();
     // Only cheap metadata is needed before admission; trees and scopes are loaded later.
     const folder = repo.requireFolderIn(input.workspaceId, input.folderId);
+    if (input.dataset && input.data)
+      throw new Error("Use a dataset reference separately from inline iteration data");
+    const selectedDataset = input.dataset
+      ? requireDatasetRef(input.workspaceId, input.dataset, { runnable: true })
+      : null;
     ticket ??= reserveRun();
     const admission = ticket;
     const options: RunOptions = { ...DEFAULT_RUN_OPTIONS, ...input.options };
+    if (selectedDataset && !input.options?.iterations) options.iterations = selectedDataset.rows;
     const db = getDb();
     database = db;
     const runId = newId();
@@ -91,6 +101,9 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
         status: queued ? "queued" : "running",
         options,
         environmentId: input.environmentId,
+        datasetId: input.dataset?.id ?? null,
+        datasetVersion: input.dataset?.version ?? null,
+        datasetName: selectedDataset?.name ?? null,
         iterations: options.iterations,
         source: input.source ?? "manual",
         startedAt: Date.now(),
@@ -139,16 +152,31 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
       return { runId, summary };
     }
 
+    // Resolve latest only after admission; each running job keeps this immutable version.
+    const dataset = input.dataset ? resolveDataset(input.workspaceId, input.dataset) : null;
+    if (dataset && !input.options?.iterations) options.iterations = dataset.rows;
     // Refresh all execution data after admission, including changes made while queued.
     const chain = repo.getFolderChain(input.folderId);
     const root = repo.getFolderTree(input.folderId);
     if (!root) throw new Error("Folder not found");
     const ancestors = chain.slice(0, -1);
     const ctx = loadScopes(input.workspaceId, input.environmentId, chain[0]?.id ?? input.folderId);
+    if (dataset) {
+      ctx.secrets.push(...dataset.secrets);
+      ctx.additionalSecrets = ctx.secrets;
+      ctx.secretKeys.data = dataset.secretColumns;
+    }
     errorSecrets = ctx.secrets;
     const jar = new CookieJarStore(repo.listCookies(input.workspaceId));
     db.update(runs)
-      .set({ name: root.name, status: "running", startedAt: Date.now() })
+      .set({
+        name: root.name,
+        status: "running",
+        startedAt: Date.now(),
+        options,
+        iterations: options.iterations,
+        ...(dataset ? { datasetVersion: dataset.version, datasetName: dataset.name } : {}),
+      })
       .where(eq(runs.id, runId))
       .run();
 
@@ -188,11 +216,12 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
         input.environmentId,
         ctx.secrets,
         options.persistVariables !== false,
+        dataset?.secretColumns,
       ),
       ancestors,
       scopes: ctx.scopes,
       options,
-      data: input.data,
+      data: dataset?.table ?? input.data,
       selectedRequestIds: input.selectedRequestIds,
       cookieJar: jar,
       policy: getPolicy(),
@@ -200,6 +229,7 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
       oauth2CacheScope: input.workspaceId,
       ...executionSettings(),
       onExecution: (item, result) => {
+        updateAdditionalSecrets(ctx, result.scopes);
         persistOAuth2Token(
           input.workspaceId,
           item.request,
@@ -216,7 +246,22 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
         // Completion is published only after the final persistence below succeeds.
         if (e.type === "done") return;
         if (e.type === "result") saveResult(e.result);
-        input.onEvent?.({ ...e, runId });
+        if (dataset && e.type === "iteration")
+          input.onEvent?.({
+            ...e,
+            data: maskDataset({ columns: dataset.columns, rows: [e.data] }, dataset.secretColumns).rows[0],
+            runId,
+          });
+        else if (dataset && e.type === "log")
+          input.onEvent?.({
+            ...e,
+            entries: e.entries.map((entry) => ({
+              ...entry,
+              message: redactStoredValue(entry.message, ctx.secrets),
+            })),
+            runId,
+          });
+        else input.onEvent?.({ ...e, runId });
       },
     });
     if (options.persistVariables !== false) persistScopes(ctx, scopes);
@@ -235,9 +280,12 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
       })
       .where(eq(runs.id, runId))
       .run();
-    const { results: _results, ...done } = summary;
+    const enriched = dataset
+      ? { ...summary, dataset: { id: dataset.id, version: dataset.version, name: dataset.name } }
+      : summary;
+    const { results: _results, ...done } = enriched;
     input.onEvent?.({ type: "done", summary: done, runId });
-    return { runId, summary };
+    return { runId, summary: enriched };
   } catch (err) {
     if (inserted && database && persistedRunId) {
       try {
@@ -254,6 +302,8 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
         // Return the original failure even when its status cannot be persisted.
       }
     }
+    if (input.dataset && errorSecrets.length)
+      throw new Error(redactStoredValue(err instanceof Error ? err.message : String(err), errorSecrets));
     throw err;
   } finally {
     if (onAbort) input.signal?.removeEventListener("abort", onAbort);
@@ -306,6 +356,7 @@ export function getRunSummary(
     workspaceId: run.workspaceId,
     folderId: run.folderId,
     name: run.name,
+    dataset: run.datasetId ? { id: run.datasetId, version: run.datasetVersion, name: run.datasetName } : null,
     status: effectiveStatus(run.id, run.status) as RunSummary["status"],
     iterations: run.iterations,
     totalRequests: run.totalRequests || rows.length,

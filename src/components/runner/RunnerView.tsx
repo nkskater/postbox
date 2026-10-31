@@ -8,7 +8,7 @@ import { Group, Panel, Separator } from "react-resizable-panels";
 import { ChevronDown, ChevronRight, Database, FileUp, Loader2, Play, Square, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
-import type { DataTable } from "@/core/types";
+import type { DataTable, DatasetRef } from "@/core/types";
 import type { RunEvent, RunResult } from "@/core/runner/runner";
 import { filterRows } from "@/core/runner/data";
 import { useApp } from "@/stores/app";
@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils";
 import { getSetting } from "@/lib/settings/runtime";
 import { useSetting } from "@/stores/settings";
 import { readNdjson } from "@/lib/ndjson";
+import { DatasetPicker } from "./DatasetPicker";
 import { DataGrid } from "./DataGrid";
 import { Schedules } from "./Schedules";
 import { RunComparison } from "./RunComparison";
@@ -109,6 +110,7 @@ export function RunnerView({ folderId }: { folderId: string }) {
   const [verifySsl, setVerifySsl] = useState(() => getSetting<boolean>("runner.verifySsl") ?? true);
   const preferredReport = useSetting<string>("runner.reportFormat");
   const [data, setData] = useState<DataTable | null>(null);
+  const [dataset, setDataset] = useState<DatasetRef | null>(null);
   const [dataName, setDataName] = useState("");
   const [filter, setFilter] = useState("");
   const [run, setRun] = useState<RunState>(emptyRun);
@@ -142,6 +144,7 @@ export function RunnerView({ folderId }: { folderId: string }) {
       const buf = new Uint8Array(await file.arrayBuffer());
       const { table, warnings } = readDataFile(file.name, buf);
       if (!table.columns.length) throw new Error("No columns found");
+      setDataset(null);
       setData(table);
       setDataName(file.name);
       setFilter("");
@@ -174,8 +177,15 @@ export function RunnerView({ folderId }: { folderId: string }) {
           workspaceId,
           folderId,
           environmentId: envId,
-          options: { iterations, delayMs, stopOnFailure, persistVariables, verifySsl },
-          data: filtered,
+          options: {
+            iterations: dataset && autoIterations ? 0 : iterations,
+            delayMs,
+            stopOnFailure,
+            persistVariables,
+            verifySsl,
+          },
+          data: dataset ? null : filtered,
+          dataset,
           selectedRequestIds: selected.length === ordered.length ? null : selected,
         }),
       });
@@ -334,7 +344,17 @@ export function RunnerView({ folderId }: { folderId: string }) {
                   setIterations(Math.max(1, Number(e.target.value) || 1));
                 }}
               />
-              {filtered && iterations !== filtered.rows.length && (
+              {dataset && (
+                <label className="flex items-center gap-1 text-[11px]">
+                  <input
+                    type="checkbox"
+                    checked={autoIterations}
+                    onChange={(e) => setAutoIterations(e.target.checked)}
+                  />
+                  One iteration per saved dataset row at run start
+                </label>
+              )}
+              {!dataset && filtered && iterations !== filtered.rows.length && (
                 <button
                   className="text-[11px] text-primary hover:underline"
                   onClick={() => setAutoIterations(true)}
@@ -385,23 +405,35 @@ export function RunnerView({ folderId }: { folderId: string }) {
                 />
               </label>
             </div>
-            {data ? (
-              <DataGrid
-                table={data}
-                onChange={(t) => {
-                  setData(t);
-                  if (!t) setDataName("");
+            {workspaceId && (
+              <DatasetPicker
+                key={workspaceId}
+                workspaceId={workspaceId}
+                value={dataset}
+                onChange={(value) => {
+                  setDataset(value);
+                  setAutoIterations(true);
                 }}
-                filter={filter}
-                onFilterChange={setFilter}
               />
-            ) : (
-              <p className="rounded-md border border-dashed p-3 text-muted-foreground">
-                Each row becomes one iteration. Column headers map to variables, e.g. a column{" "}
-                <code>asn_id</code> is available as <code className="text-success">{"{{asn_id}}"}</code> and{" "}
-                <code>pm.iterationData.get(&quot;asn_id&quot;)</code>.
-              </p>
             )}
+            {!dataset &&
+              (data ? (
+                <DataGrid
+                  table={data}
+                  onChange={(t) => {
+                    setData(t);
+                    if (!t) setDataName("");
+                  }}
+                  filter={filter}
+                  onFilterChange={setFilter}
+                />
+              ) : (
+                <p className="rounded-md border border-dashed p-3 text-muted-foreground">
+                  Each row becomes one iteration. Column headers map to variables, e.g. a column{" "}
+                  <code>asn_id</code> is available as <code className="text-success">{"{{asn_id}}"}</code> and{" "}
+                  <code>pm.iterationData.get(&quot;asn_id&quot;)</code>.
+                </p>
+              ))}
           </section>
 
           {workspaceId && (
@@ -472,6 +504,11 @@ export function RunnerView({ folderId }: { folderId: string }) {
                 </div>
               )}
             </div>
+            {run.done?.dataset && (
+              <p className="text-muted-foreground">
+                Dataset: {run.done.dataset.name ?? run.done.dataset.id} · version {run.done.dataset.version}
+              </p>
+            )}
             {(run.running || run.results.length > 0) && (
               <>
                 <div className="h-1.5 overflow-hidden rounded bg-muted">
