@@ -44,6 +44,18 @@ export function resolveAuth(auth: AuthConfig, r: Resolver): AuthConfig {
         type: "digest",
         digest: { username: r.resolve(auth.digest.username), password: r.resolve(auth.digest.password) },
       };
+    case "ntlm": {
+      const n = auth.ntlm;
+      return {
+        type: "ntlm",
+        ntlm: {
+          username: r.resolve(n.username),
+          password: r.resolve(n.password),
+          domain: n.domain !== undefined ? r.resolve(n.domain) : undefined,
+          workstation: n.workstation !== undefined ? r.resolve(n.workstation) : undefined,
+        },
+      };
+    }
     case "oauth2": {
       const o = auth.oauth2;
       return {
@@ -324,6 +336,10 @@ export async function applyAuth(
     }
     case "digest":
       req.digest = { username: auth.digest.username, password: auth.digest.password };
+      return {};
+    case "ntlm":
+      // The handshake needs the server's challenge, so the engine performs it.
+      if (!hasAuthHeader && auth.ntlm.username) req.ntlm = { ...auth.ntlm };
       return {};
     case "oauth2": {
       if (hasAuthHeader) return {};

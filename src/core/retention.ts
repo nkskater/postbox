@@ -18,6 +18,8 @@ export function authCredentialValues(auth: AuthConfig): string[] {
       case "basic":
       case "digest":
         return [auth.type === "basic" ? auth.basic.password : auth.digest.password];
+      case "ntlm":
+        return [auth.ntlm.password];
       case "apikey":
         return [auth.apikey.value];
       case "oauth2":
@@ -75,6 +77,8 @@ export function withoutAuthCredentials(auth: AuthConfig): AuthConfig {
       return { ...auth, basic: { ...auth.basic, password: "" } };
     case "digest":
       return { ...auth, digest: { ...auth.digest, password: "" } };
+    case "ntlm":
+      return { ...auth, ntlm: { ...auth.ntlm, password: "" } };
     case "apikey":
       return { ...auth, apikey: { ...auth.apikey, value: "" } };
     case "oauth2": {
@@ -144,6 +148,11 @@ export function restoreMissingCredentials(current: AuthConfig, saved: AuthConfig
           ...current.digest,
           password: current.digest.password || (saved as typeof current).digest.password,
         },
+      };
+    case "ntlm":
+      return {
+        ...current,
+        ntlm: { ...current.ntlm, password: current.ntlm.password || (saved as typeof current).ntlm.password },
       };
     case "apikey":
       return {

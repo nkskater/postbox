@@ -137,6 +137,14 @@ export interface AsapConfig {
   additionalClaims?: string;
 }
 
+export interface NtlmConfig {
+  /** A plain user name, or DOMAIN\user when no domain is given. */
+  username: string;
+  password: string;
+  domain?: string;
+  workstation?: string;
+}
+
 export interface AwsSigV4Config {
   accessKey: string;
   secretKey: string;
@@ -181,7 +189,8 @@ export type AuthConfig =
   | { type: "hawk"; hawk: HawkConfig }
   | { type: "awsv4"; awsv4: AwsSigV4Config }
   | { type: "oauth1"; oauth1: OAuth1Config }
-  | { type: "asap"; asap: AsapConfig };
+  | { type: "asap"; asap: AsapConfig }
+  | { type: "ntlm"; ntlm: NtlmConfig };
 
 export type AuthType = AuthConfig["type"];
 
@@ -275,6 +284,8 @@ export interface PreparedRequest {
   settings: RequestSettings;
   /** Digest credentials need the challenge from the server, so they are applied by the engine. */
   digest?: { username: string; password: string };
+  /** NTLM authenticates a connection, so the engine runs its handshake. */
+  ntlm?: NtlmConfig;
   /** AWS signatures cover the URL, so the engine re-signs after same-origin redirects. */
   awsv4?: AwsSigV4Config;
 }

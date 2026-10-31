@@ -33,6 +33,7 @@ const TYPES: { type: AuthType; label: string }[] = [
   { type: "basic", label: "Basic Auth" },
   { type: "apikey", label: "API Key" },
   { type: "digest", label: "Digest Auth" },
+  { type: "ntlm", label: "NTLM Authentication" },
   { type: "oauth1", label: "OAuth 1.0" },
   { type: "oauth2", label: "OAuth 2.0" },
   { type: "edgegrid", label: "Akamai EdgeGrid" },
@@ -86,6 +87,8 @@ export function defaultAuth(type: AuthType): AuthConfig {
           includePayloadHash: false,
         },
       };
+    case "ntlm":
+      return { type, ntlm: { username: "", password: "" } };
     case "asap":
       return { type, asap: { algorithm: "RS256", issuer: "", audience: "", keyId: "", privateKey: "" } };
     case "oauth1":
@@ -238,6 +241,43 @@ export function AuthEditor({
           onChange={(oauth2) => onChange({ ...auth, oauth2 })}
           folderId={folderId}
         />
+      )}
+      {auth.type === "ntlm" && (
+        <>
+          <Field label="Username">
+            <VarInput
+              value={auth.ntlm.username}
+              onChange={(username) => onChange({ ...auth, ntlm: { ...auth.ntlm, username } })}
+              placeholder="user or DOMAIN\user"
+            />
+          </Field>
+          <Field label="Password">
+            <VarInput
+              masked
+              value={auth.ntlm.password}
+              onChange={(password) => onChange({ ...auth, ntlm: { ...auth.ntlm, password } })}
+              placeholder="Password"
+            />
+          </Field>
+          <Field label="Domain">
+            <VarInput
+              value={auth.ntlm.domain ?? ""}
+              onChange={(domain) =>
+                onChange({ ...auth, ntlm: { ...auth.ntlm, domain: domain || undefined } })
+              }
+              placeholder="Optional"
+            />
+          </Field>
+          <Field label="Workstation">
+            <VarInput
+              value={auth.ntlm.workstation ?? ""}
+              onChange={(workstation) =>
+                onChange({ ...auth, ntlm: { ...auth.ntlm, workstation: workstation || undefined } })
+              }
+              placeholder="Optional"
+            />
+          </Field>
+        </>
       )}
       {auth.type === "asap" && (
         <AsapEditor config={auth.asap} onChange={(asap) => onChange({ ...auth, asap })} />
