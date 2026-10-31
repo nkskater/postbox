@@ -1,5 +1,6 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
+import { getEventListeners } from "node:events";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -18,6 +19,7 @@ let db: typeof import("@/server/db");
 let server: http.Server;
 let base = "";
 let hits = 0;
+const urls: string[] = [];
 let inFlight = 0;
 let maxInFlight = 0;
 
@@ -25,7 +27,8 @@ beforeAll(async () => {
   repo = await import("@/server/repo");
   runs = await import("@/server/runs");
   db = await import("@/server/db");
-  server = http.createServer((_req, res) => {
+  server = http.createServer((req, res) => {
+    urls.push(req.url!);
     hits++;
     inFlight++;
     maxInFlight = Math.max(maxInFlight, inFlight);
@@ -37,6 +40,7 @@ beforeAll(async () => {
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
+afterEach(() => vi.restoreAllMocks());
 afterAll(async () => {
   await new Promise((resolve) => server.close(resolve));
   db.getSqlite().close();
@@ -150,5 +154,175 @@ describe("queued collection runs", () => {
     expect(res.status).toBe(429);
     expect((await res.json()).error).toMatch(/queue is full/);
     await Promise.all([first, second]);
+  });
+  it("loads the tree, ancestors, scopes and cookies only after admission, using refreshed data", async () => {
+    const input = collection();
+    const existing = repo.getFolderTree(input.folderId)!.children[0];
+    const context = await import("@/server/context");
+    const tree = vi.spyOn(repo, "getFolderTree");
+    const chain = vi.spyOn(repo, "getFolderChain");
+    const scopes = vi.spyOn(context, "loadScopes");
+    const cookies = vi.spyOn(repo, "listCookies");
+    const blocker = runs.reserveRun();
+    const result = runs.startRun(input);
+    try {
+      expect(runs.runQueue.stats()).toMatchObject({ active: 1, queued: 1 });
+      for (const spy of [tree, chain, scopes, cookies]) expect(spy).not.toHaveBeenCalled();
+      repo.updateFolder(input.folderId, { name: "Refreshed collection" });
+      repo.updateRequest(existing.id, { url: `${base}/{{fresh}}` });
+      repo.persistScopeDiff(input.workspaceId, "global", null, {}, { fresh: "refreshed" });
+      blocker.release();
+      const { runId, summary } = await result;
+      expect(summary).toMatchObject({ name: "Refreshed collection", status: "passed" });
+      expect(runs.getRunSummary(runId)?.name).toBe("Refreshed collection");
+      expect(urls.at(-1)).toBe("/refreshed");
+      for (const spy of [tree, chain, scopes, cookies]) expect(spy).toHaveBeenCalledOnce();
+      expect(runs.runQueue.stats()).toMatchObject({ active: 0, queued: 0 });
+    } finally {
+      blocker.release();
+      await result.catch(() => undefined);
+    }
+  });
+
+  it("cancels a waiting run without loading execution data", async () => {
+    const input = collection();
+    const context = await import("@/server/context");
+    const tree = vi.spyOn(repo, "getFolderTree");
+    const scopes = vi.spyOn(context, "loadScopes");
+    const cookies = vi.spyOn(repo, "listCookies");
+    const blocker = runs.reserveRun();
+    const controller = new AbortController();
+    const result = runs.startRun({ ...input, signal: controller.signal });
+    try {
+      controller.abort();
+      expect((await result).summary).toMatchObject({ status: "cancelled", totalRequests: 0 });
+      for (const spy of [tree, scopes, cookies]) expect(spy).not.toHaveBeenCalled();
+      expect(getEventListeners(controller.signal, "abort")).toHaveLength(0);
+      expect(runs.runQueue.stats()).toMatchObject({ active: 1, queued: 0 });
+    } finally {
+      blocker.release();
+      await result.catch(() => undefined);
+    }
+  });
+
+  it("releases a reservation exactly once if the initial database insert fails", async () => {
+    const input = collection();
+    const ticket = runs.reserveRun();
+    const release = vi.spyOn(ticket, "release");
+    const controller = new AbortController();
+    db.getSqlite().exec(
+      "CREATE TRIGGER reject_run_insert BEFORE INSERT ON runs BEGIN SELECT RAISE(ABORT, 'run insert failed'); END;",
+    );
+    try {
+      await expect(runs.startRun({ ...input, ticket, signal: controller.signal })).rejects.toThrow(
+        "run insert failed",
+      );
+      expect(release).toHaveBeenCalledOnce();
+      expect(runs.runQueue.stats()).toMatchObject({ active: 0, queued: 0 });
+      expect(getEventListeners(controller.signal, "abort")).toHaveLength(0);
+    } finally {
+      db.getSqlite().exec("DROP TRIGGER reject_run_insert");
+      ticket.cancel();
+    }
+    expect((await runs.startRun(input)).summary.status).toBe("passed");
+  });
+
+  it("releases queued reservations and cancellation handles when the queued observer throws", async () => {
+    const input = collection();
+    const blocker = runs.reserveRun();
+    const ticket = runs.reserveRun();
+    const release = vi.spyOn(ticket, "release");
+    const signal = new AbortController().signal;
+    let id = "";
+    try {
+      await expect(
+        runs.startRun({
+          ...input,
+          ticket,
+          signal,
+          onEvent: (event) => {
+            id = event.runId;
+            throw new Error("observer failed");
+          },
+        }),
+      ).rejects.toThrow("observer failed");
+      expect(release).toHaveBeenCalledOnce();
+      expect(runs.getRunSummary(id)).toMatchObject({ status: "error", error: "observer failed" });
+      expect(runs.cancelRun(id)).toBe(false);
+      expect(getEventListeners(signal, "abort")).toHaveLength(0);
+      expect(runs.runQueue.stats()).toMatchObject({ active: 1, queued: 0 });
+    } finally {
+      blocker.release();
+      ticket.cancel();
+    }
+  });
+
+  it("releases an admitted reservation exactly once if execution data cannot load", async () => {
+    const input = collection();
+    const blocker = runs.reserveRun();
+    const ticket = runs.reserveRun();
+    const release = vi.spyOn(ticket, "release");
+    const tree = vi.spyOn(repo, "getFolderTree").mockImplementationOnce(() => {
+      throw new Error("tree unavailable");
+    });
+    let id = "";
+    const result = runs.startRun({
+      ...input,
+      ticket,
+      onEvent: (event) => {
+        id = event.runId;
+      },
+    });
+    try {
+      expect(tree).not.toHaveBeenCalled();
+      blocker.release();
+      await expect(result).rejects.toThrow("tree unavailable");
+      expect(tree).toHaveBeenCalledOnce();
+      expect(release).toHaveBeenCalledOnce();
+      expect(runs.getRunSummary(id)).toMatchObject({ status: "error", error: "tree unavailable" });
+      expect(runs.cancelRun(id)).toBe(false);
+      expect(runs.runQueue.stats()).toMatchObject({ active: 0, queued: 0 });
+    } finally {
+      blocker.release();
+      ticket.cancel();
+      await result.catch(() => undefined);
+    }
+  });
+  it("returns a caller-provided reservation if reference validation fails", async () => {
+    const input = collection();
+    const ticket = runs.reserveRun();
+    const release = vi.spyOn(ticket, "release");
+    try {
+      await expect(runs.startRun({ ...input, folderId: "missing", ticket })).rejects.toThrow(
+        /Folder not found/,
+      );
+      expect(release).toHaveBeenCalledOnce();
+      expect(runs.runQueue.stats()).toMatchObject({ active: 0, queued: 0 });
+    } finally {
+      ticket.cancel();
+    }
+  });
+  it("keeps queued status and cancellation handles shared across independently loaded route modules", async () => {
+    const input = collection();
+    const blocker = runs.reserveRun();
+    let id = "";
+    const result = runs.startRun({
+      ...input,
+      onEvent: (event) => {
+        id = event.runId;
+      },
+    });
+    try {
+      vi.resetModules();
+      const anotherBundle = await import("@/server/runs");
+      expect(anotherBundle.listRuns(input.workspaceId)[0].status).toBe("queued");
+      expect(anotherBundle.cancelRun(id)).toBe(true);
+      expect((await result).summary.status).toBe("cancelled");
+      expect(anotherBundle.cancelRun(id)).toBe(false);
+    } finally {
+      runs.cancelRun(id);
+      blocker.release();
+      await result.catch(() => undefined);
+    }
   });
 });

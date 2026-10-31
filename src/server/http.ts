@@ -3,7 +3,7 @@
  */
 import { NextResponse } from "next/server";
 import { ZodError, type ZodType } from "zod";
-import { HttpError } from "./errors";
+import { HttpError, isHttpError } from "./errors";
 import { callerOf } from "./caller";
 import { withCaller } from "./access-context";
 import { authorizeRest, restPolicy } from "./access-policy";
@@ -29,7 +29,7 @@ export function route<A extends unknown[]>(fn: (...args: A) => Promise<Response>
             throw new HttpError(400, "Body must be a JSON object");
           return value;
         } catch (error) {
-          if (error instanceof HttpError) {
+          if (isHttpError(error)) {
             void req.body?.cancel().catch(() => undefined);
             throw error;
           }
@@ -38,7 +38,7 @@ export function route<A extends unknown[]>(fn: (...args: A) => Promise<Response>
       });
       return await withCaller(caller, () => fn(...args));
     } catch (err) {
-      if (err instanceof HttpError) return json({ error: err.message }, err.status);
+      if (isHttpError(err)) return json({ error: err.message }, err.status);
       if (err instanceof ZodError) return json({ error: "Invalid input", issues: err.issues }, 400);
       console.error("[postbox] unhandled API error:", err);
       return json({ error: "Internal error" }, 500);
