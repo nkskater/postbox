@@ -46,6 +46,9 @@ execute on the machine running Postbox, so VPN-connected Windows users can reach
   AWS Signature V4 with session tokens, header or presigned-URL mode, and re-signing on same-origin redirects,
   Atlassian ASAP JWTs signed with RS/PS/ES keys);
   per-request settings (timeout, redirects, SSL verify, cookie jar). Multi-tab editing with unsaved-draft persistence.
+- **Server-sent events**: **Stream** opens the request as an event stream and shows events live (event, id, data),
+  reconnecting with `Last-Event-ID` and the server's `retry` delay. Variables, auth, inherited headers and host policy
+  apply; scripts do not run. Up to 1000 events by default; secrets are redacted. Also available as `POST /api/sse` (NDJSON).
 - **Collections**: nested folders, drag & drop, rename, duplicate, search. Auth, headers and scripts set on a collection or folder are inherited by everything inside.
 - **Scripts**: sandboxed (QuickJS/WASM, with memory and time limits) Postman-compatible `pm.*` API: variables, `pm.request`,
   `pm.response`, `pm.test`, `pm.expect` (chai-style), `pm.sendRequest`, `setNextRequest`. Includes a console panel.
