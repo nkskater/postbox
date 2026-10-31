@@ -1,0 +1,10 @@
+openapi: 3.1.0
+info: {title: Reference Lab, version: '1.0'}
+servers: [{url: /api}]
+security: [{Bearer: []}]
+paths:
+  /pets/{id}:
+    $ref: ./paths/pets.yaml
+components:
+  securitySchemes:
+    Bearer: {$ref: './shared/common.json#/bearer'}

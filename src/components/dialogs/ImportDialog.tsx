@@ -22,6 +22,7 @@ import { useDialogs } from "@/stores/dialogs";
 import { parseCurl } from "@/core/convert/curl";
 import { paramsFromUrl } from "@/lib/url-params";
 import { SoapUiImport } from "./SoapUiImport";
+import { OpenApiImport } from "./OpenApiImport";
 import { DEFAULT_SETTINGS } from "@/core/types";
 
 export interface Outcome {
@@ -422,6 +423,7 @@ export function ImportDialog() {
   const { workspaceId, refreshTree, refreshEnvironments, refreshVariables, openDraft } = useApp();
 
   const [soapUiBusy, setSoapUiBusy] = useState(false);
+  const [openApiBusy, setOpenApiBusy] = useState(false);
   const [uiState, setUiState] = useState<ImportDialogState>(() => ({
     open,
     text: "",
@@ -471,15 +473,19 @@ export function ImportDialog() {
   const { text, link, busy, drag, batchSummary, textError, linkError, includeCredentials, warnings } =
     uiState;
 
-  const blocked = busy || soapUiBusy;
+  const blocked = busy || soapUiBusy || openApiBusy;
   return (
-    <Dialog open={open} onOpenChange={(next) => !soapUiBusy && getController().handleOpenChange(next)}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => !soapUiBusy && !openApiBusy && getController().handleOpenChange(next)}
+    >
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Import</DialogTitle>
           <DialogDescription>
             Postman collection (v2.0/v2.1) or environment, OpenAPI 3 / Swagger 2 (JSON or YAML), Hoppscotch
-            exports, SoapUI XML projects, or a cURL command.
+            exports, SoapUI XML projects, or a cURL command. Use OpenAPI bundle for referenced files and
+            remote origin approval.
           </DialogDescription>
         </DialogHeader>
         <label className="flex items-center gap-2 text-xs">
@@ -498,6 +504,9 @@ export function ImportDialog() {
             </TabsTrigger>
             <TabsTrigger value="text" disabled={blocked}>
               Raw text / cURL
+            </TabsTrigger>
+            <TabsTrigger value="openapi" disabled={blocked}>
+              OpenAPI bundle
             </TabsTrigger>
             <TabsTrigger value="soapui" disabled={blocked}>
               SoapUI
@@ -649,11 +658,21 @@ export function ImportDialog() {
               </Button>
             </div>
           </TabsContent>
+          <TabsContent value="openapi">
+            <OpenApiImport
+              workspaceId={workspaceId}
+              disabled={busy || soapUiBusy}
+              onBusy={setOpenApiBusy}
+              onImported={async () => {
+                await Promise.all([refreshTree(), refreshEnvironments(), refreshVariables()]);
+              }}
+            />
+          </TabsContent>
           <TabsContent value="soapui">
             <SoapUiImport
               workspaceId={workspaceId}
               includeCredentials={includeCredentials}
-              disabled={busy}
+              disabled={busy || openApiBusy}
               onBusy={setSoapUiBusy}
               onImported={async () => {
                 await Promise.all([refreshTree(), refreshEnvironments(), refreshVariables()]);

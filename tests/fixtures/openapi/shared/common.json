@@ -1,0 +1,7 @@
+{
+  "bearer": {"type": "http", "scheme": "bearer"},
+  "id": {"name": "id", "in": "path", "required": true, "schema": {"type": "integer", "default": 7}},
+  "body": {"required": true, "content": {"application/json": {"schema": {"$ref": "../models/pet.yaml#pet"}}}},
+  "escaped/name~": {"type": "string", "default": "escaped"},
+  "example": {"value": {"$ref": "https://never-fetch.example/secret"}}
+}
