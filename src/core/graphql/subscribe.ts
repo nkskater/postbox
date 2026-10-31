@@ -57,11 +57,15 @@ export function subscribeOverWebSocket(
       resolve();
     };
     let conn: ReturnType<typeof connectWebSocket>;
-    const send = (msg: object) => conn.send(JSON.stringify(msg));
+    // Frames can still arrive while the socket closes; replies to them are dropped, not thrown.
+    const send = (msg: object) => {
+      if (conn.readyState === 1) conn.send(JSON.stringify(msg));
+    };
     try {
       conn = connectWebSocket(
         { ...prepared, url: toWebSocketUrl(prepared.url), method: "GET", body: undefined },
         (e) => {
+          if (finished) return;
           if (e.type === "open") {
             if (e.protocol !== "graphql-transport-ws") {
               conn.close(4406, "Subprotocol not acceptable");
