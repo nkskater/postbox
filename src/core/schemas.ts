@@ -4,7 +4,14 @@
  * is rejected before it reaches persistence or the HTTP engine.
  */
 import { z } from "zod";
-import type { AuthConfig, BodyConfig, EdgeGridConfig, HawkConfig, OAuth2Config } from "./types";
+import type {
+  AuthConfig,
+  AwsSigV4Config,
+  BodyConfig,
+  EdgeGridConfig,
+  HawkConfig,
+  OAuth2Config,
+} from "./types";
 import { base64ByteLength, MAX_UPLOAD_BYTES, MAX_UPLOAD_BASE64_CHARS } from "./retention";
 
 /** RFC 9110 method token (custom methods such as PROPFIND or M-SEARCH are allowed). */
@@ -124,6 +131,17 @@ export const hawkConfigSchema: z.ZodType<HawkConfig> = z.object({
   includePayloadHash: z.boolean().default(false),
 });
 
+export const awsSigV4ConfigSchema: z.ZodType<AwsSigV4Config> = z.object({
+  accessKey: z.string().default(""),
+  secretKey: z.string().default(""),
+  sessionToken: z.string().optional(),
+  region: z.string().optional(),
+  service: z.string().default(""),
+  addTo: z.enum(["header", "query"]).optional(),
+  expiresSeconds: z.number().int().min(1).max(604800).optional(),
+  timestamp: z.string().optional(),
+});
+
 export const authSchema: z.ZodType<AuthConfig> = z.discriminatedUnion("type", [
   z.object({ type: z.literal("inherit") }),
   z.object({ type: z.literal("none") }),
@@ -144,6 +162,7 @@ export const authSchema: z.ZodType<AuthConfig> = z.discriminatedUnion("type", [
   z.object({ type: z.literal("oauth2"), oauth2: oauth2ConfigSchema }),
   z.object({ type: z.literal("edgegrid"), edgegrid: edgeGridConfigSchema }),
   z.object({ type: z.literal("hawk"), hawk: hawkConfigSchema }),
+  z.object({ type: z.literal("awsv4"), awsv4: awsSigV4ConfigSchema }),
 ]);
 
 export const settingsPatchSchema = z.object({

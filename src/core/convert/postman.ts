@@ -187,6 +187,21 @@ export function importAuth(a: PmAuth | null | undefined): AuthConfig {
         },
       };
     }
+    case "awsv4":
+      return {
+        type: "awsv4",
+        awsv4: {
+          accessKey: p.accessKey ?? "",
+          secretKey: p.secretKey ?? "",
+          sessionToken: p.sessionToken || undefined,
+          region: p.region || undefined,
+          service: p.service ?? "",
+          addTo:
+            p.addAuthDataToQuery === "true" || (p.addAuthDataToQuery as unknown) === true
+              ? "query"
+              : undefined,
+        },
+      };
     default:
       return { type: "none" };
   }
@@ -492,9 +507,9 @@ function exportAuth(a: AuthConfig, includeCredentials = false): PmAuth | null | 
     case "edgegrid": {
       const e = a.edgegrid;
       const dict: Record<string, string> = {
-        accessToken: e.accessToken,
-        clientToken: e.clientToken,
-        clientSecret: e.clientSecret,
+        accessToken: credential(e.accessToken),
+        clientToken: credential(e.clientToken),
+        clientSecret: credential(e.clientSecret),
       };
       if (e.baseURL) dict.baseURL = e.baseURL;
       if (e.headersToSign) dict.headersToSign = e.headersToSign;
@@ -510,7 +525,7 @@ function exportAuth(a: AuthConfig, includeCredentials = false): PmAuth | null | 
       const h = a.hawk;
       const raw: Record<string, string> = {
         authId: h.authId,
-        authKey: h.authKey,
+        authKey: credential(h.authKey),
         algorithm: h.algorithm,
       };
       if (h.user !== undefined) raw.user = h.user;
@@ -524,6 +539,18 @@ function exportAuth(a: AuthConfig, includeCredentials = false): PmAuth | null | 
         type: "hawk",
         hawk: arr(raw),
       };
+    }
+    case "awsv4": {
+      const w = a.awsv4;
+      const raw: Record<string, string> = {
+        accessKey: w.accessKey,
+        secretKey: credential(w.secretKey),
+        service: w.service,
+      };
+      if (w.region) raw.region = w.region;
+      if (w.sessionToken) raw.sessionToken = credential(w.sessionToken);
+      if (w.addTo === "query") raw.addAuthDataToQuery = "true";
+      return { type: "awsv4", awsv4: arr(raw) };
     }
   }
 }

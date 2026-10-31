@@ -18,6 +18,7 @@ import type { CookieInfo, HttpResponse, PreparedRequest, RedirectHop, Timings } 
 import type { CookieJarStore } from "./cookies";
 import { parseSetCookies } from "./cookies";
 import { buildDigestAuthorization, parseDigestChallenge } from "./digest";
+import { signAwsRequest } from "./aws-sigv4";
 import { HostPolicy, HostPolicyError, OPEN_POLICY } from "./policy";
 
 export interface EngineOptions {
@@ -420,13 +421,20 @@ export async function sendRequest(
         body = undefined;
         headers = withoutHeader(headers, "content-type", "content-length");
       }
+      const sameOrigin = next.origin === url.origin;
       // Never forward credentials to a different origin.
-      if (next.origin !== url.origin) {
+      if (!sameOrigin) {
         headers = headers.filter(([name]) => CROSS_ORIGIN_HEADERS.has(name.toLowerCase()));
         digestAllowed = false;
       }
       headers = withoutHeader(headers, "host");
       url = next;
+      // AWS signatures cover the method, URL and body; re-sign for the new hop on the same origin.
+      if (prepared.awsv4 && sameOrigin) {
+        const signed = signAwsRequest({ method, url: url.toString(), headers, body }, prepared.awsv4);
+        headers = signed.headers;
+        url = new URL(signed.url);
+      }
       continue;
     }
 
