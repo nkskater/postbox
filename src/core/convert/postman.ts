@@ -17,6 +17,7 @@ import type {
 import { ASAP_ALGORITHMS, DEFAULT_SETTINGS, OAUTH1_SIGNATURE_METHODS } from "../types";
 import { authCredentialValues, credentialRedactionValues, redactSensitiveFields } from "../retention";
 import { redactStoredValue } from "../variables/resolver";
+import { exampleRequest, sanitizeExample } from "../examples";
 
 const id = () => Math.random().toString(36).slice(2, 12) + Math.random().toString(36).slice(2, 6);
 
@@ -72,7 +73,15 @@ interface PmItem {
   name?: string;
   item?: PmItem[];
   request?: PmRequest | string;
-  response?: { name?: string; code?: number; status?: string; header?: PmKV[]; body?: string }[];
+  response?: {
+    name?: string;
+    code?: number;
+    status?: string;
+    header?: PmKV[];
+    body?: string;
+    originalRequest?: PmRequest | string;
+    _postbox?: { bodyEncoding?: "utf8" | "base64"; bodyOmitted?: boolean; truncated?: boolean };
+  }[];
   event?: PmEvent[];
   auth?: PmAuth | null;
   description?: PmDescription;
@@ -320,7 +329,12 @@ function importBody(b: PmBody | undefined): BodyConfig {
         ),
       };
     case "file":
-      return { mode: "binary", binary: null };
+      return {
+        mode: "binary",
+        binary: b.file?.src
+          ? { fileName: b.file.src.split(/[\\/]/).pop() ?? "", data: "", missing: true }
+          : null,
+      };
     case "graphql":
       return {
         mode: "graphql",
@@ -364,12 +378,18 @@ function importRequest(item: PmItem): RequestNode {
       : kv(r.header);
   const examples: ResponseExample[] = (item.response ?? []).map((ex) => ({
     id: id(),
-    name: ex.name ?? "Example",
+    name: ex.name?.trim() || "Example",
     status: ex.code ?? 200,
     statusText: ex.status ?? "",
     headers: kv(ex.header),
     body: ex.body ?? "",
     createdAt: Date.now(),
+    ...(ex.originalRequest
+      ? { originalRequest: exampleRequest(importRequest({ request: ex.originalRequest })) }
+      : {}),
+    ...(ex._postbox?.bodyEncoding ? { bodyEncoding: ex._postbox.bodyEncoding } : {}),
+    ...(ex._postbox?.bodyOmitted ? { bodyOmitted: true } : {}),
+    ...(ex._postbox?.truncated ? { truncated: true } : {}),
   }));
   return {
     kind: "request",
@@ -459,10 +479,7 @@ function sanitizeImportedExamples(node: TreeNode, inheritedSecrets: string[]): T
     };
   return {
     ...node,
-    examples: redactStoredValue(
-      redactSensitiveFields(node.examples ?? []),
-      credentialRedactionValues(secrets),
-    ),
+    examples: (node.examples ?? []).map((example) => sanitizeExample(example, secrets)),
   };
 }
 
@@ -700,7 +717,14 @@ function exportBody(b: BodyConfig): PmBody | undefined {
     case "binary":
       return { mode: "file", file: { src: b.binary?.fileName ?? "" } };
     case "graphql":
-      return { mode: "graphql", graphql: { query: b.graphql.query, variables: b.graphql.variables } };
+      return {
+        mode: "graphql",
+        graphql: {
+          query: b.graphql.query,
+          variables: b.graphql.variables,
+          ...(b.graphql.operationName ? { operationName: b.graphql.operationName } : {}),
+        },
+      };
   }
 }
 
@@ -774,13 +798,45 @@ function exportNode(
       description: n.description || undefined,
     },
     response: (n.examples ?? []).map((e) => {
-      const safe = redactStoredValue(redactSensitiveFields(e), secrets);
+      const safe = sanitizeExample(e, [...secrets, ...authCredentialValues(n.auth)]);
       return {
         name: safe.name,
         code: safe.status,
         status: safe.statusText,
-        header: safe.headers.map((h) => ({ key: h.key, value: h.value })),
+        header: safe.headers.map((h) => ({
+          key: h.key,
+          value: h.value,
+          ...(!h.enabled ? { disabled: true } : {}),
+          ...(h.description ? { description: h.description } : {}),
+        })),
         body: safe.body,
+        ...(safe.originalRequest
+          ? {
+              originalRequest: exportNode(
+                {
+                  ...safe.originalRequest,
+                  kind: "request",
+                  id: "example",
+                  name: "Example request",
+                  preRequestScript: "",
+                  testScript: "",
+                  settings: { ...DEFAULT_SETTINGS },
+                  examples: [],
+                },
+                { includeCredentials: false },
+                secrets,
+              ).request,
+            }
+          : {}),
+        ...(safe.bodyEncoding || safe.bodyOmitted || safe.truncated
+          ? {
+              _postbox: {
+                bodyEncoding: safe.bodyEncoding,
+                bodyOmitted: safe.bodyOmitted,
+                truncated: safe.truncated,
+              },
+            }
+          : {}),
       };
     }),
   };

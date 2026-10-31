@@ -1,0 +1,14 @@
+{
+  "info":{"name":"Paired examples","schema":"https://schema.getpostman.com/json/collection/v2.1.0/collection.json"},
+  "variable":[{"key":"apiSecret","value":"variable-secret","type":"secret"}],
+  "item":[{
+    "name":"Current request",
+    "request":{"method":"POST","url":"https://api.example/current","header":[{"key":"X-Current","value":"now"}],"body":{"mode":"raw","raw":"current","options":{"raw":{"language":"text"}}}},
+    "response":[{
+      "name":"Historical request","code":202,"status":"Accepted",
+      "header":[{"key":"Content-Type","value":"application/json"},{"key":"X-Disabled","value":"off","disabled":true}],
+      "body":"{\"name\":\"Mochi 🐾\",\"echo\":\"snapshot-secret\",\"variable\":\"variable-secret\"}",
+      "originalRequest":{"method":"PATCH","url":{"raw":"{{baseUrl}}/pets/7?enabled=yes","query":[{"key":"enabled","value":"yes"},{"key":"disabled","value":"no","disabled":true}]},"header":[{"key":"X-Snapshot","value":"historical"}],"body":{"mode":"graphql","graphql":{"query":"query Pet($id: ID!) { pet(id: $id) { name } }","variables":"{\"id\":\"7\"}","operationName":"Pet"}},"auth":{"type":"bearer","bearer":[{"key":"token","value":"snapshot-secret"}]},"description":"Original template"}
+    }]
+  }]
+}

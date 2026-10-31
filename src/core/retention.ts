@@ -1,4 +1,4 @@
-import type { AuthConfig, BodyConfig } from "./types";
+import type { AuthConfig, BodyConfig, ResponseExample } from "./types";
 import { redactStoredValue } from "./variables/resolver";
 
 /** Uploaded request files are limited to 5 MiB of decoded bytes per request. */
@@ -334,10 +334,45 @@ export function sensitiveFieldValues(value: unknown): string[] {
 export function sanitizeRequestDraftForBrowser<T extends { auth: AuthConfig; body: BodyConfig }>(
   draft: T,
 ): T {
-  const secrets = credentialRedactionValues(authCredentialValues(draft.auth));
+  const examples = (draft as T & { examples?: ResponseExample[] }).examples;
+  const secrets = credentialRedactionValues([
+    ...authCredentialValues(draft.auth),
+    ...(examples ?? []).flatMap((example) => [
+      ...sensitiveFieldValues(example),
+      ...(example.originalRequest ? authCredentialValues(example.originalRequest.auth) : []),
+    ]),
+  ]);
   const safe = redactSensitiveFields({
     ...draft,
+    ...(examples
+      ? {
+          examples: examples.map((example) => ({
+            ...example,
+            ...(example.originalRequest
+              ? { originalRequest: sanitizeRequestDraftForBrowser(example.originalRequest) }
+              : {}),
+          })),
+        }
+      : {}),
     body: withoutUploadBytes(draft.body),
   });
-  return redactStoredValue({ ...safe, auth: withoutAuthCredentials(draft.auth) }, secrets);
+  const result = redactStoredValue({ ...safe, auth: withoutAuthCredentials(draft.auth) }, secrets);
+  if (examples)
+    (result as T & { examples: ResponseExample[] }).examples = (
+      result as T & { examples: ResponseExample[] }
+    ).examples.map((example, index) => ({
+      ...example,
+      ...(example.originalRequest
+        ? {
+            originalRequest: {
+              ...example.originalRequest,
+              auth: withoutAuthCredentials({
+                ...example.originalRequest.auth,
+                type: examples[index].originalRequest!.auth.type,
+              } as AuthConfig),
+            },
+          }
+        : {}),
+    }));
+  return result;
 }
