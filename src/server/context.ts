@@ -131,6 +131,7 @@ export function persistOAuth2Token(
       tokenType: token.tokenType,
       expiresAt: token.expiresAt,
       tokenContext: token.contextKey,
+      ...(token.refreshToken ? { refreshToken: token.refreshToken } : {}),
     },
   };
   if (JSON.stringify(owner.auth) === JSON.stringify(auth)) return;

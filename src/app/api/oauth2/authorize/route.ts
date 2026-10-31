@@ -75,5 +75,6 @@ export const GET = route((req: Request) => {
     tokenType: token.tokenType,
     expiresAt: token.expiresAt,
     tokenContext: token.contextKey,
+    ...(token.refreshToken ? { refreshToken: token.refreshToken } : {}),
   });
 });

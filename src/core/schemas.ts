@@ -108,6 +108,7 @@ export const oauth2ConfigSchema: z.ZodType<OAuth2Config> = z.object({
   password: z.string().optional(),
   clientAuthentication: z.enum(["header", "body"]).default("header"),
   accessToken: z.string().default(""),
+  refreshToken: z.string().optional(),
   tokenType: z.string().optional(),
   expiresAt: z.number().optional(),
   tokenContext: z.string().optional(),
