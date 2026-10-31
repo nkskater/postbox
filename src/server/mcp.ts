@@ -11,7 +11,9 @@ import { z } from "zod";
 import type { DataTable, FolderDef, KeyValue, RequestDef, RequestSettings, Variable } from "@/core/types";
 import { DEFAULT_SETTINGS } from "@/core/types";
 import { parseCurl } from "@/core/convert/curl";
-import { generateSnippet, type CodegenLanguage } from "@/core/convert/codegen";
+import { generateCodeSnippet, codegenAuthWarnings } from "@/core/convert/codegen-extended";
+import { codegenLanguageSchema, codegenOptionsSchema } from "@/core/convert/codegen-schema";
+import { CODEGEN_LANGUAGES } from "@/core/convert/codegen-targets";
 import { exportPostmanCollection, exportPostmanEnvironment } from "@/core/convert/postman";
 import { prepareRequest } from "@/core/http/prepare";
 import { sendRequest } from "@/core/http/engine";
@@ -898,13 +900,24 @@ export function createPostboxMcpServer(): McpServer {
   );
 
   server.registerTool(
+    "list_code_snippet_targets",
+    {
+      title: "List Code Snippet Targets",
+      description: "List supported snippet language/client IDs and their configurable options and defaults.",
+      inputSchema: {},
+    },
+    async () => okJson({ targets: CODEGEN_LANGUAGES }),
+  );
+
+  server.registerTool(
     "generate_code_snippet",
     {
       title: "Generate Code Snippet",
       description:
-        "Generate a code snippet (curl, fetch, python, or powershell) for a saved request or ad-hoc request, with {{variables}} and inherited auth/headers resolved.",
+        "Generate a code snippet for a supported language/client target for a saved request or ad-hoc request, with {{variables}} and inherited auth/headers resolved.",
       inputSchema: {
-        language: z.enum(["curl", "fetch", "python", "powershell"]).default("curl"),
+        language: codegenLanguageSchema.default("curl"),
+        options: codegenOptionsSchema,
         requestId: z.string().optional().describe("Saved request ID"),
         workspaceId: z.string().optional(),
         environmentId: z.string().nullable().optional(),
@@ -948,23 +961,30 @@ export function createPostboxMcpServer(): McpServer {
         const collectionId = chain[0]?.id ?? null;
         const ctx = loadScopes(wsId, input.environmentId ?? null, collectionId);
         const resolver = new Resolver(ctx.scopes);
-        const { prepared } = await prepareRequest(
+        const { prepared, resolvedBody, effectiveAuth } = await prepareRequest(
           reqDef,
           chain,
           resolver,
           { policy: getPolicy() },
           { offline: true, defaults: executionSettings().requestDefaults },
         );
-        const snippet = generateSnippet(input.language as CodegenLanguage, {
-          method: prepared.method,
-          url: prepared.url,
-          headers: prepared.headers,
-          body: reqDef.body,
-        });
+        const { code: snippet, warnings } = await generateCodeSnippet(
+          input.language,
+          {
+            method: prepared.method,
+            url: prepared.url,
+            headers: prepared.headers,
+            body: resolvedBody,
+            bodyBytes: prepared.body,
+            socketPath: prepared.settings.socketPath,
+          },
+          input.options,
+        );
 
         return okJson({
           language: input.language,
           snippet,
+          warnings: [...warnings, ...codegenAuthWarnings(effectiveAuth)],
           unresolvedVariables: [...resolver.unresolved],
         });
       } catch (err) {

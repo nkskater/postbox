@@ -49,6 +49,64 @@ afterAll(async () => {
 });
 
 describe("MCP server (/api/mcp)", () => {
+  it("discovers snippet targets and resolves extended snippet bodies and options", async () => {
+    const catalog = parseToolJson<{ targets: { id: string; options: { id: string }[] }[] }>(
+      await client.callTool({ name: "list_code_snippet_targets", arguments: {} }),
+    );
+    expect(catalog.targets).toHaveLength(36);
+    expect(catalog.targets.find((t) => t.id === "java-okhttp")?.options.map((o) => o.id)).toContain(
+      "includeBoilerplate",
+    );
+    const workspace = parseToolJson<{ id: string }>(
+      await client.callTool({ name: "create_workspace", arguments: { name: "Snippet clients" } }),
+    );
+    const environment = parseToolJson<{ id: string }>(
+      await client.callTool({
+        name: "create_environment",
+        arguments: { workspaceId: workspace.id, name: "Dev" },
+      }),
+    );
+    await client.callTool({
+      name: "set_variables",
+      arguments: {
+        workspaceId: workspace.id,
+        scope: "environment",
+        ownerId: environment.id,
+        variables: [{ key: "payload", value: "café", enabled: true, type: "default" }],
+      },
+    });
+    const generated = parseToolJson<{ snippet: string; warnings: string[] }>(
+      await client.callTool({
+        name: "generate_code_snippet",
+        arguments: {
+          language: "java-okhttp",
+          workspaceId: workspace.id,
+          environmentId: environment.id,
+          url: "https://api.test/items",
+          method: "POST",
+          body: { mode: "raw", language: "text", raw: "{{payload}}" },
+          auth: { type: "basic", basic: { username: "u", password: "p" } },
+          options: { includeBoilerplate: true, indentType: "Tab", indentCount: 1 },
+        },
+      }),
+    );
+    expect(generated.snippet).toContain("café");
+    expect(generated.snippet).not.toContain("{{payload}}");
+    expect(generated.snippet).toContain("Basic dTpw");
+    expect(generated.snippet).toContain("import okhttp3");
+    expect(generated.warnings).toEqual([]);
+    const invalid = await client.callTool({
+      name: "generate_code_snippet",
+      arguments: {
+        language: "java-okhttp",
+        workspaceId: workspace.id,
+        url: "https://api.test",
+        options: { indentCount: 99 },
+      },
+    });
+    expect(invalid.isError).toBe(true);
+  });
+
   it("lists all Postbox tools and resources", async () => {
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name);

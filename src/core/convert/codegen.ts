@@ -9,16 +9,14 @@ export interface CodegenRequest {
   url: string;
   headers: [string, string][];
   body: BodyConfig;
+  /** Already-prepared bytes preserve multipart boundaries and request signatures. */
+  bodyBytes?: Uint8Array;
+  socketPath?: string;
 }
 
-export type CodegenLanguage = "curl" | "fetch" | "python" | "powershell";
-
-export const CODEGEN_LANGUAGES: { id: CodegenLanguage; label: string; editor: "text" | "javascript" }[] = [
-  { id: "curl", label: "cURL", editor: "text" },
-  { id: "fetch", label: "JavaScript – fetch", editor: "javascript" },
-  { id: "python", label: "Python – requests", editor: "text" },
-  { id: "powershell", label: "PowerShell – Invoke-RestMethod", editor: "text" },
-];
+import type { CodegenLanguage } from "./codegen-targets";
+export { CODEGEN_LANGUAGES } from "./codegen-targets";
+export type { CodegenLanguage } from "./codegen-targets";
 
 /** Headers the engine adds automatically; omitted from snippets for readability. */
 const NOISE = new Set(["user-agent", "accept-encoding"]);
@@ -28,7 +26,7 @@ const jsString = (s: string) => JSON.stringify(s);
 const pyString = (s: string) => JSON.stringify(s);
 const psString = (s: string) => `'${s.replace(/'/g, "''")}'`;
 
-function visibleHeaders(r: CodegenRequest): [string, string][] {
+export function visibleHeaders(r: CodegenRequest): [string, string][] {
   return r.headers.filter(([k, v]) => {
     const l = k.toLowerCase();
     if (NOISE.has(l)) return false;
@@ -40,7 +38,7 @@ function visibleHeaders(r: CodegenRequest): [string, string][] {
   });
 }
 
-function rawBody(b: BodyConfig): string | null {
+export function rawBody(b: BodyConfig): string | null {
   switch (b.mode) {
     case "raw":
       return b.raw;
@@ -51,7 +49,11 @@ function rawBody(b: BodyConfig): string | null {
       } catch {
         variables = b.graphql.variables;
       }
-      return JSON.stringify({ query: b.graphql.query, ...(variables !== undefined ? { variables } : {}) });
+      return JSON.stringify({
+        query: b.graphql.query,
+        ...(variables !== undefined ? { variables } : {}),
+        ...(b.graphql.operationName ? { operationName: b.graphql.operationName } : {}),
+      });
     }
     case "urlencoded":
       return new URLSearchParams(
@@ -62,9 +64,9 @@ function rawBody(b: BodyConfig): string | null {
   }
 }
 
-export function generateCurl(r: CodegenRequest): string {
+export function generateCurl(r: CodegenRequest, indent = "  "): string {
   const lines = [
-    `curl --location${r.method !== "GET" ? ` --request ${shellQuote(r.method)}` : ""} ${shellQuote(r.url)}`,
+    `curl --location${r.socketPath ? ` --unix-socket ${shellQuote(r.socketPath)}` : ""}${r.method !== "GET" ? ` --request ${shellQuote(r.method)}` : ""} ${shellQuote(r.url)}`,
   ];
   for (const [k, v] of visibleHeaders(r)) lines.push(`--header ${shellQuote(`${k}: ${v}`)}`);
   const b = r.body;
@@ -85,7 +87,7 @@ export function generateCurl(r: CodegenRequest): string {
     const raw = rawBody(b);
     if (raw) lines.push(`--data-raw ${shellQuote(raw)}`);
   }
-  return lines.join(" \\\n  ");
+  return lines.join(` \\\n${indent}`);
 }
 
 export function generateFetch(r: CodegenRequest): string {
@@ -117,13 +119,7 @@ export function generateFetch(r: CodegenRequest): string {
   } else {
     const raw = rawBody(b);
     if (raw) {
-      if (b.mode === "raw" && b.language === "json") {
-        try {
-          out.push(`const body = JSON.stringify(${JSON.stringify(JSON.parse(raw), null, 2)});`);
-        } catch {
-          out.push(`const body = ${jsString(raw)};`);
-        }
-      } else out.push(`const body = ${jsString(raw)};`);
+      out.push(`const body = ${jsString(raw)};`);
       bodyVar = "body";
     }
   }
@@ -149,9 +145,9 @@ export function generatePython(r: CodegenRequest): string {
   if (b.mode === "formdata") {
     const text = b.formdata.filter((x) => x.enabled && x.key && x.type === "text");
     const files = b.formdata.filter((x) => x.enabled && x.key && x.type === "file");
-    out.push("data = {");
-    for (const f of text) out.push(`    ${pyString(f.key)}: ${pyString(f.value)},`);
-    out.push("}");
+    out.push("data = [");
+    for (const f of text) out.push(`    (${pyString(f.key)}, ${pyString(f.value)}),`);
+    out.push("]");
     args.push("data=data");
     if (files.length) {
       out.push("files = [");
@@ -163,10 +159,10 @@ export function generatePython(r: CodegenRequest): string {
       args.push("files=files");
     }
   } else if (b.mode === "urlencoded") {
-    out.push("data = {");
+    out.push("data = [");
     for (const x of b.urlencoded.filter((y) => y.enabled && y.key))
-      out.push(`    ${pyString(x.key)}: ${pyString(x.value)},`);
-    out.push("}");
+      out.push(`    (${pyString(x.key)}, ${pyString(x.value)}),`);
+    out.push("]");
     args.push("data=data");
   } else if (b.mode === "binary" && b.binary) {
     out.push(`data = open(${pyString(b.binary.fileName)}, "rb")`);
@@ -240,7 +236,9 @@ export function generateSnippet(lang: CodegenLanguage, r: CodegenRequest): strin
       return generatePython(r);
     case "powershell":
       return generatePowerShell(r);
-    default:
+    case "curl":
       return generateCurl(r);
+    default:
+      throw new Error("Use generateCodeSnippet for extended targets");
   }
 }
