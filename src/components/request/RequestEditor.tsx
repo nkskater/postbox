@@ -294,7 +294,7 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
                 </p>
               </TabsContent>
               <TabsContent value="body" className="mt-0 h-full">
-                <BodyEditor body={d.body} onChange={(body) => set({ body })} />
+                <BodyEditor body={d.body} onChange={(body) => set({ body })} draft={d as RequestDef} />
               </TabsContent>
               <TabsContent value="pre" className="mt-0 h-full">
                 <ScriptEditor

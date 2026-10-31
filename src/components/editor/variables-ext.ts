@@ -11,7 +11,12 @@ import {
   type DecorationSet,
   type ViewUpdate,
 } from "@codemirror/view";
-import { autocompletion, type CompletionContext } from "@codemirror/autocomplete";
+import {
+  autocompletion,
+  type CompletionContext,
+  type CompletionResult,
+  type CompletionSource,
+} from "@codemirror/autocomplete";
 import type { Extension } from "@codemirror/state";
 import { DYNAMIC_VARIABLE_NAMES, isDynamicVariable } from "@/core/variables/dynamic-catalog";
 import { useMemo } from "react";
@@ -90,9 +95,23 @@ export function variableExtensions(
 
   const exts: Extension[] = opts.tooltips === false ? [plugin] : [plugin, tooltip];
   if (opts.autocomplete !== false) {
-    exts.push(autocompletion({ override: [variableCompletionSource(vars)], icons: false }));
+    exts.push(
+      autocompletion({ override: [variableCompletionSource(vars), languageCompletionSource], icons: false }),
+    );
   }
   return exts;
+}
+
+/**
+ * `override` replaces the language's own completion sources, so delegate to them
+ * here (GraphQL fields, for example); the first source with a result wins.
+ */
+async function languageCompletionSource(ctx: CompletionContext): Promise<CompletionResult | null> {
+  for (const source of ctx.state.languageDataAt<CompletionSource>("autocomplete", ctx.pos)) {
+    const result = await source(ctx);
+    if (result) return result;
+  }
+  return null;
 }
 
 export function variableCompletionSource(vars: Record<string, KnownVariable>) {
