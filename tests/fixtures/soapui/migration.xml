@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<con:soapui-project xmlns:con="http://eviware.com/soapui/config" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" name="Migration Lab" soapui-version="5.8.0">
+  <con:description>Synthetic REST/SOAP migration fixture.</con:description>
+  <con:properties>
+    <con:property><con:name>host</con:name><con:value>https://api.test</con:value></con:property>
+    <con:property><con:name>petId</con:name><con:value>42</con:value></con:property>
+    <con:property><con:name>username</con:name><con:value>alice</con:value></con:property>
+    <con:property><con:name>password</con:name><con:value>secret-value</con:value></con:property>
+    <con:property><con:name>token</con:name><con:value>token-value</con:value></con:property>
+  </con:properties>
+  <con:interface xsi:type="con:RestService" type="rest" name="Pets" basePath="/v1">
+    <con:endpoints><con:endpoint>${#Project#host}</con:endpoint><con:endpoint>https://backup.test</con:endpoint></con:endpoints>
+    <con:resource name="Pets" path="/pets">
+      <con:parameters><con:parameter><con:name>q</con:name><con:value>default</con:value><con:style>QUERY</con:style></con:parameter></con:parameters>
+      <con:resource name="Pet" path="/{petId}">
+        <con:parameters><con:parameter><con:name>petId</con:name><con:value>${#Project#petId}</con:value><con:style>TEMPLATE</con:style></con:parameter></con:parameters>
+        <con:method name="Read" method="GET">
+          <con:request name="Get pet" mediaType="application/json">
+            <con:endpoint>${#Project#host}</con:endpoint><con:request/>
+            <con:settings><con:setting id="com.eviware.soapui.impl.wsdl.WsdlRequest@request-headers">&lt;xml-fragment>&lt;entry key="X-Literal" value="A &amp;amp; B"/>&lt;entry key="Authorization" value="Bearer sensitive-bearer"/>&lt;/xml-fragment></con:setting></con:settings>
+            <con:credentials><con:authType>Preemptive</con:authType><con:username>${#Project#username}</con:username><con:password>${#Project#password}</con:password></con:credentials>
+            <con:parameters><con:entry key="q" value=""/></con:parameters>
+          </con:request>
+        </con:method>
+      </con:resource>
+      <con:method name="Create" method="POST"><con:request name="Create pet" mediaType="application/json"><con:endpoint>${#Project#host}</con:endpoint><con:request><![CDATA[{ "name": "café", "password": "inline-secret", "token": "${#Project#token}" }]]></con:request></con:request></con:method>
+    </con:resource>
+  </con:interface>
+  <con:interface xsi:type="con:WsdlInterface" type="wsdl" name="Echo" soapVersion="1_1">
+    <con:endpoints><con:endpoint>${#Project#host}/soap</con:endpoint></con:endpoints>
+    <con:operation name="Echo" action="urn:Echo">
+      <con:call name="SOAP 1.1"><con:endpoint>${#Project#host}/soap</con:endpoint><con:request><![CDATA[<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+  <s:Body><Echo>café &amp; exact whitespace</Echo></s:Body>
+</s:Envelope>]]></con:request></con:call>
+    </con:operation>
+  </con:interface>
+  <con:interface xsi:type="con:WsdlInterface" type="wsdl" name="Submit" soapVersion="1_2">
+    <con:endpoints><con:endpoint>${#Project#host}/soap12</con:endpoint></con:endpoints>
+    <con:operation name="Submit" action="urn:Submit"><con:call name="SOAP 1.2"><con:request><![CDATA[<Envelope xmlns="http://www.w3.org/2003/05/soap-envelope"><Body><Submit/></Body></Envelope>]]></con:request></con:call></con:operation>
+  </con:interface>
+  <con:testSuite name="Workflow">
+    <con:properties><con:property><con:name>category</con:name><con:value>public</con:value></con:property></con:properties>
+    <con:testCase name="Case">
+      <con:properties><con:property><con:name>petId</con:name><con:value>99</con:value></con:property></con:properties>
+      <con:testStep type="properties" name="Inputs"><con:config><con:properties><con:property><con:name>tag</con:name><con:value>round-trip</con:value></con:property></con:properties></con:config></con:testStep>
+      <con:testStep type="restrequest" name="Read in case"><con:config service="Pets" resourcePath="/v1/pets/{petId}" methodName="Read"><con:restRequest name="Request" mediaType="application/json"><con:endpoint>${#Project#host}</con:endpoint><con:parameters><con:entry key="petId" value="${#TestCase#petId}"/><con:entry key="q" value="${#TestSuite#category}"/></con:parameters><con:assertion type="Valid HTTP Status Codes"/></con:restRequest></con:config></con:testStep>
+      <con:testStep type="request" name="SOAP in case"><con:config><con:interface>Echo</con:interface><con:operation>Echo</con:operation><con:request name="Request" outgoingWss="Security profile" wssPasswordType="PasswordText"><con:endpoint>${#Project#host}/soap</con:endpoint><con:request><![CDATA[<Envelope><Body>${Inputs#tag}</Body></Envelope>]]></con:request><con:assertion type="Script Assertion"><con:script>assert response != null</con:script></con:assertion><con:attachment name="unsupported.bin">AAE=</con:attachment></con:request></con:config></con:testStep>
+      <con:testStep type="groovy" name="Source script"><con:config><con:script>throw new Exception('must not execute')</con:script></con:config></con:testStep>
+      <con:testStep type="transfer" name="Property transfer"><con:config/></con:testStep>
+      <con:testStep type="restrequest" name="Disabled request" disabled="true"><con:config service="Pets" resourcePath="/v1/pets/{petId}" methodName="Read"><con:restRequest/></con:config></con:testStep>
+    </con:testCase>
+  </con:testSuite>
+  <con:mockService name="Mock"/>
+</con:soapui-project>
