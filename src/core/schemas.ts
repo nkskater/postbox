@@ -4,7 +4,7 @@
  * is rejected before it reaches persistence or the HTTP engine.
  */
 import { z } from "zod";
-import type { AuthConfig, BodyConfig, HawkConfig, OAuth2Config } from "./types";
+import type { AuthConfig, BodyConfig, EdgeGridConfig, HawkConfig, OAuth2Config } from "./types";
 import { base64ByteLength, MAX_UPLOAD_BYTES, MAX_UPLOAD_BASE64_CHARS } from "./retention";
 
 /** RFC 9110 method token (custom methods such as PROPFIND or M-SEARCH are allowed). */
@@ -101,6 +101,16 @@ export const oauth2ConfigSchema: z.ZodType<OAuth2Config> = z.object({
   headerPrefix: z.string().default("Bearer"),
 });
 
+export const edgeGridConfigSchema: z.ZodType<EdgeGridConfig> = z.object({
+  clientToken: z.string().default(""),
+  clientSecret: z.string().default(""),
+  accessToken: z.string().default(""),
+  baseURL: z.string().optional(),
+  headersToSign: z.string().optional(),
+  maxBodySize: z.number().int().nonnegative().optional(),
+  nonce: z.string().optional(),
+  timestamp: z.string().optional(),
+});
 export const hawkConfigSchema: z.ZodType<HawkConfig> = z.object({
   authId: z.string().default(""),
   authKey: z.string().default(""),
@@ -132,6 +142,7 @@ export const authSchema: z.ZodType<AuthConfig> = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("digest"), digest: z.object({ username: z.string(), password: z.string() }) }),
   z.object({ type: z.literal("oauth2"), oauth2: oauth2ConfigSchema }),
+  z.object({ type: z.literal("edgegrid"), edgegrid: edgeGridConfigSchema }),
   z.object({ type: z.literal("hawk"), hawk: hawkConfigSchema }),
 ]);
 

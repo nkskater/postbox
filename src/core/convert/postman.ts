@@ -155,6 +155,21 @@ export function importAuth(a: PmAuth | null | undefined): AuthConfig {
       };
       return { type: "oauth2", oauth2: o };
     }
+    case "edgegrid": {
+      return {
+        type: "edgegrid",
+        edgegrid: {
+          clientToken: p.clientToken ?? p.client_token ?? "",
+          clientSecret: p.clientSecret ?? p.client_secret ?? "",
+          accessToken: p.accessToken ?? p.access_token ?? "",
+          baseURL: p.baseURL ?? p.base_url ?? p.host ?? undefined,
+          headersToSign: p.headersToSign ?? p.headers_to_sign ?? undefined,
+          maxBodySize: p.maxBodySize ? Number(p.maxBodySize) : undefined,
+          nonce: p.nonce ?? undefined,
+          timestamp: p.timestamp ?? undefined,
+        },
+      };
+    }
     case "hawk": {
       return {
         type: "hawk",
@@ -168,8 +183,7 @@ export function importAuth(a: PmAuth | null | undefined): AuthConfig {
           app: p.app || undefined,
           dlg: p.dlg || undefined,
           timestamp: p.timestamp || undefined,
-          includePayloadHash:
-            p.includePayloadHash === "true" || (p.includePayloadHash as unknown) === true,
+          includePayloadHash: p.includePayloadHash === "true" || (p.includePayloadHash as unknown) === true,
         },
       };
     }
@@ -473,6 +487,23 @@ function exportAuth(a: AuthConfig, includeCredentials = false): PmAuth | null | 
           headerPrefix: o.headerPrefix,
           ...(o.username ? { username: o.username, password: credential(o.password ?? "") } : {}),
         }),
+      };
+    }
+    case "edgegrid": {
+      const e = a.edgegrid;
+      const dict: Record<string, string> = {
+        accessToken: e.accessToken,
+        clientToken: e.clientToken,
+        clientSecret: e.clientSecret,
+      };
+      if (e.baseURL) dict.baseURL = e.baseURL;
+      if (e.headersToSign) dict.headersToSign = e.headersToSign;
+      if (e.maxBodySize !== undefined) dict.maxBodySize = String(e.maxBodySize);
+      if (e.nonce) dict.nonce = e.nonce;
+      if (e.timestamp) dict.timestamp = e.timestamp;
+      return {
+        type: "edgegrid",
+        edgegrid: arr(dict),
       };
     }
     case "hawk": {
