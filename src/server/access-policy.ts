@@ -95,6 +95,11 @@ export const REST_POLICIES: Record<string, Policy> = {
   "POST /api/oauth2/token": p("body", "run"),
   "POST /api/ws": p("body", "run"),
   "POST /api/socketio": p("body", "run"),
+  "POST /api/mqtt": p("body", "run"),
+  "POST /api/mqtt/[id]/publish": p("account"),
+  "POST /api/mqtt/[id]/subscribe": p("account"),
+  "POST /api/mqtt/[id]/unsubscribe": p("account"),
+  "POST /api/mqtt/[id]/close": p("account"),
   "POST /api/socketio/[id]/emit": p("account"),
   "POST /api/socketio/[id]/close": p("account"),
   // Bound to the opening user and workspace inside the handlers.

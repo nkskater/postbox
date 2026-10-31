@@ -233,6 +233,23 @@ export const settingsPatchSchema = z.object({
   verifySsl: z.boolean().optional(),
   useCookieJar: z.boolean().optional(),
   socketPath: z.string().max(1024).optional(),
+  mqtt: z
+    .object({
+      clientId: z.string().max(256).optional(),
+      protocolVersion: z.union([z.literal(4), z.literal(5)]).optional(),
+      clean: z.boolean().optional(),
+      keepalive: z.number().int().min(0).max(65535).optional(),
+      subscriptions: z
+        .array(
+          z.object({
+            topic: z.string().min(1).max(1024),
+            qos: z.union([z.literal(0), z.literal(1), z.literal(2)]).optional(),
+          }),
+        )
+        .max(100)
+        .optional(),
+    })
+    .optional(),
   socketio: z
     .object({
       namespace: z.string().max(256).optional(),
