@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { eq } from "drizzle-orm";
+import { DEFAULT_RUN_OPTIONS } from "@/core/types";
 import type { RunSummary } from "@/core/runner/runner";
 import { startTestServer, type TestServer } from "./helpers/server";
 
@@ -241,4 +242,81 @@ describe("scheduled runs", () => {
     expect(scheduler.listSchedules(input.workspaceId)[0]).toMatchObject({ enabled: false, nextRunAt: null });
     scheduler.deleteSchedule(schedule.id);
   });
+  it("skips and logs a full-queue cron tick once, releases its lock and retries the next tick", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2030-01-01T00:00:00Z"));
+    const input = fixture();
+    const schedule = scheduler.createSchedule({ ...input, cron: "* * * * * *" });
+    const previousActive = process.env.RUNS_MAX_ACTIVE;
+    const previousQueued = process.env.RUNS_MAX_QUEUED;
+    process.env.RUNS_MAX_ACTIVE = "1";
+    process.env.RUNS_MAX_QUEUED = "0";
+    const blocker = runs.reserveRun();
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(warning).toHaveBeenCalledExactlyOnceWith(
+        expect.stringContaining(`schedule ${schedule.id} skipped: Run queue is full`),
+      );
+      expect(error).not.toHaveBeenCalled();
+      expect(runs.listRuns(input.workspaceId)).toEqual([]);
+      expect(scheduler.listSchedules(input.workspaceId)[0]).toMatchObject({
+        enabled: true,
+        running: false,
+        lastRunAt: null,
+        lastRunId: null,
+      });
+      expect(runs.runQueue.stats()).toMatchObject({ active: 1, queued: 0 });
+      blocker.release();
+      await vi.advanceTimersByTimeAsync(1000);
+      const after = scheduler.listSchedules(input.workspaceId)[0];
+      expect(after).toMatchObject({ running: false, lastRunStatus: "passed" });
+      expect(after.lastRunId).toBeTruthy();
+      expect(warning).toHaveBeenCalledOnce();
+      expect(runs.runQueue.stats()).toMatchObject({ active: 0, queued: 0 });
+    } finally {
+      blocker.release();
+      scheduler.deleteSchedule(schedule.id);
+      if (previousActive === undefined) delete process.env.RUNS_MAX_ACTIVE;
+      else process.env.RUNS_MAX_ACTIVE = previousActive;
+      if (previousQueued === undefined) delete process.env.RUNS_MAX_QUEUED;
+      else process.env.RUNS_MAX_QUEUED = previousQueued;
+    }
+  });
+  it.each(["queued", "running"] as const)(
+    "reports an interrupted %s schedule run as error after restart",
+    (status) => {
+      const input = fixture();
+      const schedule = scheduler.createSchedule({ ...input, enabled: false });
+      const runId = `interrupted-${schedule.id}`;
+      try {
+        db.getDb()
+          .insert(db.schema.runs)
+          .values({
+            id: runId,
+            workspaceId: input.workspaceId,
+            folderId: input.folderId,
+            name: "Interrupted",
+            status,
+            options: { ...DEFAULT_RUN_OPTIONS },
+            iterations: 1,
+            startedAt: Date.now(),
+          })
+          .run();
+        db.getDb()
+          .update(db.schema.schedules)
+          .set({ lastRunId: runId })
+          .where(eq(db.schema.schedules.id, schedule.id))
+          .run();
+        expect(scheduler.listSchedules(input.workspaceId)[0]).toMatchObject({
+          running: false,
+          lastRunStatus: "error",
+        });
+        expect(runs.getRunSummary(runId)?.status).toBe("error");
+      } finally {
+        scheduler.deleteSchedule(schedule.id);
+      }
+    },
+  );
 });

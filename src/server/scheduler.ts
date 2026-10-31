@@ -8,6 +8,7 @@ import { newId } from "./defaults";
 import { HttpError, notFound } from "./http";
 import * as repo from "./repo";
 import { startRun } from "./runs";
+import { isRunQueueFullError } from "./run-queue";
 import { actorId, authorize } from "./authorize";
 import { withCaller } from "./access-context";
 import { countUsers, getUser } from "./users";
@@ -114,7 +115,7 @@ function register(schedule: ScheduleRow) {
     schedule.id,
     new Cron(schedule.cron, { timezone: "UTC", unref: true }, () => {
       void runSchedule(schedule.id).catch((error: unknown) => {
-        if (!(error instanceof HttpError && error.status === 409)) {
+        if (!isRunQueueFullError(error) && !(error instanceof HttpError && error.status === 409)) {
           console.error(`[postbox] schedule ${schedule.id}: ${(error as Error).message}`);
         }
       });
@@ -156,7 +157,10 @@ function describe(schedule: ScheduleRow) {
   return {
     ...schedule,
     running,
-    lastRunStatus: last?.status === "running" && !running ? "error" : (last?.status ?? null),
+    lastRunStatus:
+      (last?.status === "running" || last?.status === "queued") && !running
+        ? "error"
+        : (last?.status ?? null),
     nextRunAt: state.jobs.get(schedule.id)?.nextRun()?.getTime() ?? null,
   };
 }
@@ -276,7 +280,8 @@ export async function runSchedule(id: string): Promise<{ runId: string }> {
     )
       .catch((error: unknown) => {
         reject(error);
-        console.error(`[postbox] scheduled run ${id} failed: ${(error as Error).message}`);
+        if (isRunQueueFullError(error)) console.warn(`[postbox] schedule ${id} skipped: ${error.message}`);
+        else console.error(`[postbox] scheduled run ${id} failed: ${(error as Error).message}`);
       })
       .finally(() => {
         clearInterval(monitor);

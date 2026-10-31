@@ -26,12 +26,15 @@ import { RunQueue, type RunTicket } from "./run-queue";
 
 const { runs, runResults } = schema;
 
-/** Cancellation handles for runs in progress (this process only). */
-const active = new Map<string, AbortController>();
+const globalRuns = globalThis as unknown as {
+  __postboxRunQueue?: RunQueue;
+  __postboxActiveRuns?: Map<string, AbortController>;
+};
+/** Cancellation handles must be shared by every route bundle in this process. */
+const active = (globalRuns.__postboxActiveRuns ??= new Map<string, AbortController>());
 
-const globalQueue = globalThis as unknown as { __postboxRunQueue?: RunQueue };
 /** Process-wide admission queue shared by every run source. */
-export const runQueue = (globalQueue.__postboxRunQueue ??= new RunQueue(() => runQueueLimits()));
+export const runQueue = (globalRuns.__postboxRunQueue ??= new RunQueue(() => runQueueLimits()));
 
 /** Reserve a run slot up front; throws RunQueueFullError (429) when the queue is full. */
 export function reserveRun(): RunTicket {
@@ -58,66 +61,67 @@ export interface StartRunInput {
 
 export async function startRun(input: StartRunInput): Promise<{ runId: string; summary: RunSummary }> {
   let ticket = input.ticket;
+  let database: ReturnType<typeof getDb> | undefined;
+  let persistedRunId: string | undefined;
+  let inserted = false;
+  let errorSecrets: string[] = [];
+  let onAbort: (() => void) | undefined;
+
   try {
-    repo.requireFolderIn(input.workspaceId, input.folderId);
+    const ctrl = new AbortController();
+    onAbort = () => ctrl.abort();
+    // Only cheap metadata is needed before admission; trees and scopes are loaded later.
+    const folder = repo.requireFolderIn(input.workspaceId, input.folderId);
     ticket ??= reserveRun();
-  } catch (err) {
-    ticket?.cancel();
-    throw err;
-  }
-  const tree = repo.getFolderTree(input.folderId);
-  if (!tree) {
-    ticket.cancel();
-    throw new Error("Folder not found");
-  }
-  const options: RunOptions = { ...DEFAULT_RUN_OPTIONS, ...input.options };
-  const db = getDb();
-  const runId = newId();
-  const ctrl = new AbortController();
-  const queued = ticket.position > 0;
+    const admission = ticket;
+    const options: RunOptions = { ...DEFAULT_RUN_OPTIONS, ...input.options };
+    const db = getDb();
+    database = db;
+    const runId = newId();
+    persistedRunId = runId;
+    const queued = admission.position > 0;
 
-  db.insert(runs)
-    .values({
-      id: runId,
-      createdBy: actorId(),
-      workspaceId: input.workspaceId,
-      folderId: input.folderId,
-      name: tree.name,
-      status: queued ? "queued" : "running",
-      options,
-      environmentId: input.environmentId,
-      iterations: options.iterations,
-      source: input.source ?? "manual",
-      startedAt: Date.now(),
-    })
-    .run();
+    db.insert(runs)
+      .values({
+        id: runId,
+        createdBy: actorId(),
+        workspaceId: input.workspaceId,
+        folderId: input.folderId,
+        name: folder.name,
+        status: queued ? "queued" : "running",
+        options,
+        environmentId: input.environmentId,
+        iterations: options.iterations,
+        source: input.source ?? "manual",
+        startedAt: Date.now(),
+      })
+      .run();
+    inserted = true;
 
-  const onAbort = () => ctrl.abort();
-  input.signal?.addEventListener("abort", onAbort, { once: true });
-  if (input.signal?.aborted) ctrl.abort();
-  active.set(runId, ctrl);
-  const cleanup = () => {
-    ticket.release();
-    input.signal?.removeEventListener("abort", onAbort);
-    active.delete(runId);
-  };
+    input.signal?.addEventListener("abort", onAbort, { once: true });
+    if (input.signal?.aborted) ctrl.abort();
+    active.set(runId, ctrl);
 
-  if (queued) {
-    input.onEvent?.({ type: "queued", position: ticket.position, runId });
-    const admitted = await new Promise<boolean>((resolve) => {
-      if (ctrl.signal.aborted) return resolve(false);
-      ctrl.signal.addEventListener("abort", () => resolve(false), { once: true });
-      ticket.ready.then(
-        () => resolve(true),
-        () => resolve(false),
-      );
-    });
-    if (!admitted || ctrl.signal.aborted) {
+    if (queued) {
+      input.onEvent?.({ type: "queued", position: admission.position, runId });
+      await new Promise<void>((resolve) => {
+        const finish = () => {
+          ctrl.signal.removeEventListener("abort", finish);
+          resolve();
+        };
+        if (ctrl.signal.aborted) return finish();
+        ctrl.signal.addEventListener("abort", finish, { once: true });
+        admission.ready.then(finish, () => {
+          ctrl.abort();
+          finish();
+        });
+      });
+    }
+    if (ctrl.signal.aborted) {
       const now = Date.now();
       db.update(runs).set({ status: "cancelled", finishedAt: now }).where(eq(runs.id, runId)).run();
-      cleanup();
       const summary: RunSummary = {
-        name: tree.name,
+        name: folder.name,
         status: "cancelled",
         iterations: options.iterations,
         totalRequests: 0,
@@ -134,59 +138,49 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
       input.onEvent?.({ type: "done", summary: done, runId });
       return { runId, summary };
     }
-    db.update(runs).set({ status: "running", startedAt: Date.now() }).where(eq(runs.id, runId)).run();
-  }
 
-  let loaded;
-  try {
-    // Load the tree and scopes only once admitted, so queued runs see current data.
+    // Refresh all execution data after admission, including changes made while queued.
     const chain = repo.getFolderChain(input.folderId);
-    loaded = {
-      root: repo.getFolderTree(input.folderId) ?? tree,
-      ancestors: chain.slice(0, -1),
-      ctx: loadScopes(input.workspaceId, input.environmentId, chain[0]?.id ?? input.folderId),
-      jar: new CookieJarStore(repo.listCookies(input.workspaceId)),
-    };
-  } catch (err) {
+    const root = repo.getFolderTree(input.folderId);
+    if (!root) throw new Error("Folder not found");
+    const ancestors = chain.slice(0, -1);
+    const ctx = loadScopes(input.workspaceId, input.environmentId, chain[0]?.id ?? input.folderId);
+    errorSecrets = ctx.secrets;
+    const jar = new CookieJarStore(repo.listCookies(input.workspaceId));
     db.update(runs)
-      .set({ status: "error", error: (err as Error).message, finishedAt: Date.now() })
+      .set({ name: root.name, status: "running", startedAt: Date.now() })
       .where(eq(runs.id, runId))
       .run();
-    cleanup();
-    throw err;
-  }
-  const { root, ancestors, ctx, jar } = loaded;
 
-  const saveResult = (r: RunResult) =>
-    db
-      .insert(runResults)
-      .values({
-        id: newId(),
-        runId,
-        iteration: r.iteration,
-        sequence: r.sequence,
-        requestId: r.requestId,
-        name: r.name,
-        method: r.method,
-        url: r.url,
-        status: r.status,
-        statusText: r.statusText,
-        timeMs: r.timeMs,
-        size: r.size,
-        tests: r.tests,
-        error: r.error,
-        passed: r.passed,
-        path: r.path,
-        skipped: r.skipped,
-        scriptErrors: r.scriptErrors,
-        executionDetails: r.executionDetails ?? null,
-        responseBody: r.responseBody ?? null,
-        responseHeaders: r.responseHeaders ?? null,
-        createdAt: Date.now(),
-      })
-      .run();
+    const saveResult = (r: RunResult) =>
+      db
+        .insert(runResults)
+        .values({
+          id: newId(),
+          runId,
+          iteration: r.iteration,
+          sequence: r.sequence,
+          requestId: r.requestId,
+          name: r.name,
+          method: r.method,
+          url: r.url,
+          status: r.status,
+          statusText: r.statusText,
+          timeMs: r.timeMs,
+          size: r.size,
+          tests: r.tests,
+          error: r.error,
+          passed: r.passed,
+          path: r.path,
+          skipped: r.skipped,
+          scriptErrors: r.scriptErrors,
+          executionDetails: r.executionDetails ?? null,
+          responseBody: r.responseBody ?? null,
+          responseHeaders: r.responseHeaders ?? null,
+          createdAt: Date.now(),
+        })
+        .run();
 
-  try {
     const { summary, scopes } = await runCollection({
       root,
       resolveRequest: savedRequestResolver(
@@ -245,17 +239,26 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
     input.onEvent?.({ type: "done", summary: done, runId });
     return { runId, summary };
   } catch (err) {
-    db.update(runs)
-      .set({
-        status: "error",
-        error: redactStoredValue((err as Error).message, ctx.secrets),
-        finishedAt: Date.now(),
-      })
-      .where(eq(runs.id, runId))
-      .run();
+    if (inserted && database && persistedRunId) {
+      try {
+        database
+          .update(runs)
+          .set({
+            status: "error",
+            error: redactStoredValue(err instanceof Error ? err.message : String(err), errorSecrets),
+            finishedAt: Date.now(),
+          })
+          .where(eq(runs.id, persistedRunId))
+          .run();
+      } catch {
+        // Return the original failure even when its status cannot be persisted.
+      }
+    }
     throw err;
   } finally {
-    cleanup();
+    if (onAbort) input.signal?.removeEventListener("abort", onAbort);
+    if (persistedRunId) active.delete(persistedRunId);
+    ticket?.release();
   }
 }
 

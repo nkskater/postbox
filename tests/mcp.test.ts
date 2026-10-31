@@ -377,4 +377,34 @@ describe("MCP server (/api/mcp)", () => {
       delete process.env.MCP_ALLOWED_ORIGINS;
     }
   });
+  it("returns a bounded queue-full tool error without creating a run, then recovers", async () => {
+    const repo = await import("@/server/repo");
+    const runs = await import("@/server/runs");
+    const workspace = repo.createWorkspace("MCP queue");
+    const folder = repo.createFolder(workspace.id, null);
+    const previousActive = process.env.RUNS_MAX_ACTIVE;
+    const previousQueued = process.env.RUNS_MAX_QUEUED;
+    process.env.RUNS_MAX_ACTIVE = "1";
+    process.env.RUNS_MAX_QUEUED = "0";
+    const blocker = runs.reserveRun();
+    try {
+      const result = await client.callTool({ name: "run_collection", arguments: { folderId: folder.id } });
+      expect(result.isError).toBe(true);
+      expect((result.content as { text: string }[])[0].text).toMatch(/queue is full/);
+      expect(runs.listRuns(workspace.id)).toEqual([]);
+      expect(runs.runQueue.stats()).toMatchObject({ active: 1, queued: 0 });
+      blocker.release();
+      const retry = parseToolJson<{ summary: { status: string; totalRequests: number } }>(
+        await client.callTool({ name: "run_collection", arguments: { folderId: folder.id } }),
+      );
+      expect(retry.summary).toMatchObject({ status: "passed", totalRequests: 0 });
+      expect(runs.runQueue.stats()).toMatchObject({ active: 0, queued: 0 });
+    } finally {
+      blocker.release();
+      if (previousActive === undefined) delete process.env.RUNS_MAX_ACTIVE;
+      else process.env.RUNS_MAX_ACTIVE = previousActive;
+      if (previousQueued === undefined) delete process.env.RUNS_MAX_QUEUED;
+      else process.env.RUNS_MAX_QUEUED = previousQueued;
+    }
+  });
 });

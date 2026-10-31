@@ -7,7 +7,7 @@
  * process only. Running several server processes against one database would need
  * cross-process coordination, which is not implemented.
  */
-import { HttpError } from "./errors";
+import { HttpError, isHttpError } from "./errors";
 
 export interface RunQueueLimits {
   maxActive: number;
@@ -26,13 +26,24 @@ export interface RunTicket {
   cancel(): void;
 }
 
+const RUN_QUEUE_FULL = Symbol.for("postbox.run-queue-full");
+
 export class RunQueueFullError extends HttpError {
   constructor(limits: RunQueueLimits) {
     super(
       429,
       `Run queue is full (${limits.maxActive} running, ${limits.maxQueued} waiting). Try again when a run finishes.`,
     );
+    Object.defineProperty(this, RUN_QUEUE_FULL, { value: true });
   }
+}
+
+export function isRunQueueFullError(error: unknown): error is RunQueueFullError {
+  return (
+    isHttpError(error) &&
+    error.status === 429 &&
+    (error as unknown as Record<PropertyKey, unknown>)[RUN_QUEUE_FULL] === true
+  );
 }
 
 interface Waiter {
