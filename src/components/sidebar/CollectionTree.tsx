@@ -192,7 +192,12 @@ export function CollectionTree() {
     }, "Deleted");
 
   const exportCollection = async (id: string, name: string) => {
-    const res = await fetch(`/api/export/collection/${id}`);
+    const includeCredentials = window.confirm(
+      "Include authentication credentials in this collection export? Choose Cancel to export without credentials.",
+    );
+    const res = await fetch(
+      `/api/export/collection/${id}${includeCredentials ? "?includeCredentials=1" : ""}`,
+    );
     if (!res.ok) return toast.error("Export failed");
     const blob = await res.blob();
     const a = document.createElement("a");

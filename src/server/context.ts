@@ -16,6 +16,7 @@ import {
 import type { OAuth2Token } from "@/core/http/auth";
 import * as repo from "./repo";
 import { executionSettings } from "./execution-settings";
+import { authCredentialValues, credentialRedactionValues, sensitiveFieldValues } from "@/core/retention";
 
 let policy: HostPolicy | null = null;
 /** Host policy from PROXY_ALLOW_HOSTS / PROXY_DENY_HOSTS (parsed once). */
@@ -179,7 +180,33 @@ export async function runSingleRequest(input: RunSingleInput): Promise<RunSingle
   });
 
   persistOAuth2Token(input.workspaceId, input.request, chain, result.oauth2Token, input.requestId);
-  const secrets = persistenceSecrets(ctx, result.scopes);
+  const effectiveAuth =
+    input.request.auth.type === "inherit"
+      ? [...chain].reverse().find((folder) => folder.auth.type !== "inherit")?.auth
+      : input.request.auth;
+  const credentialNames =
+    /authorization|cookie|token|password|secret|api[-_]?key|session|credential|jwt|signature|sig|code/i;
+  const queryCredentialValues = (url: string) => {
+    try {
+      return [...new URL(url).searchParams].flatMap(([name, value]) =>
+        credentialNames.test(name) ? [value] : [],
+      );
+    } catch {
+      return [];
+    }
+  };
+  const secrets = credentialRedactionValues([
+    ...persistenceSecrets(ctx, result.scopes),
+    ...(effectiveAuth ? authCredentialValues(effectiveAuth) : []),
+    result.oauth2Token?.accessToken ?? "",
+    ...sensitiveFieldValues(input.request),
+    ...queryCredentialValues(input.request.url),
+    ...(result.response?.headers ?? []).flatMap(([name, value]) =>
+      credentialNames.test(name) ? [value] : [],
+    ),
+    ...queryCredentialValues(result.response?.url ?? ""),
+    ...sensitiveFieldValues(result.response?.bodyText ?? ""),
+  ]);
   const warnings = persistScopes(ctx, result.scopes);
   if (jar) repo.saveCookies(input.workspaceId, jar.getChanges());
 

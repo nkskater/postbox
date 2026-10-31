@@ -79,6 +79,19 @@ describe("recorded run details", () => {
     expect(details.response?.body.text).toBe('{"token":"********"}');
     expect(JSON.stringify(details)).not.toContain("bodyBase64");
   });
+  it("redacts raw authorization, API-key, and credential-query values from response-derived details", () => {
+    const r = execution('{"echo":"raw-token","query":"raw-query","key":"raw-api-key"}');
+    r.sent!.url = "https://example.test/?access_token=raw-query";
+    r.sent!.headers = [
+      ["Authorization", "Bearer raw-token"],
+      ["X-Api-Key", "raw-api-key"],
+    ];
+    const details = recordExecution(r, []);
+    expect(JSON.stringify(details)).not.toContain("raw-token");
+    expect(JSON.stringify(details)).not.toContain("raw-query");
+    expect(JSON.stringify(details)).not.toContain("raw-api-key");
+    expect(details.response?.body.text).toBe('{"echo":"********","query":"********","key":"********"}');
+  });
   it("retains responses beyond the old excerpt and marks byte and engine truncation honestly", () => {
     const r = execution("x".repeat(20_000));
     expect(recordExecution(r, []).response?.body).toMatchObject({

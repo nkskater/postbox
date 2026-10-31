@@ -259,6 +259,37 @@ describe("stored secret redaction", () => {
     expect(JSON.stringify(runs.getRunSummary(run.runId))).not.toContain("rotated-secret-value");
   });
 
+  it("redacts direct, inherited and freshly issued auth credentials from request history", async () => {
+    const directSecret = "direct-history-auth-secret";
+    const direct = fixture({ type: "bearer", bearer: { token: directSecret } });
+    direct.request.url += "?api_key=query-history-auth-secret";
+    direct.request.headers = [{ key: "X-API-Key", value: "header-history-auth-secret", enabled: true }];
+    const directResult = await context.runSingleRequest(direct);
+    const directHistory = JSON.stringify(repo.getHistory(directResult.historyId!));
+    for (const secret of [directSecret, "query-history-auth-secret", "header-history-auth-secret"]) {
+      expect(directHistory).not.toContain(secret);
+    }
+
+    const inheritedSecret = "inherited-history-auth-secret";
+    const inherited = fixture({ type: "inherit" });
+    repo.updateFolder(inherited.folderId, {
+      auth: { type: "basic", basic: { username: "history-user", password: inheritedSecret } },
+    });
+    const inheritedResult = await context.runSingleRequest(inherited);
+    expect(JSON.stringify(repo.getHistory(inheritedResult.historyId!))).not.toContain(inheritedSecret);
+
+    const config = oauth({ accessTokenUrl: tokenUrl + "?ttl=3600", clientSecret: "oauth-client-secret" });
+    // The token endpoint fixture generates its own token; ensure the persisted history also
+    // redacts the token returned by the OAuth helper, regardless of its transport location.
+    const oauthInput = fixture({ type: "oauth2", oauth2: config });
+    const oauthResult = await context.runSingleRequest(oauthInput);
+    const issuedToken = oauthResult.oauth2Token?.accessToken;
+    expect(issuedToken).toBeTruthy();
+    const oauthHistory = JSON.stringify(repo.getHistory(oauthResult.historyId!));
+    expect(oauthHistory).not.toContain(issuedToken);
+    expect(oauthHistory).not.toContain("oauth-client-secret");
+  });
+
   it("preserves stable IDs when a short secret overlaps references", async () => {
     const input = fixture();
     const secret = input.workspaceId.slice(0, 2);

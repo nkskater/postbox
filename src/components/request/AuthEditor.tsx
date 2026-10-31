@@ -193,6 +193,12 @@ export function AuthEditor({
           folderId={folderId}
         />
       )}
+      {auth.type !== "inherit" && auth.type !== "none" && (
+        <p role="note" className="text-[11px] text-muted-foreground">
+          Saved authentication credentials stay in the workspace database. Browser drafts and collection
+          exports omit them by default.
+        </p>
+      )}
     </div>
   );
 }
