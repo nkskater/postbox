@@ -21,6 +21,7 @@ import { buildDigestAuthorization, parseDigestChallenge } from "./digest";
 import { authenticateMessage, negotiateMessage, parseChallenge } from "./ntlm";
 import { signAwsRequest } from "./aws-sigv4";
 import { HostPolicy, HostPolicyError, OPEN_POLICY } from "./policy";
+import { sendOnceH2 } from "./h2";
 
 export interface EngineOptions {
   /** Isolates OAuth token reuse between workspaces or standalone callers. */
@@ -132,11 +133,12 @@ async function decompress(
   return out;
 }
 
-interface SingleResponse {
+export interface SingleResponse {
   status: number;
   statusText: string;
   httpVersion: string;
   rawHeaders: [string, string][];
+  trailers?: [string, string][];
   body: Buffer;
   truncated: boolean;
   timings: Omit<Timings, "total">;
@@ -386,15 +388,37 @@ export async function sendRequest(
         ntlmState = "negotiating";
       }
 
-      const res = await sendOnce(method, url, hopHeaders, body, {
-        verifySsl: settings.verifySsl,
-        timeoutMs: settings.timeoutMs,
-        policy,
-        signal: options.signal,
-        maxBodyBytes,
-        socketPath,
-        agent: ntlmState === "negotiating" || ntlmState === "authenticating" ? ntlmAgent : undefined,
-      });
+      const httpVersion = settings.httpVersion ?? "http1";
+      if (httpVersion === "http2" && (socketPath || prepared.ntlm)) {
+        throw new RequestError(
+          `HTTP/2 cannot be used with ${socketPath ? "a Unix socket or named pipe" : "NTLM authentication"}; choose Auto or HTTP/1.1.`,
+          "EH2UNSUPPORTED",
+        );
+      }
+      // Auto/HTTP/2 use their own connection; sockets and NTLM (connection-bound) stay on HTTP/1.1.
+      const h2Res =
+        httpVersion !== "http1" && !socketPath && !prepared.ntlm
+          ? await sendOnceH2(method, url, hopHeaders, body, {
+              mode: httpVersion,
+              verifySsl: settings.verifySsl,
+              timeoutMs: settings.timeoutMs,
+              policy,
+              signal: options.signal,
+              maxBodyBytes,
+            })
+          : null;
+
+      const res =
+        h2Res ??
+        (await sendOnce(method, url, hopHeaders, body, {
+          verifySsl: settings.verifySsl,
+          timeoutMs: settings.timeoutMs,
+          policy,
+          signal: options.signal,
+          maxBodyBytes,
+          socketPath,
+          agent: ntlmState === "negotiating" || ntlmState === "authenticating" ? ntlmAgent : undefined,
+        }));
 
       const setCookies = res.rawHeaders.filter(([k]) => k.toLowerCase() === "set-cookie").map(([, v]) => v);
       if (setCookies.length) {
@@ -503,6 +527,7 @@ export async function sendRequest(
         statusText: res.statusText,
         httpVersion: res.httpVersion,
         headers: res.rawHeaders,
+        ...(res.trailers?.length ? { trailers: res.trailers } : {}),
         bodyBase64: decoded.toString("base64"),
         bodyText: isBinary ? "" : decoded.toString("utf8"),
         isBinary,

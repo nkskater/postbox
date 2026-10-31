@@ -233,6 +233,7 @@ export const settingsPatchSchema = z.object({
   verifySsl: z.boolean().optional(),
   useCookieJar: z.boolean().optional(),
   socketPath: z.string().max(1024).optional(),
+  httpVersion: z.enum(["http1", "auto", "http2"]).optional(),
   mqtt: z
     .object({
       clientId: z.string().max(256).optional(),
