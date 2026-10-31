@@ -16,14 +16,15 @@ import { codegenLanguageSchema, codegenOptionsSchema } from "@/core/convert/code
 import { CODEGEN_LANGUAGES } from "@/core/convert/codegen-targets";
 import { exportPostmanCollection, exportPostmanEnvironment } from "@/core/convert/postman";
 import { prepareRequest } from "@/core/http/prepare";
-import { sendRequest } from "@/core/http/engine";
 import { DataValidationError, formatIssue, parseJsonData, readCsv } from "@/core/runner/data";
 import { renderReport, type ReportFormat } from "@/core/runner/reporters";
 import { authSchema, bodySchema, keyValueSchema, settingsPatchSchema, variableSchema } from "@/core/schemas";
 import { Resolver } from "@/core/variables/resolver";
 import { getPolicy, loadScopes, runSingleRequest } from "./context";
 import { defaultRequest } from "./defaults";
-import { importContent } from "./importer";
+import { importSource } from "./import-source";
+import { importSourceFields } from "@/core/convert/import-schema";
+import { isOpenApiResolutionError } from "@/core/convert/openapi-references";
 import * as repo from "./repo";
 import { currentCaller } from "./access-context";
 import { describeCaller } from "./caller";
@@ -49,7 +50,11 @@ function errResult(err: unknown): CallToolResult {
       {
         type: "text",
         text: JSON.stringify(
-          err instanceof DataValidationError ? { error: message, issues: err.issues } : { error: message },
+          err instanceof DataValidationError
+            ? { error: message, issues: err.issues }
+            : isOpenApiResolutionError(err)
+              ? { error: message, diagnostics: err.diagnostics }
+              : { error: message },
         ),
       },
     ],
@@ -1396,38 +1401,16 @@ export function createPostboxMcpServer(): McpServer {
     {
       title: "Import API Collections and Specifications",
       description:
-        "Import a Postman Collection (v2.0/v2.1), Postman Environment, or OpenAPI 3.x / Swagger 2.0 specification (JSON or YAML), HAR 1.2 recordings, Hoppscotch, Thunder Client or Insomnia (v4/v5) exports from raw text or a URL into a workspace. Hoppscotch, Thunder Client and Insomnia require explicit includeCredentials consent.",
+        "Import a Postman Collection (v2.0/v2.1), Postman Environment, or OpenAPI 3.x / Swagger 2.0 specification (JSON or YAML), HAR 1.2 recordings, Hoppscotch, Thunder Client or Insomnia (v4/v5) exports, and SoapUI XML projects from raw text or a URL into a workspace. OpenAPI supports folder/file bundles with entrypoint, sourceUrl and explicit allowedRefOrigins; previews report reference diagnostics without writes. SoapUI supports a non-persisting preview and omits recognized credentials by default. Hoppscotch, Thunder Client and Insomnia require explicit includeCredentials consent.",
       inputSchema: {
         workspaceId: z.string().optional().describe("Workspace ID (defaults to primary workspace)"),
-        includeCredentials: z
-          .boolean()
-          .optional()
-          .describe("Explicitly allow credentials in Hoppscotch, Thunder Client and Insomnia exports"),
-        content: z.string().optional().describe("Raw JSON or YAML specification content"),
-        url: z.string().url().optional().describe("URL to fetch the specification from"),
+        ...importSourceFields,
       },
     },
-    async ({ workspaceId, content, url, includeCredentials }) => {
+    async ({ workspaceId, ...input }) => {
       try {
-        if (!content && !url) throw new Error("Provide either `content` or `url`");
         const wsId = resolveWorkspaceId(workspaceId);
-        let raw = content ?? "";
-        if (url) {
-          const res = await sendRequest(
-            {
-              method: "GET",
-              url,
-              headers: [["Accept", "application/json, application/yaml, */*"]],
-              settings: { ...DEFAULT_SETTINGS, useCookieJar: false },
-            },
-            { policy: getPolicy() },
-          );
-          if (res.status >= 400) {
-            throw new Error(`Fetching ${url} failed with HTTP ${res.status}`);
-          }
-          raw = res.bodyText;
-        }
-        const outcome = importContent(wsId, raw, url, { includeCredentials });
+        const outcome = await importSource(wsId, input);
         return okJson(outcome);
       } catch (err) {
         return errResult(err);

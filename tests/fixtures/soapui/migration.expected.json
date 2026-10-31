@@ -1,0 +1,47 @@
+{
+  "name": "Migration Lab",
+  "sourceCounts": {
+    "interfaces": 3,
+    "endpoints": 4,
+    "resources": 2,
+    "testSuites": 1,
+    "testCases": 1,
+    "requestDefinitions": 4,
+    "requestTestSteps": 3,
+    "convertedRequests": 6,
+    "skippedRequests": 1,
+    "unsupportedTestSteps": 3,
+    "assertions": 2,
+    "scripts": 2,
+    "attachments": 1,
+    "properties": 8
+  },
+  "requests": [
+    {
+      "path": "Migration Lab/Pets/Pets",
+      "name": "Create pet",
+      "method": "POST",
+      "url": "{{host}}/v1/pets?q=default"
+    },
+    {
+      "path": "Migration Lab/Pets/Pets/Pet",
+      "name": "Get pet",
+      "method": "GET",
+      "url": "{{host}}/v1/pets/{{petId}}?q="
+    },
+    { "path": "Migration Lab/Echo/Echo", "name": "SOAP 1.1", "method": "POST", "url": "{{host}}/soap" },
+    { "path": "Migration Lab/Submit/Submit", "name": "SOAP 1.2", "method": "POST", "url": "{{endpoint_3}}" },
+    {
+      "path": "Migration Lab/Workflow/Case",
+      "name": "Read in case",
+      "method": "GET",
+      "url": "{{host}}/v1/pets/{{suite_1.case_1.petId}}?q={{suite_1.category}}"
+    },
+    {
+      "path": "Migration Lab/Workflow/Case",
+      "name": "SOAP in case",
+      "method": "POST",
+      "url": "{{host}}/soap"
+    }
+  ]
+}

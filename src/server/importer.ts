@@ -1,3 +1,4 @@
+import { importSoapUi, isSoapUiXml, type SoapUiCounts, type SoapUiDiagnostic } from "@/core/convert/soapui";
 import { importThunderClient, isThunderClient } from "@/core/convert/thunder";
 import { importHar, isHar } from "@/core/convert/har";
 import { importHoppscotch, isHoppscotch } from "@/core/convert/hoppscotch";
@@ -16,14 +17,29 @@ import {
 } from "@/core/convert/postman";
 import * as repo from "./repo";
 
+export interface SoapUiPreview {
+  kind: "preview";
+  source: "soapui";
+  name: string;
+  folders: number;
+  requests: number;
+  variables: number;
+  sourceCounts: SoapUiCounts;
+  diagnostics: SoapUiDiagnostic[];
+  warnings: string[];
+  includeCredentials: boolean;
+}
 export type ImportOutcome =
+  | SoapUiPreview
   | {
       kind: "collection";
       id: string;
       name: string;
       folders: number;
       requests: number;
-      source: "postman" | "openapi" | "har" | "hoppscotch" | "thunder-client" | "insomnia";
+      source: "postman" | "openapi" | "har" | "hoppscotch" | "thunder-client" | "insomnia" | "soapui";
+      sourceCounts?: SoapUiCounts;
+      diagnostics?: SoapUiDiagnostic[];
       warnings?: string[];
     }
   | { kind: "environment"; id: string; name: string; variables: number; warnings?: string[] }
@@ -34,8 +50,38 @@ export function importContent(
   workspaceId: string,
   content: string,
   sourceUrl?: string,
-  options: { includeCredentials?: boolean } = {},
+  options: { includeCredentials?: boolean; preview?: boolean } = {},
 ): ImportOutcome {
+  if (isSoapUiXml(content) || /^\uFEFF?\s*</.test(content)) {
+    const converted = importSoapUi(content, options);
+    const countFolders = (node: typeof converted.root): number =>
+      1 +
+      node.children.reduce((total, child) => total + (child.kind === "folder" ? countFolders(child) : 0), 0);
+    const metadata = {
+      sourceCounts: converted.sourceCounts,
+      diagnostics: converted.diagnostics,
+      warnings: converted.warnings,
+    };
+    if (options.preview)
+      return {
+        kind: "preview",
+        source: "soapui",
+        name: converted.root.name,
+        folders: countFolders(converted.root) - 1,
+        requests: converted.sourceCounts.convertedRequests,
+        variables: converted.variables.length,
+        includeCredentials: options.includeCredentials === true,
+        ...metadata,
+      };
+    return {
+      kind: "collection",
+      source: "soapui",
+      ...repo.importTree(workspaceId, converted.root, converted.variables),
+      ...metadata,
+    };
+  }
+  if (options.preview)
+    throw new Error("Preview currently supports SoapUI XML projects. No data was imported.");
   let data: unknown;
   try {
     data = parseSpec(content);
@@ -122,6 +168,6 @@ export function importContent(
     return { kind: "environment", id: created.id, name: created.name, variables: env.variables.length };
   }
   throw new Error(
-    "Unrecognised format. Supported: Postman collection v2.0/v2.1, Postman environment, OpenAPI 3.x, Swagger 2.0, HAR 1.2, Hoppscotch, Thunder Client, Insomnia v4/v5",
+    "Unrecognised format. Supported: Postman collection v2.0/v2.1, Postman environment, OpenAPI 3.x, Swagger 2.0, HAR 1.2, Hoppscotch, Thunder Client, Insomnia v4/v5, SoapUI XML projects",
   );
 }
