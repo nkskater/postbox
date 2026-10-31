@@ -11,8 +11,12 @@ import type {
   AwsSigV4Config,
   EdgeGridConfig,
   HawkAlgorithm,
+  OAuth1Config,
+  OAuth1SignatureMethod,
   OAuth2Config,
 } from "@/core/types";
+import { OAUTH1_SIGNATURE_METHODS } from "@/core/types";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -27,6 +31,7 @@ const TYPES: { type: AuthType; label: string }[] = [
   { type: "basic", label: "Basic Auth" },
   { type: "apikey", label: "API Key" },
   { type: "digest", label: "Digest Auth" },
+  { type: "oauth1", label: "OAuth 1.0" },
   { type: "oauth2", label: "OAuth 2.0" },
   { type: "edgegrid", label: "Akamai EdgeGrid" },
   { type: "hawk", label: "Hawk Authentication" },
@@ -78,6 +83,8 @@ export function defaultAuth(type: AuthType): AuthConfig {
           includePayloadHash: false,
         },
       };
+    case "oauth1":
+      return { type, oauth1: { consumerKey: "", consumerSecret: "", signatureMethod: "HMAC-SHA1" } };
     case "awsv4":
       return { type, awsv4: { accessKey: "", secretKey: "", region: "us-east-1", service: "" } };
     default:
@@ -226,6 +233,9 @@ export function AuthEditor({
           onChange={(oauth2) => onChange({ ...auth, oauth2 })}
           folderId={folderId}
         />
+      )}
+      {auth.type === "oauth1" && (
+        <OAuth1Editor config={auth.oauth1} onChange={(oauth1) => onChange({ ...auth, oauth1 })} />
       )}
       {auth.type === "awsv4" && (
         <AwsSigV4Editor config={auth.awsv4} onChange={(awsv4) => onChange({ ...auth, awsv4 })} />
@@ -478,6 +488,144 @@ function OAuth2Editor({
         </>
       )}
     </>
+  );
+}
+
+function OAuth1Editor({ config, onChange }: { config: OAuth1Config; onChange: (c: OAuth1Config) => void }) {
+  const set = (patch: Partial<OAuth1Config>) => onChange({ ...config, ...patch });
+  const method = config.signatureMethod ?? "HMAC-SHA1";
+  const rsa = method.startsWith("RSA-");
+  const optional =
+    (key: "token" | "timestamp" | "nonce" | "realm" | "callback" | "verifier") => (value: string) =>
+      set({ [key]: value || undefined });
+  return (
+    <div className="flex flex-col gap-3">
+      <Field label="Signature Method">
+        <Select value={method} onValueChange={(v) => set({ signatureMethod: v as OAuth1SignatureMethod })}>
+          <SelectTrigger size="sm" className="w-64 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {OAUTH1_SIGNATURE_METHODS.map((m) => (
+              <SelectItem key={m} value={m} className="text-xs">
+                {m}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Field>
+      <Field label="Add auth data to">
+        <Select
+          value={config.addTo ?? "header"}
+          onValueChange={(v) => set({ addTo: v === "header" ? undefined : (v as "query" | "body") })}
+        >
+          <SelectTrigger size="sm" className="w-64 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="header" className="text-xs">
+              Request headers
+            </SelectItem>
+            <SelectItem value="query" className="text-xs">
+              Request URL
+            </SelectItem>
+            <SelectItem value="body" className="text-xs">
+              Request body (form-urlencoded)
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </Field>
+      <Field label="Consumer Key">
+        <VarInput
+          value={config.consumerKey}
+          onChange={(consumerKey) => set({ consumerKey })}
+          placeholder="Consumer key"
+        />
+      </Field>
+      {rsa ? (
+        <Field label="Private Key (PEM)">
+          <Textarea
+            className="min-h-24 font-mono text-xs"
+            value={config.privateKey ?? ""}
+            onChange={(e) => set({ privateKey: e.target.value || undefined })}
+            placeholder="-----BEGIN PRIVATE KEY-----"
+            spellCheck={false}
+          />
+        </Field>
+      ) : (
+        <Field label="Consumer Secret">
+          <VarInput
+            masked
+            value={config.consumerSecret}
+            onChange={(consumerSecret) => set({ consumerSecret })}
+            placeholder="Consumer secret"
+          />
+        </Field>
+      )}
+      <Field label="Access Token">
+        <VarInput value={config.token ?? ""} onChange={optional("token")} placeholder="Token (optional)" />
+      </Field>
+      {!rsa && (
+        <Field label="Token Secret">
+          <VarInput
+            masked
+            value={config.tokenSecret ?? ""}
+            onChange={(tokenSecret) => set({ tokenSecret: tokenSecret || undefined })}
+            placeholder="Token secret (optional)"
+          />
+        </Field>
+      )}
+      <Field label="Callback URL">
+        <VarInput
+          value={config.callback ?? ""}
+          onChange={optional("callback")}
+          placeholder="Request-token step (optional)"
+        />
+      </Field>
+      <Field label="Verifier">
+        <VarInput
+          value={config.verifier ?? ""}
+          onChange={optional("verifier")}
+          placeholder="Access-token step (optional)"
+        />
+      </Field>
+      <Field label="Timestamp">
+        <VarInput
+          value={config.timestamp ?? ""}
+          onChange={optional("timestamp")}
+          placeholder="Auto-generated if empty"
+        />
+      </Field>
+      <Field label="Nonce">
+        <VarInput
+          value={config.nonce ?? ""}
+          onChange={optional("nonce")}
+          placeholder="Auto-generated if empty"
+        />
+      </Field>
+      <Field label="Version">
+        <VarInput
+          value={config.version ?? "1.0"}
+          onChange={(version) => set({ version })}
+          placeholder="1.0"
+        />
+      </Field>
+      <Field label="Realm">
+        <VarInput value={config.realm ?? ""} onChange={optional("realm")} placeholder="Optional" />
+      </Field>
+      <Field label="Include body hash">
+        <Switch
+          checked={!!config.includeBodyHash}
+          onCheckedChange={(v) => set({ includeBodyHash: v || undefined })}
+        />
+      </Field>
+      <Field label="Add empty parameters to signature">
+        <Switch
+          checked={!!config.addEmptyParamsToSign}
+          onCheckedChange={(v) => set({ addEmptyParamsToSign: v || undefined })}
+        />
+      </Field>
+    </div>
   );
 }
 

@@ -10,6 +10,7 @@ import type {
   BodyConfig,
   EdgeGridConfig,
   HawkConfig,
+  OAuth1Config,
   OAuth2Config,
 } from "./types";
 import { base64ByteLength, MAX_UPLOAD_BYTES, MAX_UPLOAD_BASE64_CHARS } from "./retention";
@@ -142,6 +143,29 @@ export const awsSigV4ConfigSchema: z.ZodType<AwsSigV4Config> = z.object({
   timestamp: z.string().optional(),
 });
 
+export const oauth1ConfigSchema: z.ZodType<OAuth1Config> = z.object({
+  consumerKey: z.string().default(""),
+  consumerSecret: z.string().default(""),
+  token: z.string().optional(),
+  tokenSecret: z.string().optional(),
+  signatureMethod: z
+    .enum(["HMAC-SHA1", "HMAC-SHA256", "HMAC-SHA512", "RSA-SHA1", "RSA-SHA256", "RSA-SHA512", "PLAINTEXT"])
+    .optional(),
+  privateKey: z
+    .string()
+    .max(64 * 1024)
+    .optional(),
+  addTo: z.enum(["header", "query", "body"]).optional(),
+  timestamp: z.string().optional(),
+  nonce: z.string().optional(),
+  version: z.string().optional(),
+  realm: z.string().optional(),
+  callback: z.string().optional(),
+  verifier: z.string().optional(),
+  includeBodyHash: z.boolean().optional(),
+  addEmptyParamsToSign: z.boolean().optional(),
+});
+
 export const authSchema: z.ZodType<AuthConfig> = z.discriminatedUnion("type", [
   z.object({ type: z.literal("inherit") }),
   z.object({ type: z.literal("none") }),
@@ -163,6 +187,7 @@ export const authSchema: z.ZodType<AuthConfig> = z.discriminatedUnion("type", [
   z.object({ type: z.literal("edgegrid"), edgegrid: edgeGridConfigSchema }),
   z.object({ type: z.literal("hawk"), hawk: hawkConfigSchema }),
   z.object({ type: z.literal("awsv4"), awsv4: awsSigV4ConfigSchema }),
+  z.object({ type: z.literal("oauth1"), oauth1: oauth1ConfigSchema }),
 ]);
 
 export const settingsPatchSchema = z.object({

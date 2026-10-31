@@ -72,6 +72,41 @@ export interface EdgeGridConfig {
   nonce?: string;
   timestamp?: string;
 }
+export const OAUTH1_SIGNATURE_METHODS = [
+  "HMAC-SHA1",
+  "HMAC-SHA256",
+  "HMAC-SHA512",
+  "RSA-SHA1",
+  "RSA-SHA256",
+  "RSA-SHA512",
+  "PLAINTEXT",
+] as const;
+export type OAuth1SignatureMethod = (typeof OAUTH1_SIGNATURE_METHODS)[number];
+
+export interface OAuth1Config {
+  consumerKey: string;
+  consumerSecret: string;
+  token?: string;
+  tokenSecret?: string;
+  /** Defaults to HMAC-SHA1. */
+  signatureMethod?: OAuth1SignatureMethod;
+  /** PEM private key for RSA-* methods. */
+  privateKey?: string;
+  /** Where oauth_* parameters go; "body" needs a form-encoded body. Defaults to header. */
+  addTo?: "header" | "query" | "body";
+  /** Fixed oauth_timestamp / oauth_nonce for reproducible signatures; generated when empty. */
+  timestamp?: string;
+  nonce?: string;
+  /** oauth_version; defaults to "1.0", empty omits it. */
+  version?: string;
+  realm?: string;
+  /** Temporary-credential and token-exchange steps of the three-legged flow. */
+  callback?: string;
+  verifier?: string;
+  includeBodyHash?: boolean;
+  addEmptyParamsToSign?: boolean;
+}
+
 export interface AwsSigV4Config {
   accessKey: string;
   secretKey: string;
@@ -114,7 +149,8 @@ export type AuthConfig =
   | { type: "oauth2"; oauth2: OAuth2Config }
   | { type: "edgegrid"; edgegrid: EdgeGridConfig }
   | { type: "hawk"; hawk: HawkConfig }
-  | { type: "awsv4"; awsv4: AwsSigV4Config };
+  | { type: "awsv4"; awsv4: AwsSigV4Config }
+  | { type: "oauth1"; oauth1: OAuth1Config };
 
 export type AuthType = AuthConfig["type"];
 

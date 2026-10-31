@@ -8,6 +8,7 @@ import { sendRequest, type EngineOptions } from "./engine";
 import { createHash } from "node:crypto";
 import { buildEdgeGridAuthHeader } from "./edgegrid";
 import { signAwsRequest } from "./aws-sigv4";
+import { signOAuth1Request } from "./oauth1";
 import { buildHawkHeader } from "./hawk";
 
 /**
@@ -90,6 +91,27 @@ export function resolveAuth(auth: AuthConfig, r: Resolver): AuthConfig {
           dlg: h.dlg !== undefined ? r.resolve(h.dlg) : undefined,
           timestamp: h.timestamp !== undefined ? r.resolve(h.timestamp) : undefined,
           includePayloadHash: h.includePayloadHash,
+        },
+      };
+    }
+    case "oauth1": {
+      const o = auth.oauth1;
+      const opt = (v: string | undefined) => (v !== undefined ? r.resolve(v) : undefined);
+      return {
+        type: "oauth1",
+        oauth1: {
+          ...o,
+          consumerKey: r.resolve(o.consumerKey),
+          consumerSecret: r.resolve(o.consumerSecret),
+          token: opt(o.token),
+          tokenSecret: opt(o.tokenSecret),
+          privateKey: opt(o.privateKey),
+          timestamp: opt(o.timestamp),
+          nonce: opt(o.nonce),
+          version: opt(o.version),
+          realm: opt(o.realm),
+          callback: opt(o.callback),
+          verifier: opt(o.verifier),
         },
       };
     }
@@ -335,6 +357,27 @@ export async function applyAuth(
         const header = buildHawkHeader(req, auth.hawk);
         setHeader(req, "Authorization", header);
       }
+      return {};
+    }
+    case "oauth1": {
+      const addTo = auth.oauth1.addTo ?? "header";
+      if (hasAuthHeader && addTo === "header") return {};
+      let signed;
+      try {
+        signed = signOAuth1Request(req, auth.oauth1);
+      } catch (err) {
+        // Code generation may run before variables make the URL or key valid.
+        if (!offline) throw err;
+        setHeader(
+          req,
+          "Authorization",
+          'OAuth oauth_consumer_key="<consumer-key>",oauth_signature="<signature>"',
+        );
+        return {};
+      }
+      req.url = signed.url;
+      req.headers = signed.headers;
+      req.body = signed.body;
       return {};
     }
     case "awsv4": {
