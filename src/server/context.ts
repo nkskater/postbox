@@ -4,7 +4,7 @@
  * variable changes, cookies and history.
  */
 import type { FolderDef, RequestDef, Variable } from "@/core/types";
-import { execute, type ExecuteResult } from "@/core/executor";
+import { execute, type ExecuteResult, type SavedRequestResolver } from "@/core/executor";
 import { CookieJarStore } from "@/core/http/cookies";
 import { HostPolicy } from "@/core/http/policy";
 import {
@@ -138,6 +138,47 @@ export function persistOAuth2Token(
   else repo.updateRequest(owner.id, { auth });
 }
 
+/** Resolve references only inside the already-authorized workspace. */
+export function savedRequestResolver(
+  workspaceId: string,
+  environmentId: string | null,
+  secrets: string[],
+  persistVariables = true,
+): SavedRequestResolver {
+  return (id) => {
+    const request = repo.requireRequestIn(workspaceId, id);
+    const ancestors = repo.getFolderChain(request.folderId);
+    const ctx = loadScopes(workspaceId, environmentId, ancestors[0]?.id ?? null);
+    const auth =
+      request.auth.type === "inherit"
+        ? [...ancestors].reverse().find((folder) => folder.auth.type !== "inherit")?.auth
+        : request.auth;
+    return {
+      request,
+      ancestors,
+      collectionVariables: ctx.scopes.collection,
+      secrets: [
+        ...ctx.secrets,
+        ...(auth ? authCredentialValues(auth) : []),
+        ...sensitiveFieldValues(request),
+      ],
+      onExecution: (result) => {
+        for (const secret of persistenceSecrets(ctx, result.scopes))
+          if (!secrets.includes(secret)) secrets.push(secret);
+        if (persistVariables && ctx.collectionId)
+          repo.persistScopeDiff(
+            workspaceId,
+            "collection",
+            ctx.collectionId,
+            ctx.scopes.collection,
+            result.scopes.collection,
+          );
+        persistOAuth2Token(workspaceId, request, ancestors, result.oauth2Token, request.id);
+      },
+    };
+  };
+}
+
 export interface RunSingleInput {
   workspaceId: string;
   environmentId: string | null;
@@ -169,6 +210,7 @@ export async function runSingleRequest(input: RunSingleInput): Promise<RunSingle
 
   const result = await execute({
     request: input.request,
+    resolveRequest: savedRequestResolver(input.workspaceId, input.environmentId, ctx.secrets),
     ancestors: chain,
     scopes: ctx.scopes,
     cookieJar: jar,

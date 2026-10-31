@@ -34,8 +34,20 @@ import {
   type SendRequestSpec,
 } from "./scripts/sandbox";
 
+/** Saved requests are resolved by callers; core never accesses persistence. */
+export interface SavedRequest {
+  request: RequestDef;
+  ancestors: FolderDef[];
+  collectionVariables?: Record<string, string>;
+  secrets?: string[];
+  onExecution?: (result: ExecuteResult) => void;
+}
+
+export type SavedRequestResolver = (requestId: string) => SavedRequest | Promise<SavedRequest>;
+
 export interface ExecuteOptions {
   request: RequestDef;
+  resolveRequest?: SavedRequestResolver;
   /** Ancestor folders, collection first. */
   ancestors: FolderDef[];
   scopes: VariableScopes;
@@ -186,6 +198,7 @@ function applySandboxRequest(r: RequestDef, s: SandboxRequest): RequestDef {
       enabled: !h.disabled,
     })),
     body: bodyFromSandbox(r.body, s.body ?? null),
+    auth: (s.auth as RequestDef["auth"] | undefined) ?? r.auth,
   };
 }
 
@@ -205,12 +218,50 @@ export function toSandboxResponse(res: HttpResponse): SandboxResponse {
 // ------------------------------------------------------------------ pipeline
 
 export async function execute(opts: ExecuteOptions): Promise<ExecuteResult> {
+  return executeInternal(opts, {
+    depth: 0,
+    budget: { remaining: 100 },
+    collections: new Map([[opts.ancestors[0]?.id ?? null, { ...opts.scopes.collection }]]),
+  });
+}
+
+function applyChanges(
+  target: Record<string, string>,
+  before: Record<string, string>,
+  after: Record<string, string>,
+): Record<string, string> {
+  const out = { ...target };
+  for (const key of Object.keys(before)) if (!Object.hasOwn(after, key)) delete out[key];
+  for (const [key, value] of Object.entries(after))
+    if (!Object.hasOwn(before, key) || before[key] !== value)
+      Object.defineProperty(out, key, { value, enumerable: true, configurable: true, writable: true });
+  return out;
+}
+
+async function executeInternal(
+  opts: ExecuteOptions,
+  context: {
+    depth: number;
+    budget: { remaining: number };
+    collections: Map<string | null, Record<string, string>>;
+    variables?: Record<string, string>;
+  },
+): Promise<ExecuteResult> {
   const secrets = opts.secrets ?? [];
   const logs: ConsoleEntry[] = [];
   const tests: TestResult[] = [];
   const scriptErrors: ScriptError[] = [];
   let scopes: VariableScopes = structuredClone(opts.scopes);
   let request: RequestDef = structuredClone(opts.request);
+  const effectiveScopes = () => ({ ...scopes, local: { ...scopes.local, ...context.variables } });
+  const collectionId = opts.ancestors[0]?.id ?? null;
+  const initialCollection = { ...scopes.collection };
+  const syncCollection = (current: VariableScopes) => {
+    context.collections.set(
+      collectionId,
+      applyChanges(context.collections.get(collectionId) ?? {}, initialCollection, current.collection),
+    );
+  };
   let nextRequest: string | null | undefined;
   let nextRequestSet = false;
 
@@ -227,11 +278,87 @@ export async function execute(opts: ExecuteOptions): Promise<ExecuteResult> {
     iterationCount: opts.iterationCount ?? 1,
     requestName: request.name,
     requestId: request.id,
+    location: [...opts.ancestors.map((folder) => folder.name), request.name],
   });
 
   // pm.sendRequest implementation: resolve variables, send through the same engine/policy.
   const host = {
-    sendRequest: async (spec: SendRequestSpec, signal?: AbortSignal): Promise<SandboxResponse> => {
+    runRequest: opts.resolveRequest
+      ? async (
+          requestId: string,
+          options: { variables?: Record<string, unknown> },
+          signal?: AbortSignal,
+          currentScopes?: VariableScopes,
+        ) => {
+          if (context.depth >= 5)
+            throw new Error("pm.execution.runRequest exceeded the recursion limit of 5");
+          if (--context.budget.remaining < 0)
+            throw new Error("pm.execution.runRequest exceeded the execution budget of 100");
+          const combinedSignal =
+            signal && opts.signal ? AbortSignal.any([signal, opts.signal]) : (signal ?? opts.signal);
+          combinedSignal?.throwIfAborted();
+          const saved = await opts.resolveRequest!(requestId);
+          combinedSignal?.throwIfAborted();
+          for (const secret of saved.secrets ?? []) if (!secrets.includes(secret)) secrets.push(secret);
+          const before = structuredClone(currentScopes ?? scopes);
+          syncCollection(before);
+          const sourceBefore = { ...context.collections.get(collectionId) };
+          const targetId = saved.ancestors[0]?.id ?? null;
+          const sameCollection = targetId === collectionId;
+          if (!context.collections.has(targetId))
+            context.collections.set(targetId, { ...saved.collectionVariables });
+          const childScopes = structuredClone(before);
+          if (!sameCollection)
+            childScopes.collection = { ...before.collection, ...context.collections.get(targetId) };
+          const overrides = Object.fromEntries(
+            Object.entries(options.variables ?? {}).map(([key, value]) => [
+              key,
+              value == null ? "" : typeof value === "object" ? JSON.stringify(value) : String(value),
+            ]),
+          );
+          childScopes.local = { ...childScopes.local, ...overrides };
+          const child = await executeInternal(
+            {
+              ...opts,
+              request: saved.request,
+              ancestors: saved.ancestors,
+              scopes: childScopes,
+              secrets,
+              signal: combinedSignal,
+            },
+            { ...context, depth: context.depth + 1, variables: overrides },
+          );
+          combinedSignal?.throwIfAborted();
+          tests.push(...child.tests);
+          logs.push(...child.logs);
+          scriptErrors.push(...child.scriptErrors);
+          const returnedScopes = structuredClone(child.scopes);
+          // Overrides are invocation-local and must not escape back into the caller.
+          for (const key of Object.keys(overrides)) {
+            if (Object.hasOwn(before.local, key)) returnedScopes.local[key] = before.local[key];
+            else delete returnedScopes.local[key];
+          }
+          saved.onExecution?.({
+            ...child,
+            scopes: { ...child.scopes, collection: context.collections.get(targetId)! },
+          });
+          returnedScopes.collection = applyChanges(
+            before.collection,
+            sourceBefore,
+            context.collections.get(collectionId)!,
+          );
+          return {
+            response: child.response ? toSandboxResponse(child.response) : null,
+            scopes: returnedScopes,
+            error: child.error,
+          };
+        }
+      : undefined,
+    sendRequest: async (
+      spec: SendRequestSpec,
+      signal?: AbortSignal,
+      currentScopes?: VariableScopes,
+    ): Promise<SandboxResponse> => {
       const hostEngine = {
         ...engine,
         signal:
@@ -249,7 +376,7 @@ export async function execute(opts: ExecuteOptions): Promise<ExecuteResult> {
           enabled: !h.disabled,
         })),
         body: bodyFromSandbox({ mode: "none" }, spec.body as Record<string, unknown> | null),
-        auth: { type: "none" },
+        auth: spec.auth ?? { type: "none" },
         preRequestScript: "",
         testScript: "",
         settings: { ...DEFAULT_SETTINGS },
@@ -260,7 +387,7 @@ export async function execute(opts: ExecuteOptions): Promise<ExecuteResult> {
           formdata: normalizeKv(spec.body.formdata).map((f) => ({ ...f, type: "text" as const })),
         };
       }
-      const { prepared } = await prepareRequest(def, [], new Resolver(scopes), hostEngine, {
+      const { prepared } = await prepareRequest(def, [], new Resolver(currentScopes ?? scopes), hostEngine, {
         defaults: opts.requestDefaults,
       });
       const res = await sendRequest(prepared, hostEngine);
@@ -277,13 +404,19 @@ export async function execute(opts: ExecuteOptions): Promise<ExecuteResult> {
     },
   };
 
-  const chain: { label: string; pre: string; test: string }[] = [
+  const chain: { label: string; name: string; pre: string; test: string }[] = [
     ...opts.ancestors.map((f, i) => ({
+      name: f.name,
       label: `${i === 0 ? "Collection" : "Folder"} "${f.name}"`,
       pre: f.preRequestScript,
       test: f.testScript,
     })),
-    { label: `Request "${request.name}"`, pre: request.preRequestScript, test: request.testScript },
+    {
+      label: `Request "${request.name}"`,
+      name: request.name,
+      pre: request.preRequestScript,
+      test: request.testScript,
+    },
   ];
 
   const runPhase = async (
@@ -297,8 +430,15 @@ export async function execute(opts: ExecuteOptions): Promise<ExecuteResult> {
       const source = `${step.label} ${phase === "prerequest" ? "pre-request" : "post-response"}`;
       const result = await runScript(
         code,
-        { scopes, request: toSandboxRequest(request), response, info: info(phase), cookies },
-        { host, limits: opts.scriptLimits, secrets, source },
+        {
+          scopes,
+          request: toSandboxRequest(request),
+          response,
+          info: { ...info(phase), locationCurrent: step.name },
+          cookies,
+          variableOverrides: context.variables,
+        },
+        { host, limits: opts.scriptLimits, secrets, source, signal: opts.signal },
       );
       scopes = result.scopes;
       logs.push(...result.logs);
@@ -314,19 +454,28 @@ export async function execute(opts: ExecuteOptions): Promise<ExecuteResult> {
     return false;
   };
 
-  const base = (): ExecuteResult => ({
-    tests,
-    logs,
-    scriptErrors,
-    scopes,
-    unresolved: [],
-    skipped: false,
-    nextRequest,
-    nextRequestSet,
-  });
+  const base = (): ExecuteResult => {
+    syncCollection(scopes);
+    return {
+      tests: tests.map((test) => ({
+        ...test,
+        error: test.error ? redactSecrets(test.error, secrets) : test.error,
+      })),
+      logs: logs.map((entry) => ({ ...entry, message: redactSecrets(entry.message, secrets) })),
+      scriptErrors: scriptErrors.map((error) => ({
+        ...error,
+        message: redactSecrets(error.message, secrets),
+      })),
+      scopes,
+      unresolved: [],
+      skipped: false,
+      nextRequest,
+      nextRequestSet,
+    };
+  };
 
   // 1. pre-request scripts
-  const jarCookies = jar ? await jar.list() : [];
+  const jarCookies = jar ? await jar.forUrl(new Resolver(effectiveScopes()).resolve(request.url)) : [];
   const skipped = await runPhase("prerequest", undefined, jarCookies);
   if (skipped) return { ...base(), skipped: true };
 
@@ -334,7 +483,7 @@ export async function execute(opts: ExecuteOptions): Promise<ExecuteResult> {
   if (opts.overrides?.timeoutMs)
     request.settings = { ...request.settings, timeoutMs: opts.overrides.timeoutMs };
   if (opts.overrides?.verifySsl === false) request.settings = { ...request.settings, verifySsl: false };
-  const resolver = new Resolver(scopes);
+  const resolver = new Resolver(effectiveScopes());
   let prepared;
   let oauth2Token: OAuth2Token | undefined;
   try {
@@ -385,7 +534,7 @@ export async function execute(opts: ExecuteOptions): Promise<ExecuteResult> {
   });
 
   // 4. test scripts
-  const cookiesAfter = jar ? await jar.list() : [];
+  const cookiesAfter = jar ? await jar.forUrl(response.url) : [];
   await runPhase("test", toSandboxResponse(response), cookiesAfter);
 
   return { ...base(), response, unresolved, sent, oauth2Token };

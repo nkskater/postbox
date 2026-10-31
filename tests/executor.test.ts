@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { execute } from "@/core/executor";
+import { CookieJarStore } from "@/core/http/cookies";
 import { emptyScopes } from "@/core/variables/resolver";
 import { DEFAULT_SETTINGS, type FolderDef, type RequestDef } from "@/core/types";
 import { startTestServer, type TestServer } from "./helpers/server";
@@ -97,5 +98,41 @@ describe("executor", () => {
     expect(r.error).toMatch(/refused/i);
     expect(r.sent?.url).toContain("********");
     expect(JSON.stringify(r.logs)).not.toContain("topsecret");
+  });
+  it("resolves pm.sendRequest using variables changed earlier in the same script", async () => {
+    const r = await execute({
+      request: request({
+        preRequestScript: `
+        pm.variables.set("fresh", "updated");
+        const res = await pm.sendRequest("{{base}}/echo?value={{fresh}}");
+        pm.test("fresh variables", () => pm.expect(res.json().query.value).to.equal("updated"));
+      `,
+      }),
+      ancestors: [],
+      scopes: { ...emptyScopes(), environment: { base: server.url } },
+    });
+    expect(r.scriptErrors).toEqual([]);
+    expect(r.tests[0].passed).toBe(true);
+  });
+  it("exposes only case-sensitive cookies applicable to the requested URL", async () => {
+    const jar = new CookieJarStore();
+    await jar.storeSetCookies(
+      ["Session=upper; Path=/", "session=lower; Path=/", "private=hidden; Path=/private"],
+      server.url,
+    );
+    await jar.storeSetCookies(["foreign=hidden; Path=/"], "http://foreign.invalid/");
+    const r = await execute({
+      request: request({
+        testScript: `pm.test("cookie boundaries", () => {
+      pm.expect(pm.cookies.get("Session")).to.equal("upper"); pm.expect(pm.cookies.get("session")).to.equal("lower");
+      pm.expect(pm.cookies.has("foreign")).to.be.false; pm.expect(pm.cookies.has("private")).to.be.false;
+    });`,
+      }),
+      ancestors: [],
+      cookieJar: jar,
+      scopes: { ...emptyScopes(), environment: { base: server.url } },
+    });
+    expect(r.scriptErrors).toEqual([]);
+    expect(r.tests[0].passed).toBe(true);
   });
 });

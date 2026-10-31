@@ -19,6 +19,9 @@ import { DEFAULT_RUN_OPTIONS, DEFAULT_SETTINGS, type FolderNode, type RequestNod
 import * as XLSX from "xlsx";
 import { startTestServer, type TestServer } from "./helpers/server";
 
+import { importPostmanCollection } from "@/core/convert/postman";
+import { conformanceCollection } from "./helpers/sandbox-conformance";
+
 let server: TestServer;
 beforeAll(async () => (server = await startTestServer()));
 afterAll(() => server.close());
@@ -54,6 +57,18 @@ const folder = (name: string, children: FolderNode["children"], p: Partial<Folde
 const scopes = () => ({ ...emptyScopes(), environment: { base: server.url } });
 
 describe("collection runner", () => {
+  it("passes the shared sandbox conformance fixture with referenced tests and suppressed child flow control", async () => {
+    const { root } = importPostmanCollection(conformanceCollection(server.url));
+    const { summary, scopes: after } = await runCollection({
+      root,
+      scopes: { ...scopes(), collection: { value: "root" } },
+      options: DEFAULT_RUN_OPTIONS,
+    });
+    expect(summary).toMatchObject({ status: "passed", totalRequests: 2, totalTests: 10, failedTests: 0 });
+    expect(after.environment.childResult).toBe("yes");
+    expect(after.local.value).toBeUndefined();
+  });
+
   it("can emit all results without retaining them, while keeping accurate counters", async () => {
     const root = folder("Counters", [
       req("pass", { testScript: 'pm.test("pass", () => {}); pm.test.skip("skip", () => {});' }),

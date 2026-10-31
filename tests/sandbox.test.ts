@@ -181,6 +181,135 @@ describe("script sandbox", () => {
     expect(r.scopes.environment.code).toBe("200");
   });
 
+  it("does not run callbacks for cleared timers", async () => {
+    const r = await runScript(
+      `let fired = false;
+       const timer = setTimeout(() => { fired = true; }, 1);
+       clearTimeout(timer);
+       await new Promise((resolve) => setTimeout(resolve, 5));
+       pm.test("cleared", () => pm.expect(fired).to.be.false);`,
+      ctx(),
+    );
+    expect(r.error).toBeUndefined();
+    expect(r.tests).toEqual([{ name: "cleared", passed: true, skipped: false }]);
+  });
+
+  it("supports callback-style async tests and test indexing", async () => {
+    const r = await runScript(
+      `await new Promise((resolve) => {
+         pm.test("callback", (done) => setTimeout(() => {
+           pm.expect(pm.response.code).to.equal(201);
+           done();
+           resolve();
+         }, 1));
+       });
+       pm.test("index", () => pm.expect(pm.test.index()).to.equal(2));
+       pm.test("callback error", (done) => done(new Error("expected failure")));
+       pm.test("async assertion error", (done) => setTimeout(() => {
+         pm.expect(false).to.be.true;
+         done();
+       }, 1));`,
+      ctx(),
+    );
+    expect(r.error).toBeUndefined();
+    expect(r.tests).toEqual([
+      { name: "callback", passed: true, skipped: false },
+      { name: "index", passed: true, skipped: false },
+      { name: "callback error", passed: false, error: "expected failure", skipped: false },
+      {
+        name: "async assertion error",
+        passed: false,
+        error: "expected false to be true",
+        skipped: false,
+      },
+    ]);
+  });
+
+  it("resolves pm.execution.runRequest through its bounded host capability", async () => {
+    const runRequest = vi.fn(async () => ({
+      code: 202,
+      status: "Accepted",
+      headers: [],
+      body: '{"queued":true}',
+      responseTime: 3,
+      responseSize: 15,
+    }));
+    const r = await runScript(
+      `const response = await pm.execution.runRequest("saved-request", { variables: { id: 7 } });
+       pm.test("referenced response", () => pm.expect(response.json().queued).to.be.true);`,
+      ctx(),
+      { host: { runRequest } },
+    );
+    expect(r.error).toBeUndefined();
+    expect(r.tests[0]).toMatchObject({ name: "referenced response", passed: true });
+    expect(runRequest).toHaveBeenCalledWith(
+      "saved-request",
+      { variables: { id: 7 } },
+      expect.any(AbortSignal),
+      ctx().scopes,
+    );
+  });
+
+  it("exposes the full execution path and current item", async () => {
+    const r = await runScript(
+      `pm.test("location", () => {
+         pm.expect(pm.execution.location).to.deep.equal(["Collection", "Folder", "Create"]);
+         pm.expect(pm.execution.location.current).to.equal("Create");
+       });`,
+      ctx({ info: { ...ctx().info, location: ["Collection", "Folder", "Create"] } }),
+    );
+    expect(r.error).toBeUndefined();
+    expect(r.tests[0]).toMatchObject({ name: "location", passed: true });
+  });
+
+  it("enforces the Postman runRequest limit and reports missing host support", async () => {
+    const runRequest = vi.fn(async () => null);
+    const limited = await runScript(
+      `for (let i = 0; i < 11; i++) await pm.execution.runRequest("saved-request");`,
+      ctx(),
+      { host: { runRequest } },
+    );
+    expect(limited.error).toMatch(/runRequest quota of 10/);
+    expect(runRequest).toHaveBeenCalledTimes(10);
+
+    const unavailable = await runScript(`await pm.execution.runRequest("saved-request");`, ctx());
+    expect(unavailable.error).toMatch(/runRequest is not available/);
+  });
+
+  it("reports clear errors for documented APIs that Postbox does not support", async () => {
+    const r = await runScript(
+      `pm.test("vault", () => pm.expect(() => pm.vault.get("key")).to.throw(/pm.vault is not supported/));
+       pm.test("visualizer", () => pm.expect(() => pm.visualizer.set("view", "<p>hi</p>")).to.throw(/pm.visualizer is not supported/));
+       pm.test("packages", () => pm.expect(() => pm.require("package")).to.throw(/pm.require is not supported/));
+       pm.test("datasets", () => pm.expect(() => pm.datasets("select 1")).to.throw(/pm.datasets is not supported/));
+       pm.test("state", () => pm.expect(() => pm.state.get("key")).to.throw(/pm.state is not supported/));
+       pm.test("mock", () => pm.expect(() => pm.mock.create({})).to.throw(/pm.mock is not supported/));`,
+      ctx(),
+    );
+    expect(r.error).toBeUndefined();
+    expect(r.tests).toHaveLength(6);
+    expect(r.tests.every((test) => test.passed)).toBe(true);
+  });
+
+  it("compares Chai members as multisets and honors ordered members", async () => {
+    const r = await runScript(
+      `pm.test("members", () => {
+         pm.expect([1, 1, 2]).to.have.members([1, 2, 1]);
+         pm.expect([1, 1, 2]).to.include.members([1, 1]);
+         pm.expect(() => pm.expect([1, 1]).to.have.members([1, 2])).to.throw(/members/);
+       });
+       pm.test("ordered", () => {
+         pm.expect([1, 2, 3]).to.have.ordered.members([1, 2, 3]);
+         pm.expect([1, 2, 3]).to.include.ordered.members([1, 2]);
+         pm.expect(() => pm.expect([1, 2, 3]).to.include.ordered.members([1, 3])).to.throw();
+         pm.expect(() => pm.expect([1, 2, 3]).to.have.ordered.members([2, 1, 3])).to.throw(/members/);
+       });`,
+      ctx(),
+    );
+    expect(r.error).toBeUndefined();
+    expect(r.tests.map((test) => test.passed)).toEqual([true, true]);
+  });
+
   it("enforces time and memory limits", async () => {
     const t = await runScript("while (true) {}", ctx(), { limits: { timeoutMs: 200 } });
     expect(t.error).toMatch(/time limit/);
@@ -217,5 +346,152 @@ describe("script sandbox", () => {
     );
     expect(r.tests).toEqual([{ name: "legacy", passed: true, skipped: false }]);
     expect(r.nextRequest).toBe("Next");
+  });
+  it("counts callback tests when declared and records asynchronous sendRequest assertion failures", async () => {
+    const result = await runScript(
+      `
+      pm.test("callback", (done) => {
+        pm.sendRequest("https://example.com", () => { pm.expect(false).to.be.true; done(); });
+      });
+      pm.test("index", () => pm.expect(pm.test.index()).to.equal(2));
+    `,
+      ctx(),
+      {
+        host: {
+          sendRequest: async () => ({
+            code: 200,
+            status: "OK",
+            headers: [],
+            body: "",
+            responseTime: 1,
+            responseSize: 0,
+          }),
+        },
+      },
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.tests).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "callback", passed: false }),
+        expect.objectContaining({ name: "index", passed: true }),
+      ]),
+    );
+  });
+
+  it("cancels long timers without waiting for their original deadline", async () => {
+    const result = await runScript(
+      `const timer = setTimeout(() => { throw new Error("unreached"); }, 60000); clearTimeout(timer);`,
+      ctx(),
+      { limits: { timeoutMs: 50 } },
+    );
+    expect(result.error).toBeUndefined();
+  });
+
+  it("keeps query keys case-sensitive and preserves header disable mutations", async () => {
+    const result = await runScript(
+      `
+      pm.request.url.query.add({ key: "X", value: "upper" });
+      pm.request.url.query.upsert({ key: "x", value: "lower" });
+      pm.request.headers.upsert({ key: "accept", value: "text/plain", disabled: true });
+      pm.iterationData.unset("readonly");
+    `,
+      ctx(),
+    );
+    expect(result.error).toMatch(/read-only/);
+    expect(result.request.url).toContain("x=lower&X=upper");
+    expect(result.request.headers[0]).toMatchObject({ value: "text/plain", disabled: true });
+  });
+
+  it("enforces runRequest quotas at the host boundary even if guest helpers are replaced", async () => {
+    const runRequest = vi.fn(async () => null);
+    const result = await runScript(
+      `for (let i = 0; i < 11; i++) await __host_run_request("saved", "{}", JSON.stringify(__scopes));`,
+      ctx(),
+      { host: { runRequest } },
+    );
+    expect(result.error).toMatch(/runRequest quota of 10/);
+    expect(runRequest).toHaveBeenCalledTimes(10);
+    const invalid = await runScript(`await __host_run_request("saved", "{}", '{"local":{}}');`, ctx(), {
+      host: { runRequest },
+    });
+    expect(invalid.error).toMatch(/Invalid.*scopes/);
+    expect(runRequest).toHaveBeenCalledTimes(10);
+  });
+
+  it("stops pre-request script execution immediately when skipped", async () => {
+    const result = await runScript(
+      `pm.execution.skipRequest(); throw new Error("unreached");`,
+      ctx({ info: { ...ctx().info, eventName: "prerequest" } }),
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.skipRequest).toBe(true);
+    const post = await runScript(
+      `pm.execution.skipRequest();`,
+      ctx({ info: { ...ctx().info, eventName: "test" } }),
+    );
+    expect(post.error).toMatch(/only available in pre-request/);
+    expect(post.skipRequest).toBe(false);
+  });
+
+  it("aborts pending host work when externally cancelled", async () => {
+    const controller = new AbortController();
+    let hostSignal: AbortSignal | undefined;
+    const result = await runScript(`await pm.sendRequest("https://example.com");`, ctx(), {
+      signal: controller.signal,
+      host: {
+        sendRequest: async (_spec, signal) => {
+          hostSignal = signal;
+          controller.abort();
+          return new Promise(() => {});
+        },
+      },
+    });
+    expect(result.error).toMatch(/cancelled/);
+    expect(hostSignal?.aborted).toBe(true);
+  });
+  it("validates schema combinators instead of silently passing", async () => {
+    const result = await runScript(
+      `pm.test("unsupported schema", () => pm.expect({ id: 1 }).to.have.jsonSchema({ allOf: [{ type: "string" }] }));`,
+      ctx(),
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.tests[0]).toMatchObject({
+      passed: false,
+      error: expect.stringContaining("must be string"),
+    });
+  });
+  it("runs bounded intervals, clears them and surfaces uncaught timer errors", async () => {
+    const result = await runScript(
+      `let count = 0; const interval = setInterval(() => { if (++count === 3) { clearInterval(interval); pm.test("interval", () => pm.expect(count).to.equal(3)); } }, 1);`,
+      ctx(),
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.tests[0]).toMatchObject({ name: "interval", passed: true });
+    const error = await runScript('setTimeout(() => { throw new Error("timer failed"); }, 1);', ctx());
+    expect(error.error).toMatch(/timer failed/);
+  });
+
+  it("exposes binary-safe SDK response streams and correct base64 globals", async () => {
+    const result = await runScript(
+      `pm.test("binary SDK", () => {
+      pm.expect(pm.response.stream.toString("hex")).to.equal("000102ff");
+      pm.expect(atob("YQ==")).to.equal("a");
+      pm.expect(btoa("a")).to.equal("YQ==");
+      pm.expect(() => atob("a")).to.throw();
+    });`,
+      ctx({
+        response: {
+          code: 200,
+          status: "OK",
+          headers: [],
+          body: "",
+          bodyBase64: "AAEC/w==",
+          responseTime: 1,
+          responseSize: 4,
+        },
+      }),
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.tests[0].passed).toBe(true);
   });
 });

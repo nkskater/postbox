@@ -10,7 +10,14 @@ import { runCollection, type RunEvent, type RunResult, type RunSummary } from "@
 import { CookieJarStore } from "@/core/http/cookies";
 import { getDb, schema } from "./db";
 import * as repo from "./repo";
-import { getPolicy, loadScopes, persistScopes, persistOAuth2Token, persistenceSecrets } from "./context";
+import {
+  getPolicy,
+  loadScopes,
+  persistScopes,
+  persistOAuth2Token,
+  persistenceSecrets,
+  savedRequestResolver,
+} from "./context";
 import { newId } from "./defaults";
 import { actorId } from "./authorize";
 import { redactStoredValue } from "@/core/variables/resolver";
@@ -182,6 +189,12 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
   try {
     const { summary, scopes } = await runCollection({
       root,
+      resolveRequest: savedRequestResolver(
+        input.workspaceId,
+        input.environmentId,
+        ctx.secrets,
+        options.persistVariables !== false,
+      ),
       ancestors,
       scopes: ctx.scopes,
       options,

@@ -3,19 +3,20 @@
  * runtime with memory, stack and wall-clock limits. The guest has no access to
  * Node APIs; it can only call the host functions defined below.
  */
+import { randomBytes } from "node:crypto";
 import {
   getQuickJS,
-  shouldInterruptAfterDeadline,
   type QuickJSContext,
   type QuickJSDeferredPromise,
   type QuickJSHandle,
 } from "quickjs-emscripten";
-import type { ConsoleEntry, CookieInfo, TestResult } from "../types";
+import type { AuthConfig, ConsoleEntry, CookieInfo, TestResult } from "../types";
 import type { VariableScopes } from "../variables/resolver";
 import { redactSecrets } from "../variables/resolver";
 import { generateDynamic } from "../variables/dynamic";
 import { CONSOLE_LEVELS, describeIssues, sandboxStateSchema, sendRequestSpecSchema } from "../schemas";
 import { BOOTSTRAP_SOURCE } from "./bootstrap";
+import { LIBRARIES_SOURCE } from "./libraries.generated";
 
 export type ScriptEvent = "prerequest" | "test";
 
@@ -53,6 +54,8 @@ export interface ScriptInfo {
   iterationCount: number;
   requestName: string;
   requestId: string;
+  location?: string[];
+  locationCurrent?: string;
 }
 
 export interface ScriptContext {
@@ -61,6 +64,7 @@ export interface ScriptContext {
   response?: SandboxResponse;
   info: ScriptInfo;
   cookies?: CookieInfo[];
+  variableOverrides?: Record<string, string>;
 }
 
 /** Request object passed to pm.sendRequest (Postman request-definition shape). */
@@ -68,6 +72,7 @@ export interface SendRequestSpec {
   url: string;
   method: string;
   header: SandboxHeader[];
+  auth?: AuthConfig;
   body: {
     mode?: string;
     raw?: string;
@@ -78,7 +83,19 @@ export interface SendRequestSpec {
 }
 
 export interface ScriptHost {
-  sendRequest?: (spec: SendRequestSpec, signal?: AbortSignal) => Promise<SandboxResponse>;
+  sendRequest?: (
+    spec: SendRequestSpec,
+    signal?: AbortSignal,
+    scopes?: VariableScopes,
+  ) => Promise<SandboxResponse>;
+  runRequest?: (
+    requestId: string,
+    options: { variables?: Record<string, unknown> },
+    signal?: AbortSignal,
+    scopes?: VariableScopes,
+  ) => Promise<
+    SandboxResponse | null | { response: SandboxResponse | null; scopes: VariableScopes; error?: string }
+  >;
 }
 
 export interface ScriptLimits {
@@ -109,6 +126,7 @@ export interface ScriptResult {
 
 export interface RunScriptOptions {
   host?: ScriptHost;
+  signal?: AbortSignal;
   limits?: Partial<ScriptLimits>;
   /** Values redacted from console output. */
   secrets?: string[];
@@ -138,6 +156,7 @@ export async function runScript(
     skipRequest: false,
   };
   if (!code.trim()) return base;
+  if (opts.signal?.aborted) return { ...base, error: "Script cancelled" };
   for (const [key, value] of Object.entries(limits)) {
     if (!Number.isSafeInteger(value) || value < (key === "maxHostRequests" || key === "maxTimers" ? 0 : 1)) {
       return { ...base, error: `Invalid script limit: ${key}` };
@@ -148,17 +167,25 @@ export async function runScript(
 
   const QuickJS = await loadQuickJS();
   const runtime = QuickJS.newRuntime();
-  const deadline = Date.now() + limits.timeoutMs;
+  let deadline = Date.now() + 5000;
   runtime.setMemoryLimit(limits.memoryBytes);
   runtime.setMaxStackSize(1024 * 1024);
-  runtime.setInterruptHandler(shouldInterruptAfterDeadline(deadline));
+  runtime.setInterruptHandler(() => opts.signal?.aborted === true || Date.now() >= deadline);
   const vm = runtime.newContext();
 
   let disposed = false;
   let evaluation: QuickJSHandle | undefined;
   const timers = new Set<ReturnType<typeof setTimeout>>();
+  const sleeps = new Map<
+    number,
+    { timer: ReturnType<typeof setTimeout>; resolve: (value: undefined) => void }
+  >();
   const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  opts.signal?.addEventListener("abort", onAbort, { once: true });
+  if (opts.signal?.aborted) controller.abort();
   let hostRequests = 0;
+  let runRequestCalls = 0;
   let timerCalls = 0;
   const deferreds = new Set<QuickJSDeferredPromise>();
   const pump = () => {
@@ -201,6 +228,19 @@ export async function runScript(
   };
 
   try {
+    define("__host_random", (lengthH) => {
+      const length = vm.getNumber(lengthH);
+      if (!Number.isSafeInteger(length) || length < 0 || length > 65536)
+        throw new Error("Invalid random byte count");
+      return vm.newString(randomBytes(length).toString("hex"));
+    });
+    const libraries = vm.evalCode(LIBRARIES_SOURCE, "postbox-libraries.js");
+    if (libraries.error) {
+      const message = describeError(vm, libraries.error);
+      libraries.error.dispose();
+      return { ...base, error: `Sandbox libraries failed: ${message}` };
+    }
+    libraries.value.dispose();
     define("__host_log", (levelH, msgH) => {
       const raw = vm.getString(levelH);
       const level: ConsoleEntry["level"] = (CONSOLE_LEVELS as readonly string[]).includes(raw)
@@ -213,7 +253,8 @@ export async function runScript(
       const v = generateDynamic(vm.getString(nameH));
       return v === undefined ? vm.undefined : vm.newString(v);
     });
-    define("__host_sleep", (msH) => {
+    define("__host_sleep", (msH, idH) => {
+      const id = vm.getNumber(idH);
       if (++timerCalls > limits.maxTimers)
         throw new Error(`Script exceeded the setTimeout quota of ${limits.maxTimers}`);
       const ms = Math.min(Math.max(0, vm.getNumber(msH)), Math.max(0, deadline - Date.now()));
@@ -221,13 +262,25 @@ export async function runScript(
         new Promise((resolve) => {
           const timer = setTimeout(() => {
             timers.delete(timer);
+            sleeps.delete(id);
             resolve(undefined);
           }, ms);
           timers.add(timer);
+          sleeps.set(id, { timer, resolve });
         }),
       );
     });
-    define("__host_send", (specH) => {
+    define("__host_clear_sleep", (idH) => {
+      const id = vm.getNumber(idH);
+      const sleep = sleeps.get(id);
+      if (sleep) {
+        clearTimeout(sleep.timer);
+        timers.delete(sleep.timer);
+        sleeps.delete(id);
+        sleep.resolve(undefined);
+      }
+    });
+    define("__host_send", (specH, scopesH) => {
       if (++hostRequests > limits.maxHostRequests)
         throw new Error(`Script exceeded the pm.sendRequest quota of ${limits.maxHostRequests}`);
       if (!opts.host?.sendRequest)
@@ -243,7 +296,49 @@ export async function runScript(
           Promise.reject(new Error(`Invalid pm.sendRequest request: ${describeIssues(parsed.error)}`)),
         );
       const spec: SendRequestSpec = parsed.data;
-      return bridge(opts.host.sendRequest(spec, controller.signal).then((r) => JSON.stringify(r)));
+      let scopes: VariableScopes;
+      try {
+        scopes = sandboxStateSchema.shape.scopes.parse(JSON.parse(vm.getString(scopesH)));
+      } catch {
+        return bridge(Promise.reject(new Error("Invalid pm.sendRequest scopes")));
+      }
+      return bridge(opts.host.sendRequest(spec, controller.signal, scopes).then((r) => JSON.stringify(r)));
+    });
+    define("__host_run_request", (requestIdH, optionsH, scopesH) => {
+      if (++runRequestCalls > 10)
+        return bridge(Promise.reject(new Error("Script exceeded the pm.execution.runRequest quota of 10")));
+      if (++hostRequests > limits.maxHostRequests)
+        throw new Error(`Script exceeded the host request quota of ${limits.maxHostRequests}`);
+      if (!opts.host?.runRequest)
+        return bridge(Promise.reject(new Error("pm.execution.runRequest is not available here")));
+      let options: { variables?: Record<string, unknown> };
+      try {
+        const parsed: unknown = JSON.parse(vm.getString(optionsH));
+        if (
+          !parsed ||
+          typeof parsed !== "object" ||
+          Array.isArray(parsed) ||
+          ("variables" in parsed &&
+            (!parsed.variables || typeof parsed.variables !== "object" || Array.isArray(parsed.variables)))
+        )
+          throw new Error("options must be an object with an optional variables object");
+        options = parsed as typeof options;
+      } catch (error) {
+        return bridge(
+          Promise.reject(new Error(`Invalid pm.execution.runRequest options: ${(error as Error).message}`)),
+        );
+      }
+      let scopes: VariableScopes;
+      try {
+        scopes = sandboxStateSchema.shape.scopes.parse(JSON.parse(vm.getString(scopesH)));
+      } catch {
+        return bridge(Promise.reject(new Error("Invalid pm.execution.runRequest scopes")));
+      }
+      return bridge(
+        opts.host
+          .runRequest(vm.getString(requestIdH), options, controller.signal, scopes)
+          .then((response) => JSON.stringify(response)),
+      );
     });
 
     const ctxStr = vm.newString(
@@ -253,6 +348,7 @@ export async function runScript(
         response: ctx.response,
         info: ctx.info,
         cookies: ctx.cookies ?? [],
+        variableOverrides: ctx.variableOverrides ?? {},
       }),
     );
     vm.setProp(vm.global, "__ctx_json", ctxStr);
@@ -265,12 +361,13 @@ export async function runScript(
       return { ...base, error: `Sandbox bootstrap failed: ${msg}` };
     }
     boot.value.dispose();
+    deadline = Date.now() + limits.timeoutMs;
 
     // Wrap user code in an async function so top-level `await` works and errors are caught.
     const wrapped =
       "(async function () {\n" +
       code +
-      "\n})().then(function () { return __drain().then(function () { return null; }); }, function (e) { return __drain().then(function () { return __errMsg(e); }); })";
+      "\n})().then(function () { return __drain().then(function () { return null; }); }, function (e) { return __drain().then(function () { return e === __skipSignal ? null : __errMsg(e); }); }).catch(function(e) { return __state.skip ? null : __errMsg(e); })";
     const evalResult = vm.evalCode(wrapped, "script.js");
     if (evalResult.error) {
       const msg = describeError(vm, evalResult.error);
@@ -292,6 +389,10 @@ export async function runScript(
       if (outcome.type === "rejected") {
         error = describeError(vm, outcome.error);
         outcome.error.dispose();
+        break;
+      }
+      if (opts.signal?.aborted) {
+        error = "Script cancelled";
         break;
       }
       if (Date.now() >= deadline) {
@@ -340,9 +441,11 @@ export async function runScript(
     return { ...base, error: `Sandbox error: ${(err as Error).message}` };
   } finally {
     disposed = true;
+    opts.signal?.removeEventListener("abort", onAbort);
     controller.abort();
     for (const timer of timers) clearTimeout(timer);
     timers.clear();
+    sleeps.clear();
     for (const d of deferreds) d.dispose();
     deferreds.clear();
     if (evaluation?.alive) evaluation.dispose();

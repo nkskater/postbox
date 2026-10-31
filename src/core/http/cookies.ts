@@ -64,6 +64,15 @@ export class CookieJarStore {
     return stored;
   }
 
+  /** Cookies applicable to this URL, including domain, path, secure and expiry checks. */
+  async forUrl(url: string): Promise<CookieInfo[]> {
+    try {
+      return (await this.jar.getCookies(url)).map(toInfo);
+    } catch {
+      return [];
+    }
+  }
+
   async list(): Promise<CookieInfo[]> {
     const all = await this.jar.store.getAllCookies();
     const now = Date.now();
