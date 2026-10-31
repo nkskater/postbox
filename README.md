@@ -46,6 +46,9 @@ execute on the machine running Postbox, so VPN-connected Windows users can reach
   AWS Signature V4 with session tokens, header or presigned-URL mode, and re-signing on same-origin redirects,
   Atlassian ASAP JWTs signed with RS/PS/ES keys);
   per-request settings (timeout, redirects, SSL verify, cookie jar). Multi-tab editing with unsaved-draft persistence.
+- **WebSockets**: enter a `ws://` or `wss://` URL and **Connect** to open a live session with the request's headers and
+  auth. Send text or base64 binary frames, see a timestamped log of both directions, then disconnect or reconnect.
+  Secrets are redacted and host policy applies. Automation: `POST /api/ws` (NDJSON events), `/api/ws/{id}/send` and `/api/ws/{id}/close`.
 - **Server-sent events**: **Stream** opens the request as an event stream and shows events live (event, id, data),
   reconnecting with `Last-Event-ID` and the server's `retry` delay. Variables, auth, inherited headers and host policy
   apply; scripts do not run. Up to 1000 events by default; secrets are redacted. Also available as `POST /api/sse` (NDJSON).

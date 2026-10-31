@@ -91,6 +91,10 @@ export const REST_POLICIES: Record<string, Policy> = {
   "DELETE /api/cookies/[id]": p("resource", "write", "cookie"),
   "POST /api/proxy": p("body", "run"),
   "POST /api/oauth2/token": p("body", "run"),
+  "POST /api/ws": p("body", "run"),
+  // Bound to the opening user and workspace inside the handlers.
+  "POST /api/ws/[id]/send": p("account"),
+  "POST /api/ws/[id]/close": p("account"),
   "POST /api/graphql/schema": p("body", "run"),
   "POST /api/sse": p("body", "run"),
   "POST /api/oauth2/authorize": p("body", "run"),
