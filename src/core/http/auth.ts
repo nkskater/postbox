@@ -1,12 +1,13 @@
 /**
  * Authentication helpers: inheritance resolution and applying auth to a request.
  */
-import type { AuthConfig, OAuth2Config, PreparedRequest } from "../types";
+import type { AuthConfig, HawkAlgorithm, OAuth2Config, PreparedRequest } from "../types";
 import { DEFAULT_SETTINGS } from "../types";
 import type { Resolver } from "../variables/resolver";
 import { sendRequest, type EngineOptions } from "./engine";
 import { createHash } from "node:crypto";
 import { buildEdgeGridAuthHeader } from "./edgegrid";
+import { buildHawkHeader } from "./hawk";
 
 /**
  * Resolve the effective auth from an outermost → innermost chain
@@ -69,6 +70,25 @@ export function resolveAuth(auth: AuthConfig, r: Resolver): AuthConfig {
           headersToSign: e.headersToSign !== undefined ? r.resolve(e.headersToSign) : undefined,
           nonce: e.nonce !== undefined ? r.resolve(e.nonce) : undefined,
           timestamp: e.timestamp !== undefined ? r.resolve(e.timestamp) : undefined,
+        },
+      };
+    }
+    case "hawk": {
+      const h = auth.hawk;
+      return {
+        type: "hawk",
+        hawk: {
+          ...h,
+          authId: r.resolve(h.authId),
+          authKey: r.resolve(h.authKey),
+          algorithm: (r.resolve(h.algorithm) as HawkAlgorithm) || "sha256",
+          user: h.user !== undefined ? r.resolve(h.user) : undefined,
+          nonce: h.nonce !== undefined ? r.resolve(h.nonce) : undefined,
+          ext: h.ext !== undefined ? r.resolve(h.ext) : undefined,
+          app: h.app !== undefined ? r.resolve(h.app) : undefined,
+          dlg: h.dlg !== undefined ? r.resolve(h.dlg) : undefined,
+          timestamp: h.timestamp !== undefined ? r.resolve(h.timestamp) : undefined,
+          includePayloadHash: h.includePayloadHash,
         },
       };
     }
@@ -286,6 +306,18 @@ export async function applyAuth(
         body: req.body,
       });
       setHeader(req, "Authorization", header);
+      return {};
+    }
+    case "hawk": {
+      if (!hasAuthHeader) {
+        if (offline && (!auth.hawk.authId || !auth.hawk.authKey)) {
+          const id = auth.hawk.authId || "<auth-id>";
+          setHeader(req, "Authorization", `Hawk id="${id}", ts="0", nonce="offline", mac="<mac>"`);
+          return {};
+        }
+        const header = buildHawkHeader(req, auth.hawk);
+        setHeader(req, "Authorization", header);
+      }
       return {};
     }
     default:

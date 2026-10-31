@@ -72,6 +72,20 @@ export interface EdgeGridConfig {
   nonce?: string;
   timestamp?: string;
 }
+export type HawkAlgorithm = "sha256" | "sha1";
+
+export interface HawkConfig {
+  authId: string;
+  authKey: string;
+  algorithm: HawkAlgorithm;
+  user?: string;
+  nonce?: string;
+  ext?: string;
+  app?: string;
+  dlg?: string;
+  timestamp?: string;
+  includePayloadHash?: boolean;
+}
 
 export type AuthConfig =
   | { type: "inherit" }
@@ -81,7 +95,8 @@ export type AuthConfig =
   | { type: "apikey"; apikey: { key: string; value: string; in: "header" | "query" } }
   | { type: "digest"; digest: { username: string; password: string } }
   | { type: "oauth2"; oauth2: OAuth2Config }
-  | { type: "edgegrid"; edgegrid: EdgeGridConfig };
+  | { type: "edgegrid"; edgegrid: EdgeGridConfig }
+  | { type: "hawk"; hawk: HawkConfig };
 
 export type AuthType = AuthConfig["type"];
 
