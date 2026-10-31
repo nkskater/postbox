@@ -234,6 +234,13 @@ export const settingsPatchSchema = z.object({
   useCookieJar: z.boolean().optional(),
   socketPath: z.string().max(1024).optional(),
   httpVersion: z.enum(["http1", "auto", "http2"]).optional(),
+  grpc: z
+    .object({
+      protos: z.record(z.string().min(1).max(256), z.string().max(1_048_576)),
+      service: z.string().max(256),
+      method: z.string().max(256),
+    })
+    .optional(),
   mqtt: z
     .object({
       clientId: z.string().max(256).optional(),

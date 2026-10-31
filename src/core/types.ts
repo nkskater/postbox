@@ -230,6 +230,17 @@ export interface RequestSettings {
   socketio?: SocketIoSettings;
   /** MQTT connection profile for mqtt:// and mqtts:// URLs (credentials come from Basic auth). */
   mqtt?: MqttSettings;
+  /** gRPC definitions and method for grpc:// and grpcs:// URLs (the body holds the message JSON). */
+  grpc?: GrpcSettings;
+}
+
+/** gRPC definitions and the selected method for grpc:// and grpcs:// URLs. */
+export interface GrpcSettings {
+  /** .proto sources by file name; imports resolve only against these (plus well-known types). */
+  protos: Record<string, string>;
+  /** Service name, fully qualified or bare when unambiguous. */
+  service: string;
+  method: string;
 }
 
 export interface MqttSettings {
