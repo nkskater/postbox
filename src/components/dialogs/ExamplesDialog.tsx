@@ -3,7 +3,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { z } from "zod";
 import type { ExampleRequest, ResponseExample } from "@/core/types";
 import { responseExampleSchema, exampleCommandSchema } from "@/core/schemas";
-import { exampleRequest, requestFromExample, sanitizeExample, validateExamples } from "@/core/examples";
+import {
+  exampleDraftId,
+  exampleRequest,
+  requestFromExample,
+  sanitizeExample,
+  validateExamples,
+} from "@/core/examples";
 import { api, type SavedRequest } from "@/lib/api";
 import { useApp } from "@/stores/app";
 import { useDialogs } from "@/stores/dialogs";
@@ -18,7 +24,7 @@ import { paramsFromUrl, urlWithParams } from "@/lib/url-params";
 const clone = <T,>(value: T): T => structuredClone(value);
 function blank(request: SavedRequest): ResponseExample {
   return sanitizeExample({
-    id: crypto.randomUUID(),
+    id: exampleDraftId(),
     name: "New example",
     status: 200,
     statusText: "OK",
@@ -30,8 +36,7 @@ function blank(request: SavedRequest): ResponseExample {
 }
 export function ExamplesDialog() {
   const requestId = useDialogs((state) => state.exampleRequestId);
-  const workspaceId = useApp((state) => state.workspaceId);
-  return requestId ? <ExampleEditor key={`${workspaceId}:${requestId}`} requestId={requestId} /> : null;
+  return requestId ? <ExampleEditor key={requestId} requestId={requestId} /> : null;
 }
 function ExampleEditor({ requestId }: { requestId: string }) {
   const [request, setRequest] = useState<SavedRequest | null>(null);
@@ -39,12 +44,15 @@ function ExampleEditor({ requestId }: { requestId: string }) {
   const [version, setVersion] = useState("");
   const [draft, setDraft] = useState<ResponseExample | null>(null);
   const [baseline, setBaseline] = useState<string | null>(null);
+  const [pendingInputs, setPendingInputs] = useState(false);
+  const activeWorkspaceId = useApp((state) => state.workspaceId);
   const [pending, setPending] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const lock = useRef(false);
-  const dirty = !!draft && (baseline === null || JSON.stringify(draft) !== baseline);
+  const dirty = !!draft && (pendingInputs || baseline === null || JSON.stringify(draft) !== baseline);
   const saved = !!draft && examples.some((example) => example.id === draft.id);
   const select = useCallback((example: ResponseExample | null) => {
+    setPendingInputs(false);
     setDraft(example ? clone(example) : null);
     setBaseline(example ? JSON.stringify(example) : null);
   }, []);
@@ -169,7 +177,7 @@ function ExampleEditor({ requestId }: { requestId: string }) {
     void change({ action: "reorder", exampleIds: ids });
   };
   const tryRequest = () => {
-    if (!draft || !request || pending) return;
+    if (!draft || !request || pending || activeWorkspaceId !== request.workspaceId) return;
     if (dirty && !window.confirm("Open this request in a new tab? Unsaved example edits will be discarded."))
       return;
     const template = requestFromExample(draft, request);
@@ -193,6 +201,15 @@ function ExampleEditor({ requestId }: { requestId: string }) {
         className="max-h-[90vh] overflow-y-auto sm:max-w-5xl"
         onEscapeKeyDown={(event) => {
           if (pending) event.preventDefault();
+        }}
+        onKeyDown={(event) => {
+          if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+            event.preventDefault();
+            event.stopPropagation();
+            const button = event.currentTarget.querySelector<HTMLButtonElement>("[data-example-save]");
+            button?.focus();
+            requestAnimationFrame(() => button?.click());
+          }
         }}
       >
         <DialogHeader>
@@ -235,6 +252,12 @@ function ExampleEditor({ requestId }: { requestId: string }) {
             {error}
           </p>
         )}
+        {request && activeWorkspaceId !== request.workspaceId && (
+          <p role="status" className="text-xs text-muted-foreground">
+            This example belongs to another workspace. Switch back before trying its request; unsaved example
+            edits remain here.
+          </p>
+        )}
         {pending && (
           <p role="status" className="text-xs text-muted-foreground">
             Loading examples…
@@ -268,7 +291,14 @@ function ExampleEditor({ requestId }: { requestId: string }) {
             ))}
           </nav>
           {draft && original ? (
-            <section aria-label="Example editor" className="min-w-0 space-y-3">
+            <section
+              key={`${draft.id}:${version}`}
+              aria-label="Example editor"
+              className="min-w-0 space-y-3"
+              onChange={() => {
+                if (!pending) setPendingInputs(true);
+              }}
+            >
               <label className="block space-y-1 text-xs">
                 Example name
                 <Input
@@ -280,10 +310,15 @@ function ExampleEditor({ requestId }: { requestId: string }) {
                 />
               </label>
               <div className="flex flex-wrap items-center gap-2">
-                <Button size="sm" disabled={pending || !dirty} onClick={() => void save()}>
+                <Button data-example-save size="sm" disabled={pending || !dirty} onClick={() => void save()}>
                   Save example
                 </Button>
-                <Button size="sm" variant="outline" disabled={pending} onClick={tryRequest}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={pending || activeWorkspaceId !== request?.workspaceId}
+                  onClick={tryRequest}
+                >
                   Try request
                 </Button>
                 <Button
@@ -327,8 +362,13 @@ function ExampleEditor({ requestId }: { requestId: string }) {
                   </span>
                 )}
               </div>
-              <details open className="rounded border p-3">
-                <summary className="cursor-pointer text-sm font-medium">Request template</summary>
+              <details className="rounded border p-3">
+                <summary className="cursor-pointer text-sm font-medium">
+                  <span>Request template</span>
+                  <span className="ml-3 inline-block max-w-[70%] truncate align-middle font-mono text-xs text-muted-foreground">
+                    {original.method} {original.url}
+                  </span>
+                </summary>
                 {!draft.originalRequest && (
                   <p className="my-2 text-xs text-muted-foreground">
                     This older example has no saved request snapshot. The current parent request is shown;

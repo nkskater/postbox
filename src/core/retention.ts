@@ -1,4 +1,4 @@
-import type { AuthConfig, BodyConfig, ResponseExample } from "./types";
+import type { AuthConfig, BodyConfig, ResponseExample, KeyValue } from "./types";
 import { redactStoredValue } from "./variables/resolver";
 
 /** Uploaded request files are limited to 5 MiB of decoded bytes per request. */
@@ -129,6 +129,62 @@ export function withoutAuthCredentials(auth: AuthConfig): AuthConfig {
     default:
       return auth;
   }
+}
+
+/** Keep protocol discriminants valid when a short secret happens to match their text. */
+export function retainedRequestStructure<
+  T extends {
+    auth: AuthConfig;
+    body: BodyConfig;
+    method?: string;
+    headers?: KeyValue[];
+    params?: KeyValue[];
+  },
+>(original: T, redacted: T): T {
+  const auth = { ...redacted.auth, type: original.auth.type } as AuthConfig;
+  const enumFields: Partial<Record<AuthConfig["type"], string[]>> = {
+    apikey: ["in"],
+    oauth2: ["grantType", "clientAuthentication", "codeChallengeMethod"],
+    oauth1: ["signatureMethod", "addTo"],
+    awsv4: ["addTo"],
+    hawk: ["algorithm"],
+    asap: ["algorithm"],
+  };
+  const source = (original.auth as unknown as Record<string, unknown>)[original.auth.type];
+  if (source && typeof source === "object") {
+    const key = original.auth.type,
+      record = auth as unknown as Record<string, unknown>;
+    const target = { ...(record[key] as Record<string, unknown>) };
+    for (const field of enumFields[key] ?? [])
+      if (Object.hasOwn(source, field)) target[field] = (source as Record<string, unknown>)[field];
+    record[key] = target;
+  }
+  let body = { ...redacted.body, mode: original.body.mode } as BodyConfig;
+  if (original.body.mode === "raw" && body.mode === "raw")
+    body = { ...body, language: original.body.language };
+  if (original.body.mode === "formdata" && body.mode === "formdata") {
+    const fields = original.body.formdata;
+    body = {
+      ...body,
+      formdata: body.formdata.map((field, index) => ({
+        ...field,
+        type: fields[index].type,
+        key: fields[index].key,
+      })),
+    };
+  }
+  return {
+    ...redacted,
+    auth: withoutAuthCredentials(auth),
+    body,
+    ...(original.method !== undefined ? { method: original.method } : {}),
+    ...(original.headers && redacted.headers
+      ? { headers: redacted.headers.map((field, index) => ({ ...field, key: original.headers![index].key })) }
+      : {}),
+    ...(original.params && redacted.params
+      ? { params: redacted.params.map((field, index) => ({ ...field, key: original.params![index].key })) }
+      : {}),
+  };
 }
 
 export function restoreMissingCredentials(current: AuthConfig, saved: AuthConfig): AuthConfig {
@@ -364,15 +420,12 @@ export function sanitizeRequestDraftForBrowser<T extends { auth: AuthConfig; bod
       ...example,
       ...(example.originalRequest
         ? {
-            originalRequest: {
-              ...example.originalRequest,
-              auth: withoutAuthCredentials({
-                ...example.originalRequest.auth,
-                type: examples[index].originalRequest!.auth.type,
-              } as AuthConfig),
-            },
+            originalRequest: retainedRequestStructure(
+              examples[index].originalRequest!,
+              example.originalRequest,
+            ),
           }
         : {}),
     }));
-  return result;
+  return retainedRequestStructure(draft, result);
 }

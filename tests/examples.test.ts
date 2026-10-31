@@ -138,6 +138,29 @@ describe("paired examples and retention", () => {
       truncated: true,
     });
   });
+  it("retains protocol structure when a short secret collides with a method, body mode or auth enum", () => {
+    const raw = {
+      ...example(),
+      body: "POST raw json header apikey",
+      originalRequest: {
+        ...request,
+        method: "POST",
+        body: { mode: "raw" as const, language: "json" as const, raw: "payload" },
+        auth: {
+          type: "apikey" as const,
+          apikey: { key: "X-Key", value: "credential", in: "header" as const },
+        },
+      },
+    };
+    const safe = sanitizeExample(raw, ["POST", "raw", "json", "header", "apikey"]);
+    expect(safe.body).not.toContain("POST");
+    expect(safe.originalRequest).toMatchObject({
+      method: "POST",
+      body: { mode: "raw", language: "json" },
+      auth: { type: "apikey", apikey: { in: "header", value: "" } },
+    });
+    expect(validateExamples([safe])).toHaveLength(1);
+  });
   it("rejects invalid statuses, response header injection, duplicate IDs and oversized or malformed bodies", () => {
     for (const patch of [
       { status: 0 },

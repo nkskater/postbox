@@ -8,11 +8,16 @@ import {
   redactSensitiveFields,
   sensitiveFieldValues,
   withoutAuthCredentials,
+  retainedRequestStructure,
   withoutUploadBytes,
   base64ByteLength,
 } from "./retention";
 import { redactStoredValue } from "./variables/resolver";
 export const MAX_EXAMPLES = 100;
+/** Draft identifiers also work on self-hosted HTTP origins without randomUUID. */
+export const exampleDraftId = () =>
+  globalThis.crypto?.randomUUID?.() ??
+  `example-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 const secretName =
   /authorization|cookie|token|password|passwd|secret|api[-_]?key|session|credential|jwt|signature|^sig$|^code$/i;
 export function exampleRequest(request: ExampleRequest): ExampleRequest {
@@ -89,16 +94,9 @@ export function sanitizeExample(
       secrets.some((secret) => decodedBinary.includes(secret)));
   return {
     ...safe,
+    headers: safe.headers.map((header, index) => ({ ...header, key: input.headers[index].key })),
     ...(request && safe.originalRequest
-      ? {
-          originalRequest: {
-            ...safe.originalRequest,
-            auth: withoutAuthCredentials({
-              ...safe.originalRequest.auth,
-              type: request.auth.type,
-            } as typeof request.auth),
-          },
-        }
+      ? { originalRequest: retainedRequestStructure(request, safe.originalRequest) }
       : {}),
     ...(binaryOmitted ? { body: "", bodyOmitted: true } : {}),
     id: input.id,
@@ -144,7 +142,7 @@ export function exampleFromResponse(
 ): ResponseExample {
   return sanitizeExample(
     {
-      id: crypto.randomUUID(),
+      id: exampleDraftId(),
       name: `${response.status} ${response.statusText}`.trim(),
       status: response.status,
       statusText: response.statusText,
