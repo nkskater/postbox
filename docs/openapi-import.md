@@ -64,20 +64,23 @@ The synchronous `importOpenApi` converter accepts local JSON Pointer references 
 
 ## Limits
 
-| Resource                                       | Limit per operation               |
-| ---------------------------------------------- | --------------------------------- |
-| Uploaded files / referenced documents          | 100                               |
-| Each OpenAPI document                          | 5 MiB UTF-8                       |
-| Uploaded plus remotely loaded document content | 20 MiB                            |
-| HTTP exchanges, including root and redirects   | 20                                |
-| Redirects per document                         | 5                                 |
-| Each HTTP exchange                             | 5 seconds                         |
-| Total loading/resolution/conversion            | 15 seconds                        |
-| Document/expanded graph nesting                | 80                                |
-| Reference chain                                | 64                                |
-| References traversed                           | 2,000                             |
-| Traversed graph nodes                          | 200,000                           |
-| Diagnostics                                    | 200 (truncation fails explicitly) |
+| Resource                                       | Limit per operation                           |
+| ---------------------------------------------- | --------------------------------------------- |
+| Uploaded files / referenced documents          | 100                                           |
+| Each OpenAPI document                          | 5 MiB UTF-8                                   |
+| Uploaded plus remotely loaded document content | 20 MiB                                        |
+| HTTP exchanges, including root and redirects   | 20                                            |
+| Redirects per document                         | 5                                             |
+| Each HTTP exchange                             | 5 seconds                                     |
+| Total loading/resolution/conversion            | 15 seconds                                    |
+| Document/expanded graph nesting                | 80                                            |
+| Generated sample expansion                     | 10,000 nodes per schema sample                |
+| Generated JSON body                            | 5 MiB of traversed values/keys, 200,000 nodes |
+| Total converted request content                | 20 MiB                                        |
+| Reference chain                                | 64                                            |
+| References traversed                           | 2,000                                         |
+| Traversed graph nodes                          | 200,000                                       |
+| Diagnostics                                    | 200 (truncation fails explicitly)             |
 
 Encoded and decompressed download sizes are bounded. The API's existing 25 MiB JSON body limit also applies, including JSON escaping overhead. Invalid bundle paths, duplicate files/resource IDs, cyclic YAML aliases, unsupported URI schemes and invalid targets fail without writes. File bundle paths must be relative and cannot contain parent-directory segments; references may use `../` to reach another explicitly supplied file.
 

@@ -180,6 +180,19 @@ describe("bounded OpenAPI reference bundling", () => {
       );
     }
   });
+  it("keeps primitive and array samples when 3.1 reference siblings add assertions", async () => {
+    for (const [base, assertion, expected] of [
+      [{ type: "string" }, { minLength: 2 }, "string"],
+      [{ type: "array", items: { type: "integer" } }, { minItems: 1 }, [0]],
+    ] as const) {
+      const root = JSON.parse(spec({ $ref: "#/components/schemas/Base", ...assertion }));
+      root.components = { schemas: { Base: base } };
+      const result = await bundleOpenApiReferences({ content: JSON.stringify(root) });
+      const body = requests(importOpenApi(result.document).root)[0].body;
+      if (body.mode !== "raw") throw new Error("Expected JSON sample");
+      expect(JSON.parse(body.raw)).toEqual(expected);
+    }
+  });
   it("reports every missing reference and refuses file:// or unsupported dynamic resolution", async () => {
     for (const [ref, code] of [
       ["missing.yaml#/Pet", "missing-file"],
@@ -314,6 +327,31 @@ describe("bounded OpenAPI reference bundling", () => {
       "http://api.example/v1",
     ]);
     expect(requests(converted.root)[0].body).toMatchObject({ raw: '{\n  "name": "Swagger pet"\n}' });
+  });
+  it("bounds recursive sample fan-out and large example expansion before persistence", async () => {
+    const recursive = {
+      type: "object",
+      properties: Object.fromEntries(
+        Array.from({ length: 8 }, (_, i) => [`child${i}`, { $ref: "#/components/schemas/Node" }]),
+      ),
+    };
+    const root = JSON.parse(spec({ $ref: "#/components/schemas/Node" }));
+    root.components = { schemas: { Node: recursive } };
+    const bundled = await bundleOpenApiReferences({ content: JSON.stringify(root) });
+    expect(() => importOpenApi(bundled.document)).toThrow(/sample expansion/);
+    const repeated = JSON.parse(spec({}));
+    repeated.paths["/pets"].post.requestBody.content["application/json"].example = Object.fromEntries(
+      Array.from({ length: 100 }, (_, i) => [i, "x".repeat(60_000)]),
+    );
+    expect(() => importOpenApi(repeated)).toThrow(/generated body limit/);
+    const largeOperation = {
+      post: { requestBody: { content: { "application/json": { example: "x".repeat(1024 * 1024) } } } },
+    };
+    const total = {
+      openapi: "3.1.0",
+      paths: Object.fromEntries(Array.from({ length: 21 }, (_, i) => [`/path${i}`, largeOperation])),
+    };
+    expect(() => importOpenApi(total)).toThrow(/converted request content/);
   });
   it("validates bundle paths, duplicates, entrypoint, origin syntax and YAML alias cycles", async () => {
     expect(normalizeBundlePath("project\\models\\pet.yaml")).toBe("project/models/pet.yaml");

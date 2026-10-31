@@ -20,7 +20,7 @@
  */
 import { parseSpec, isOpenApi } from "./openapi-document";
 export { parseSpec, isOpenApi } from "./openapi-document";
-import { localReferenceValue, documentSourceUrl } from "./openapi-references";
+import { localReferenceValue, documentSourceUrl, OPENAPI_LIMITS } from "./openapi-references";
 import type { AuthConfig, BodyConfig, FolderNode, KeyValue, RequestNode, Variable } from "../types";
 import { DEFAULT_SETTINGS } from "../types";
 import type { ImportedCollection } from "./postman";
@@ -40,7 +40,8 @@ function deref(spec: Obj, value: unknown): Obj {
 }
 
 /** Build an example value from a schema (example > default > enum > generated). */
-export function sampleFromSchema(spec: Obj, schemaIn: unknown, depth = 0): unknown {
+export function sampleFromSchema(spec: Obj, schemaIn: unknown, depth = 0, budget = { nodes: 0 }): unknown {
+  if (++budget.nodes > 10_000) throw new Error("OpenAPI sample expansion exceeds 10,000 nodes");
   const resolved = localReferenceValue(spec, schemaIn);
   if (resolved === true) return null;
   if (resolved === false) throw new Error("A false schema has no permitted sample values");
@@ -50,27 +51,29 @@ export function sampleFromSchema(spec: Obj, schemaIn: unknown, depth = 0): unkno
   if ("default" in schema) return schema.default;
   if (Array.isArray(schema.enum) && schema.enum.length) return schema.enum[0];
   if (Array.isArray(schema.allOf)) {
-    return Object.assign(
-      Object.create(null),
-      ...schema.allOf.map((s) => sampleFromSchema(spec, s, depth + 1) as Obj),
+    const samples = schema.allOf.map((s) => sampleFromSchema(spec, s, depth + 1, budget));
+    const objects = samples.filter(
+      (sample): sample is Obj => !!sample && typeof sample === "object" && !Array.isArray(sample),
     );
+    if (objects.length) return Object.assign(Object.create(null), ...objects);
+    return samples.find((sample) => sample !== "" && sample !== undefined) ?? samples[0] ?? null;
   }
   for (const k of ["oneOf", "anyOf"])
     if (Array.isArray(schema[k]) && (schema[k] as unknown[]).length)
-      return sampleFromSchema(spec, (schema[k] as unknown[])[0], depth + 1);
+      return sampleFromSchema(spec, (schema[k] as unknown[])[0], depth + 1, budget);
   const type = Array.isArray(schema.type) ? schema.type[0] : schema.type;
   switch (type) {
     case "object":
     case undefined: {
       if (!schema.properties && type === undefined)
-        return schema.items ? [sampleFromSchema(spec, schema.items, depth + 1)] : "";
+        return schema.items ? [sampleFromSchema(spec, schema.items, depth + 1, budget)] : "";
       const out: Obj = Object.create(null);
       for (const [k, v] of Object.entries((schema.properties as Obj) ?? {}))
-        out[k] = sampleFromSchema(spec, v, depth + 1);
+        out[k] = sampleFromSchema(spec, v, depth + 1, budget);
       return out;
     }
     case "array":
-      return [sampleFromSchema(spec, schema.items, depth + 1)];
+      return [sampleFromSchema(spec, schema.items, depth + 1, budget)];
     case "integer":
     case "number":
       return 0;
@@ -269,6 +272,28 @@ function securityToAuth(spec: Obj, requirement: unknown): AuthConfig | null {
   return null;
 }
 
+function serializeSample(
+  value: unknown,
+  maxBytes: number = OPENAPI_LIMITS.maxDocumentBytes,
+  label = "generated body",
+): string {
+  let bytes = 0,
+    nodes = 0;
+  const json = JSON.stringify(
+    value,
+    (key, child: unknown) => {
+      bytes +=
+        Buffer.byteLength(key, "utf8") + (typeof child === "string" ? Buffer.byteLength(child, "utf8") : 16);
+      if (++nodes > 200_000 || bytes > maxBytes) throw new Error(`OpenAPI sample exceeds the ${label} limit`);
+      return child;
+    },
+    2,
+  );
+  if (Buffer.byteLength(json, "utf8") > maxBytes)
+    throw new Error(`OpenAPI sample exceeds the ${label} limit`);
+  return json;
+}
+
 function buildBody(spec: Obj, op: Obj, params: Obj[]): { body: BodyConfig; contentType?: string } {
   // Swagger 2: body / formData parameters
   const bodyParam = params.find((p) => p.in === "body");
@@ -277,7 +302,7 @@ function buildBody(spec: Obj, op: Obj, params: Obj[]): { body: BodyConfig; conte
       body: {
         mode: "raw",
         language: "json",
-        raw: JSON.stringify(sampleFromSchema(spec, bodyParam.schema), null, 2),
+        raw: serializeSample(sampleFromSchema(spec, bodyParam.schema)),
       },
       contentType: "application/json",
     };
@@ -354,7 +379,7 @@ function buildBody(spec: Obj, op: Obj, params: Obj[]): { body: BodyConfig; conte
       body: {
         mode: "raw",
         language: "json",
-        raw: JSON.stringify(example, null, 2),
+        raw: serializeSample(example),
       },
       contentType: pick,
     };
@@ -455,6 +480,7 @@ export function importOpenApi(input: string | Obj, opts: { sourceUrl?: string } 
     return candidate;
   };
 
+  let convertedBytes = 0;
   for (const [path, itemIn] of Object.entries(spec.paths as Obj)) {
     const item = deref(spec, itemIn);
     const shared = ((item.parameters as unknown[]) ?? []).map((p) => deref(spec, p));
@@ -524,6 +550,12 @@ export function importOpenApi(input: string | Obj, opts: { sourceUrl?: string } 
         description: String(op.description ?? ""),
         examples: [],
       };
+      convertedBytes += Buffer.byteLength(
+        serializeSample(req, OPENAPI_LIMITS.maxTotalBytes, "converted request content"),
+        "utf8",
+      );
+      if (convertedBytes > OPENAPI_LIMITS.maxTotalBytes)
+        throw new Error("OpenAPI converted request content exceeds 20 MiB");
       folderFor((op.tags as string[] | undefined)?.[0]).children.push(req);
     }
   }

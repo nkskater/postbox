@@ -188,6 +188,27 @@ describe("OpenAPI shared REST/MCP importer", () => {
       expect(repo.getTreeSummary(ws.id)).toEqual(baseline);
     }
   });
+  it("rejects recursive sample amplification without persisting a partial collection", async () => {
+    const ws = repo.createWorkspace("Sample bounds"),
+      baseline = repo.getTreeSummary(ws.id);
+    const input = JSON.parse(root("#/components/schemas/Node"));
+    input.components = {
+      schemas: {
+        Node: {
+          type: "object",
+          properties: Object.fromEntries(
+            Array.from({ length: 8 }, (_, i) => [`child${i}`, { $ref: "#/components/schemas/Node" }]),
+          ),
+        },
+      },
+    };
+    const response = await post(ws.id, { content: JSON.stringify(input) });
+    expect(response.status).toBe(400);
+    expect(
+      (await response.json()).diagnostics.some((d: { code: string }) => d.code === "conversion-failed"),
+    ).toBe(true);
+    expect(repo.getTreeSummary(ws.id)).toEqual(baseline);
+  });
   it("uses the fetched root's final URL and approves same-origin external refs explicitly", async () => {
     const ws = repo.createWorkspace("Remote root");
     seen.length = 0;

@@ -155,7 +155,7 @@ export async function importSource(
         source: bundled.sourceUrl ?? input.entrypoint ?? "openapi.yaml",
         path: "",
         message:
-          "The resolved document cannot produce request samples. Check reference-only cycles, false schemas and object shapes; no data was imported.",
+          "The resolved document cannot produce request samples. Check reference-only cycles, false schemas, object shapes and sample expansion limits; no data was imported.",
       },
     ]);
   }
