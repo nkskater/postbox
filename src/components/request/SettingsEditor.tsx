@@ -59,6 +59,17 @@ export function SettingsEditor({
       <Row title="Use cookie jar" hint="Send stored cookies and save cookies set by the server.">
         <Switch checked={settings.useCookieJar} onCheckedChange={(useCookieJar) => set({ useCookieJar })} />
       </Row>
+      <Row
+        title="Unix socket or named pipe"
+        hint="Connect here instead of over TCP; the URL still sets the path and Host. The server must allow it in PROXY_ALLOW_SOCKETS."
+      >
+        <Input
+          className="h-8 w-72 font-mono text-xs"
+          value={settings.socketPath ?? ""}
+          placeholder="/var/run/app.sock or \\.\pipe\name"
+          onChange={(e) => set({ socketPath: e.target.value || undefined })}
+        />
+      </Row>
     </div>
   );
 }

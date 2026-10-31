@@ -97,6 +97,11 @@ export async function prepareRequest(
 ): Promise<PrepareResult> {
   const defaults = opts.defaults ?? {};
   const settings = { ...DEFAULT_SETTINGS, ...request.settings };
+  if (settings.socketPath !== undefined) {
+    const socketPath = resolver.resolve(settings.socketPath).trim();
+    if (socketPath) settings.socketPath = socketPath;
+    else delete settings.socketPath;
+  }
   const method = (resolver.resolve(request.method) || "GET").toUpperCase();
   const url = normalizeUrl(resolver.resolve(request.url));
 

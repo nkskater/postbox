@@ -157,6 +157,8 @@ function sendOnce(
     maxBodyBytes: number;
     /** Keep-alive agent for connection-bound auth (NTLM); otherwise a fresh socket per exchange. */
     agent?: http.Agent;
+    /** Connect to this Unix socket / named pipe instead of resolving the URL host. */
+    socketPath?: string;
   },
 ): Promise<SingleResponse> {
   return new Promise((resolve, reject) => {
@@ -192,11 +194,12 @@ function sendOnce(
       {
         method,
         protocol: url.protocol,
-        hostname: url.hostname.replace(/^\[|\]$/g, ""),
-        port: url.port || (isHttps ? 443 : 80),
+        ...(opts.socketPath
+          ? { socketPath: opts.socketPath }
+          : { hostname: url.hostname.replace(/^\[|\]$/g, ""), port: url.port || (isHttps ? 443 : 80) }),
         path: `${url.pathname}${url.search}`,
         headers: headerObj as unknown as http.OutgoingHttpHeaders,
-        lookup,
+        ...(opts.socketPath ? {} : { lookup }),
         agent: opts.agent ?? false,
         rejectUnauthorized: opts.verifySsl,
         servername: net.isIP(url.hostname) ? undefined : url.hostname,
@@ -340,6 +343,7 @@ export async function sendRequest(
   }
   let headers = prepared.headers.slice();
   let body = prepared.body;
+  let socketPath = settings.socketPath;
   let digestTried = false;
   let digestAllowed = true;
   // NTLM authenticates a connection, so its handshake runs on one dedicated keep-alive socket.
@@ -356,7 +360,9 @@ export async function sendRequest(
       if (url.protocol !== "http:" && url.protocol !== "https:") {
         throw new RequestError(`Unsupported protocol "${url.protocol}"`, "EPROTOCOL");
       }
-      policy.assert(url.hostname);
+      // A socket endpoint replaces DNS and TCP entirely, so it is checked instead of the host.
+      if (socketPath) policy.assertSocket(socketPath);
+      else policy.assert(url.hostname);
 
       // Merge jar cookies with any Cookie header the user set explicitly.
       let hopHeaders = headers;
@@ -386,6 +392,7 @@ export async function sendRequest(
         policy,
         signal: options.signal,
         maxBodyBytes,
+        socketPath,
         agent: ntlmState === "negotiating" || ntlmState === "authenticating" ? ntlmAgent : undefined,
       });
 
@@ -469,6 +476,8 @@ export async function sendRequest(
         if (prepared.ntlm && ntlmState === "done" && sameOrigin) ntlmState = "idle";
         // Never forward credentials to a different origin.
         if (!sameOrigin) {
+          // An absolute redirect elsewhere leaves the socket and goes through normal host policy.
+          socketPath = undefined;
           headers = headers.filter(([name]) => CROSS_ORIGIN_HEADERS.has(name.toLowerCase()));
           digestAllowed = false;
         }
