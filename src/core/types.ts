@@ -43,7 +43,14 @@ export type BodyConfig =
 export type BodyMode = BodyConfig["mode"];
 
 export interface OAuth2Config {
-  grantType: "client_credentials" | "password" | "manual";
+  grantType: "client_credentials" | "password" | "authorization_code" | "manual";
+  /** Authorization endpoint (authorization_code). */
+  authUrl?: string;
+  /** Redirect URI registered with the provider; defaults to this server's /api/oauth2/callback. */
+  redirectUri?: string;
+  /** Use PKCE (RFC 7636) with the authorization code; on by default. */
+  usePkce?: boolean;
+  codeChallengeMethod?: "S256" | "plain";
   accessTokenUrl: string;
   clientId: string;
   clientSecret: string;

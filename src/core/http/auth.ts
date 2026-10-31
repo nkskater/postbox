@@ -63,6 +63,8 @@ export function resolveAuth(auth: AuthConfig, r: Resolver): AuthConfig {
         oauth2: {
           ...o,
           accessTokenUrl: r.resolve(o.accessTokenUrl),
+          authUrl: o.authUrl !== undefined ? r.resolve(o.authUrl) : undefined,
+          redirectUri: o.redirectUri !== undefined ? r.resolve(o.redirectUri) : undefined,
           clientId: r.resolve(o.clientId),
           clientSecret: r.resolve(o.clientSecret),
           scope: r.resolve(o.scope),
@@ -202,16 +204,14 @@ export function clearOAuth2Cache() {
   tokenCache.clear();
 }
 
-/** Request a token from the token endpoint (client_credentials or password grant). */
-export async function fetchOAuth2Token(o: OAuth2Config, engine: EngineOptions = {}): Promise<OAuth2Token> {
+/** POST a token request; client credentials go in the header or body as configured. */
+async function requestToken(
+  o: OAuth2Config,
+  params: Record<string, string>,
+  engine: EngineOptions = {},
+): Promise<OAuth2Token> {
   if (!o.accessTokenUrl) throw new Error("OAuth 2.0: access token URL is required");
-  const form = new URLSearchParams();
-  form.set("grant_type", o.grantType);
-  if (o.scope) form.set("scope", o.scope);
-  if (o.grantType === "password") {
-    form.set("username", o.username ?? "");
-    form.set("password", o.password ?? "");
-  }
+  const form = new URLSearchParams(params);
   const headers: [string, string][] = [
     ["Content-Type", "application/x-www-form-urlencoded"],
     ["Accept", "application/json"],
@@ -219,11 +219,14 @@ export async function fetchOAuth2Token(o: OAuth2Config, engine: EngineOptions = 
   if (o.clientAuthentication === "body") {
     form.set("client_id", o.clientId);
     if (o.clientSecret) form.set("client_secret", o.clientSecret);
-  } else {
+  } else if (o.clientSecret || o.grantType !== "authorization_code") {
     const cred = Buffer.from(
       `${encodeURIComponent(o.clientId)}:${encodeURIComponent(o.clientSecret)}`,
     ).toString("base64");
     headers.push(["Authorization", `Basic ${cred}`]);
+  } else {
+    // Public clients (PKCE without a secret) identify themselves in the body.
+    form.set("client_id", o.clientId);
   }
   const res = await sendRequest(
     {
@@ -260,6 +263,36 @@ export async function fetchOAuth2Token(o: OAuth2Config, engine: EngineOptions = 
   };
 }
 
+/** Request a token from the token endpoint (client_credentials or password grant). */
+export async function fetchOAuth2Token(o: OAuth2Config, engine: EngineOptions = {}): Promise<OAuth2Token> {
+  if (o.grantType === "authorization_code" || o.grantType === "manual")
+    throw new Error("OAuth 2.0: this grant type needs an interactive authorization in the Auth tab");
+  const params: Record<string, string> = { grant_type: o.grantType };
+  if (o.scope) params.scope = o.scope;
+  if (o.grantType === "password") {
+    params.username = o.username ?? "";
+    params.password = o.password ?? "";
+  }
+  return requestToken(o, params, engine);
+}
+
+/** Exchange an authorization code (RFC 6749 4.1.3), with the PKCE verifier when used. */
+export async function exchangeAuthorizationCode(
+  o: OAuth2Config,
+  code: string,
+  redirectUri: string,
+  codeVerifier: string | undefined,
+  engine: EngineOptions = {},
+): Promise<OAuth2Token> {
+  const params: Record<string, string> = {
+    grant_type: "authorization_code",
+    code,
+    redirect_uri: redirectUri,
+  };
+  if (codeVerifier) params.code_verifier = codeVerifier;
+  return requestToken({ ...o, grantType: "authorization_code" }, params, engine);
+}
+
 /** Returns a valid token for the config, fetching (and caching) a new one when needed. */
 export async function getOAuth2Token(o: OAuth2Config, engine?: EngineOptions): Promise<OAuth2Token | null> {
   const fresh = (exp?: number) =>
@@ -268,7 +301,9 @@ export async function getOAuth2Token(o: OAuth2Config, engine?: EngineOptions): P
     exp <= Date.now() + MAX_CACHE_TTL &&
     exp - 30_000 > Date.now();
   const key = cacheKey(o, engine?.oauth2CacheScope);
-  if (o.grantType === "manual" || (o.accessToken && o.tokenContext === key && fresh(o.expiresAt))) {
+  // Authorization-code tokens come from an interactive login and are used as saved.
+  const interactive = o.grantType === "manual" || o.grantType === "authorization_code";
+  if (interactive || (o.accessToken && o.tokenContext === key && fresh(o.expiresAt))) {
     return o.accessToken
       ? {
           accessToken: o.accessToken,
@@ -348,6 +383,10 @@ export async function applyAuth(
         setHeader(req, "Authorization", auth.oauth2.headerPrefix ? `${auth.oauth2.headerPrefix} ${t}` : t);
         return {};
       }
+      if (auth.oauth2.grantType === "authorization_code" && !auth.oauth2.accessToken)
+        throw new Error(
+          'OAuth 2.0: no access token yet. Use "Get New Access Token" in the Auth tab to sign in.',
+        );
       const token = await getOAuth2Token(auth.oauth2, engine);
       if (token) {
         const prefix = auth.oauth2.headerPrefix ?? "Bearer";

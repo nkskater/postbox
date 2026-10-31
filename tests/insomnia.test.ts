@@ -146,7 +146,7 @@ describe("Insomnia v4 export", () => {
     });
     expect(login.auth).toMatchObject({
       type: "oauth2",
-      oauth2: { grantType: "manual", clientSecret: "csec" },
+      oauth2: { grantType: "authorization_code", clientSecret: "csec", usePkce: false },
     });
 
     const gql = find(root, "Products query") as RequestNode;
@@ -164,7 +164,6 @@ describe("Insomnia v4 export", () => {
         '"Orphan" references a missing parent folder and was skipped.',
         'websocket_request items are not supported yet and were skipped (for example "Live feed").',
         "Upload avatar: form-data file contents are not part of Insomnia exports; reselect the files.",
-        "Login: OAuth 2.0 authorization_code is not supported yet; paste a token into the manual access token.",
         "Users: folder environment variables were converted to a folder pre-request script.",
       ]),
     );

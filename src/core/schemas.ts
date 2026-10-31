@@ -95,7 +95,11 @@ export const bodySchema: z.ZodType<BodyConfig> = bodyConfigSchema.superRefine((b
 });
 
 export const oauth2ConfigSchema: z.ZodType<OAuth2Config> = z.object({
-  grantType: z.enum(["client_credentials", "password", "manual"]),
+  grantType: z.enum(["client_credentials", "password", "authorization_code", "manual"]),
+  authUrl: z.string().optional(),
+  redirectUri: z.string().optional(),
+  usePkce: z.boolean().optional(),
+  codeChallengeMethod: z.enum(["S256", "plain"]).optional(),
   accessTokenUrl: z.string().default(""),
   clientId: z.string().default(""),
   clientSecret: z.string().default(""),

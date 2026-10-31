@@ -220,7 +220,8 @@ export function importInsomnia(
       }
       case "oauth2": {
         const grant = str(a.grantType);
-        const supported = grant === "client_credentials" || grant === "password";
+        const supported =
+          grant === "client_credentials" || grant === "password" || grant === "authorization_code";
         if (!supported)
           warn(
             `${owner}: OAuth 2.0 ${grant || "flow"} is not supported yet; paste a token into the manual access token.`,
@@ -234,6 +235,14 @@ export function importInsomnia(
             clientSecret: s("clientSecret"),
             scope: s("scope"),
             ...(grant === "password" ? { username: s("username"), password: s("password") } : {}),
+            ...(grant === "authorization_code"
+              ? {
+                  authUrl: s("authorizationUrl"),
+                  ...(s("redirectUrl") ? { redirectUri: s("redirectUrl") } : {}),
+                  ...(a.usePkce === true ? {} : { usePkce: false }),
+                  ...(str(a.pkceMethod) === "plain" ? { codeChallengeMethod: "plain" as const } : {}),
+                }
+              : {}),
             clientAuthentication: a.credentialsInBody === true ? "body" : "header",
             accessToken: "",
             headerPrefix: s("tokenPrefix") || "Bearer",

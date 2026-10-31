@@ -411,9 +411,86 @@ function OAuth2Editor({
   const [now] = useState(() => Date.now());
   const { workspaceId, environmentId } = useApp();
 
+  const authorizeInBrowser = async () => {
+    // Open synchronously so popup blockers treat it as user-initiated.
+    const popup = window.open("about:blank", "postbox-oauth2", "width=520,height=720");
+    if (!popup) throw new Error("Allow pop-ups for Postbox to sign in");
+    const res = await fetch("/api/oauth2/authorize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workspaceId,
+        environmentId,
+        folderId,
+        callbackUrl: `${window.location.origin}/api/oauth2/callback`,
+        config,
+      }),
+    });
+    const start = await res.json();
+    if (!res.ok) {
+      popup.close();
+      throw new Error(start.error);
+    }
+    popup.location.href = start.authorizationUrl;
+    const collect = async () => {
+      const r = await fetch(`/api/oauth2/authorize?state=${encodeURIComponent(start.state)}`);
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error);
+      return data as { status: "pending" | "done" | "error"; error?: string } & Partial<OAuth2Config>;
+    };
+    const result = await new Promise<Awaited<ReturnType<typeof collect>>>((resolve, reject) => {
+      const deadline = Date.now() + 10 * 60 * 1000;
+      let busy = false;
+      const check = async () => {
+        if (busy) return;
+        busy = true;
+        try {
+          const data = await collect();
+          if (data.status !== "pending") return finish(() => resolve(data));
+          if (popup.closed || Date.now() > deadline)
+            return finish(() =>
+              reject(new Error(popup.closed ? "Sign-in window was closed" : "Sign-in timed out")),
+            );
+        } catch (err) {
+          finish(() => reject(err));
+        } finally {
+          busy = false;
+        }
+      };
+      const onMessage = (e: MessageEvent) => {
+        if (
+          e.origin === window.location.origin &&
+          e.data?.type === "postbox-oauth2" &&
+          e.data.state === start.state
+        )
+          void check();
+      };
+      const timer = window.setInterval(check, 1000);
+      const finish = (done: () => void) => {
+        window.clearInterval(timer);
+        window.removeEventListener("message", onMessage);
+        done();
+      };
+      window.addEventListener("message", onMessage);
+    });
+    if (result.status === "error") throw new Error(result.error);
+    return result;
+  };
+
   const fetchToken = async () => {
     setLoading(true);
     try {
+      if (config.grantType === "authorization_code") {
+        const data = await authorizeInBrowser();
+        set({
+          accessToken: data.accessToken ?? "",
+          tokenType: data.tokenType,
+          expiresAt: data.expiresAt,
+          tokenContext: data.tokenContext,
+        });
+        toast.success("Signed in; access token saved to this request");
+        return;
+      }
       const res = await fetch("/api/oauth2/token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -452,6 +529,9 @@ function OAuth2Editor({
             <SelectItem value="password" className="text-xs">
               Password Credentials
             </SelectItem>
+            <SelectItem value="authorization_code" className="text-xs">
+              Authorization Code (with PKCE)
+            </SelectItem>
             <SelectItem value="manual" className="text-xs">
               Manual token
             </SelectItem>
@@ -474,6 +554,52 @@ function OAuth2Editor({
       </Field>
       {config.grantType !== "manual" && (
         <>
+          {config.grantType === "authorization_code" && (
+            <>
+              <Field label="Auth URL">
+                <VarInput
+                  value={config.authUrl ?? ""}
+                  onChange={(authUrl) => set({ authUrl })}
+                  placeholder="https://auth.example.com/oauth/authorize"
+                />
+              </Field>
+              <Field label="Callback URL">
+                <VarInput
+                  value={config.redirectUri ?? ""}
+                  onChange={(redirectUri) => set({ redirectUri: redirectUri || undefined })}
+                  placeholder={
+                    typeof window === "undefined"
+                      ? "/api/oauth2/callback"
+                      : `${window.location.origin}/api/oauth2/callback`
+                  }
+                />
+              </Field>
+              <Field label="PKCE">
+                <div className="flex items-center gap-2">
+                  <Switch
+                    checked={config.usePkce !== false}
+                    onCheckedChange={(usePkce) => set({ usePkce: usePkce ? undefined : false })}
+                  />
+                  <Select
+                    value={config.codeChallengeMethod ?? "S256"}
+                    onValueChange={(m) => set({ codeChallengeMethod: m === "plain" ? "plain" : undefined })}
+                  >
+                    <SelectTrigger size="sm" className="w-32 text-xs" disabled={config.usePkce === false}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="S256" className="text-xs">
+                        SHA-256
+                      </SelectItem>
+                      <SelectItem value="plain" className="text-xs">
+                        Plain
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </Field>
+            </>
+          )}
           <Field label="Access Token URL">
             <VarInput
               value={config.accessTokenUrl}
@@ -531,7 +657,9 @@ function OAuth2Editor({
             )}
           </div>
           <p className="pl-[172px] text-muted-foreground">
-            If the token is empty or expired, Postbox requests a new one automatically when sending.
+            {config.grantType === "authorization_code"
+              ? "Signs in through the provider in a pop-up window; the saved token is then used for sends and runs. Register the callback URL with the provider."
+              : "If the token is empty or expired, Postbox requests a new one automatically when sending."}
           </p>
         </>
       )}
