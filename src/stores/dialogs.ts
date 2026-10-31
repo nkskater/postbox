@@ -3,6 +3,8 @@
 import { create } from "zustand";
 
 interface DialogState {
+  datasetEditor: { id: string | null; workspaceId: string } | null;
+  openDataset(value: DialogState["datasetEditor"]): void;
   saveTabId: string | null;
   codeTabId: string | null;
   importOpen: boolean;
@@ -21,6 +23,8 @@ interface DialogState {
 }
 
 export const useDialogs = create<DialogState>()((set) => ({
+  datasetEditor: null,
+  openDataset: (datasetEditor) => set({ datasetEditor }),
   saveTabId: null,
   codeTabId: null,
   importOpen: false,

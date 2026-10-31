@@ -436,3 +436,49 @@ export interface DataTable {
   columns: string[];
   rows: Record<string, string>[];
 }
+
+/** A saved iteration-data source; omitting version selects latest at run admission. */
+export interface DatasetRef {
+  id: string;
+  version?: number;
+}
+export interface DatasetVersion {
+  datasetId: string;
+  version: number;
+  table: DataTable;
+  secretColumns: string[];
+  missingSecrets: boolean;
+  createdAt: number;
+  createdBy: string | null;
+}
+export interface DatasetSummary {
+  id: string;
+  workspaceId: string;
+  name: string;
+  description: string;
+  latestVersion: number;
+  createdAt: number;
+  updatedAt: number;
+  rows: number;
+  columns: string[];
+  secretColumns: string[];
+  missingSecrets: boolean;
+}
+
+export interface DatasetDocument extends DatasetSummary {
+  version: number;
+  table: DataTable;
+  valuesOmitted: boolean;
+  canEdit: boolean;
+  versionCreatedAt: number;
+  versionCreatedBy: string | null;
+}
+export interface DatasetVersionInfo {
+  version: number;
+  rows: number;
+  columns: string[];
+  secretColumns: string[];
+  missingSecrets: boolean;
+  createdAt: number;
+  createdBy: string | null;
+}

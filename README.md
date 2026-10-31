@@ -238,6 +238,10 @@ apply the same checks. Before running, you can clean the data in the grid:
 ![Runner with the demo CSV loaded into the data grid](docs/screenshots/runner-data.png)
 
 Results stream in live. Filter by **passed** or **failed** and expand a row to see each assertion and the response body.
+Save iteration data in the **Datasets** sidebar to reuse it across runs and schedules,
+with immutable versions, variable previews and explicit secret columns. See the
+[saved datasets guide](docs/saved-datasets.md) for UI, REST and MCP usage.
+
 Export a report as **HTML**, **JSON** or **JUnit XML** (for CI dashboards). Past runs are listed in the runner, and
 **Schedules** run a collection on a cron schedule. In the demo, the last CSV row deliberately has the wrong name, so one
 assertion fails:

@@ -26,7 +26,13 @@ export function DataGrid({
   onChange,
   filter,
   onFilterChange,
+  allowDownload = true,
+  maskedColumns = [],
+  onPendingChange,
 }: {
+  allowDownload?: boolean;
+  maskedColumns?: string[];
+  onPendingChange?: (pending: boolean) => void;
   table: DataTable;
   onChange: (t: DataTable | null) => void;
   filter: string;
@@ -37,9 +43,10 @@ export function DataGrid({
 
   // Keep original row indexes so edits on a filtered view hit the right row.
   const view = useMemo(() => {
-    const indexed = table.rows.map((r, i) => ({ ...r, __i: String(i) }));
+    const index = Symbol("rowIndex");
+    const indexed = table.rows.map((r, i) => ({ ...r, [index]: i }));
     const f = filterRows({ columns: table.columns, rows: indexed }, filter);
-    return f.rows.map((r) => Number(r.__i));
+    return f.rows.map((r) => (r as (typeof indexed)[number])[index]);
   }, [table, filter]);
   const pages = Math.max(1, Math.ceil(view.length / PAGE));
   const current = Math.min(page, pages - 1);
@@ -122,9 +129,11 @@ export function DataGrid({
         >
           <Columns3 className="size-3.5" /> Column
         </Button>
-        <Button variant="ghost" size="icon" className="size-7" title="Download CSV" onClick={download}>
-          <Download className="size-3.5" />
-        </Button>
+        {allowDownload && (
+          <Button variant="ghost" size="icon" className="size-7" title="Download CSV" onClick={download}>
+            <Download className="size-3.5" />
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="icon"
@@ -168,8 +177,14 @@ export function DataGrid({
                       autoFocus
                       defaultValue={c}
                       className="w-full rounded border border-primary bg-background px-1 outline-none"
+                      onChange={() => onPendingChange?.(true)}
                       onBlur={(e) => {
-                        onChange(renameColumn(table, c, e.target.value.trim()));
+                        try {
+                          onChange(renameColumn(table, c, e.target.value.trim()));
+                        } catch (error) {
+                          toast.error((error as Error).message);
+                        }
+                        onPendingChange?.(false);
                         setEditingCol(null);
                       }}
                       onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
@@ -205,6 +220,8 @@ export function DataGrid({
                 {table.columns.map((c) => (
                   <td key={c} className="border-r border-b p-0">
                     <input
+                      aria-label={`Row ${rowIndex + 1} ${c}`}
+                      type={maskedColumns.includes(c) ? "password" : "text"}
                       className="h-6 w-full bg-transparent px-1.5 outline-none focus:bg-accent"
                       value={table.rows[rowIndex][c] ?? ""}
                       onChange={(e) => setCell(rowIndex, c, e.target.value)}

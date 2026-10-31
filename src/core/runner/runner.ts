@@ -60,6 +60,7 @@ export interface RunResult {
 
 export interface RunSummary {
   name: string;
+  dataset?: { id: string; version: number | null; name: string | null } | null;
   status: "passed" | "failed" | "cancelled" | "error";
   iterations: number;
   totalRequests: number;

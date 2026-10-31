@@ -30,7 +30,8 @@ export interface ScopeContext {
   collectionId: string | null;
   scopes: VariableScopes;
   secrets: string[];
-  secretKeys: { globals: string[]; environment: string[]; collection: string[] };
+  secretKeys: { globals: string[]; environment: string[]; collection: string[]; data?: string[] };
+  additionalSecrets?: string[];
 }
 
 const secretValues = (...lists: Variable[][]) =>
@@ -72,7 +73,14 @@ export function loadScopes(
 /** Persist script-made variable changes; returns warnings (e.g. no active environment). */
 export function persistScopes(ctx: ScopeContext, after: VariableScopes): string[] {
   const warnings: string[] = [];
-  repo.persistScopeDiff(ctx.workspaceId, "global", null, ctx.scopes.globals, after.globals);
+  repo.persistScopeDiff(
+    ctx.workspaceId,
+    "global",
+    null,
+    ctx.scopes.globals,
+    after.globals,
+    ctx.additionalSecrets,
+  );
   if (ctx.environmentId)
     repo.persistScopeDiff(
       ctx.workspaceId,
@@ -80,6 +88,7 @@ export function persistScopes(ctx: ScopeContext, after: VariableScopes): string[
       ctx.environmentId,
       ctx.scopes.environment,
       after.environment,
+      ctx.additionalSecrets,
     );
   else if (JSON.stringify(after.environment) !== JSON.stringify(ctx.scopes.environment))
     warnings.push(
@@ -92,6 +101,7 @@ export function persistScopes(ctx: ScopeContext, after: VariableScopes): string[
       ctx.collectionId,
       ctx.scopes.collection,
       after.collection,
+      ctx.additionalSecrets,
     );
   return warnings;
 }
@@ -103,6 +113,30 @@ export function persistenceSecrets(ctx: ScopeContext, after: VariableScopes): st
     for (const key of ctx.secretKeys[scope]) if (after[scope][key]) values.push(after[scope][key]);
   }
   return [...new Set(values)];
+}
+
+/** Expand runtime changes of declared additional secrets before streaming or persistence. */
+export function updateAdditionalSecrets(ctx: ScopeContext, after: VariableScopes): void {
+  if (!ctx.additionalSecrets) return;
+  const known = new Set(ctx.secrets);
+  for (const scope of ["globals", "environment", "collection", "data"] as const) {
+    for (const key of ctx.secretKeys[scope] ?? []) {
+      const value = after[scope][key];
+      if (!value || known.has(value)) continue;
+      for (const secret of credentialRedactionValues([value]))
+        if (!known.has(secret)) {
+          known.add(secret);
+          ctx.secrets.push(secret);
+        }
+    }
+  }
+  for (const scope of ["globals", "environment", "collection"] as const)
+    for (const [key, value] of Object.entries(after[scope]))
+      if (
+        !ctx.secretKeys[scope].includes(key) &&
+        ctx.secrets.some((secret) => secret && value.includes(secret))
+      )
+        ctx.secretKeys[scope].push(key);
 }
 
 /** Save only to the original auth owner, without overwriting edits made during the request. */
@@ -145,11 +179,18 @@ export function savedRequestResolver(
   environmentId: string | null,
   secrets: string[],
   persistVariables = true,
+  dataSecretKeys?: string[],
 ): SavedRequestResolver {
   return (id) => {
     const request = repo.requireRequestIn(workspaceId, id);
     const ancestors = repo.getFolderChain(request.folderId);
     const ctx = loadScopes(workspaceId, environmentId, ancestors[0]?.id ?? null);
+    if (dataSecretKeys) {
+      for (const secret of ctx.secrets) if (!secrets.includes(secret)) secrets.push(secret);
+      ctx.secrets = secrets;
+      ctx.additionalSecrets = secrets;
+      ctx.secretKeys.data = dataSecretKeys;
+    }
     const auth =
       request.auth.type === "inherit"
         ? [...ancestors].reverse().find((folder) => folder.auth.type !== "inherit")?.auth
@@ -164,6 +205,7 @@ export function savedRequestResolver(
         ...sensitiveFieldValues(request),
       ],
       onExecution: (result) => {
+        updateAdditionalSecrets(ctx, result.scopes);
         for (const secret of persistenceSecrets(ctx, result.scopes))
           if (!secrets.includes(secret)) secrets.push(secret);
         if (persistVariables && ctx.collectionId)
@@ -173,6 +215,7 @@ export function savedRequestResolver(
             ctx.collectionId,
             ctx.scopes.collection,
             result.scopes.collection,
+            ctx.additionalSecrets,
           );
         persistOAuth2Token(workspaceId, request, ancestors, result.oauth2Token, request.id);
       },

@@ -1,8 +1,19 @@
 /**
  * Typed browser-side client for the Postbox REST API.
  */
-import type { CookieInfo, Environment, FolderDef, RequestDef, ResponseExample, Variable } from "@/core/types";
+import type {
+  CookieInfo,
+  DatasetDocument,
+  DatasetSummary,
+  DatasetVersionInfo,
+  Environment,
+  FolderDef,
+  RequestDef,
+  ResponseExample,
+  Variable,
+} from "@/core/types";
 import type { z } from "zod";
+import type { datasetCreateSchema, datasetRevisionSchema, DatasetPackage } from "@/core/runner/datasets";
 import type { exampleCommandSchema } from "@/core/schemas";
 import type { RunSingleResult } from "@/server/context";
 import type { TreeFolderSummary, TreeRequestSummary } from "@/server/repo";
@@ -74,6 +85,37 @@ const q = (params: Record<string, string | null | undefined>) =>
   new URLSearchParams(Object.entries(params).filter(([, v]) => v != null) as [string, string][]).toString();
 
 export const api = {
+  datasets: {
+    list: (workspaceId: string, signal?: AbortSignal) =>
+      call<DatasetSummary[]>("GET", `/api/datasets?${q({ workspaceId })}`, undefined, signal),
+    get: (
+      id: string,
+      options: { version?: number; includeSecrets?: boolean; previewRows?: number } = {},
+      signal?: AbortSignal,
+    ) =>
+      call<
+        DatasetDocument & {
+          references: { schedules: { id: string; name: string }[]; runs: { id: string; name: string }[] };
+        }
+      >(
+        "GET",
+        `/api/datasets/${id}?${q({ version: options.version?.toString(), includeSecrets: options.includeSecrets ? "1" : undefined, previewRows: options.previewRows?.toString() })}`,
+        undefined,
+        signal,
+      ),
+    versions: (id: string, signal?: AbortSignal) =>
+      call<DatasetVersionInfo[]>("GET", `/api/datasets/${id}/versions`, undefined, signal),
+    create: (workspaceId: string, body: z.input<typeof datasetCreateSchema>) =>
+      call<DatasetDocument>("POST", "/api/datasets", { workspaceId, ...body }),
+    revise: (id: string, body: z.input<typeof datasetRevisionSchema>) =>
+      call<DatasetDocument>("POST", `/api/datasets/${id}/versions`, body),
+    remove: (id: string) => call("DELETE", `/api/datasets/${id}`),
+    export: (id: string, version: number, includeSecrets = false) =>
+      call<DatasetPackage>(
+        "GET",
+        `/api/datasets/${id}/export?${q({ version: String(version), includeSecrets: includeSecrets ? "1" : undefined })}`,
+      ),
+  },
   workspaces: {
     list: () => call<Workspace[]>("GET", "/api/workspaces"),
     create: (name: string) => call<Workspace>("POST", "/api/workspaces", { name }),

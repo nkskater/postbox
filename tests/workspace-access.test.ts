@@ -38,6 +38,12 @@ beforeAll(async () => {
   ids.workspace = workspaceId;
   ids.folder = repo.createFolder(workspaceId, null).id;
   ids.request = repo.createRequest(workspaceId, ids.folder, { url: "http://127.0.0.1:1/" }).id;
+  const { createDataset } = await import("@/server/datasets");
+  ids.dataset = createDataset(workspaceId, {
+    name: "Access dataset",
+    table: { columns: ["id"], rows: [{ id: "1" }] },
+    secretColumns: [],
+  }).id;
   ids.environment = repo.createEnvironment(workspaceId, "Environment").id;
   ids.history = withCaller(caller(owner), () =>
     repo.addHistory({

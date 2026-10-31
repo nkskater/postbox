@@ -1,13 +1,15 @@
 "use client";
-import { History, Layers, Library } from "lucide-react";
+import { Database, History, Layers, Library } from "lucide-react";
 import { useApp } from "@/stores/app";
 import { useSetting } from "@/stores/settings";
 import { cn } from "@/lib/utils";
 import { CollectionTree } from "./CollectionTree";
 import { EnvironmentList } from "./EnvironmentList";
+import { DatasetList } from "./DatasetList";
 import { HistoryList } from "./HistoryList";
 
 const VIEWS = [
+  { id: "datasets", label: "Datasets", icon: Database },
   { id: "collections", label: "Collections", icon: Library },
   { id: "environments", label: "Environments", icon: Layers },
   { id: "history", label: "History", icon: History },
@@ -48,6 +50,7 @@ export function Sidebar() {
         {view === "collections" && <CollectionTree />}
         {view === "environments" && <EnvironmentList />}
         {view === "history" && <HistoryList />}
+        {view === "datasets" && <DatasetList />}
       </div>
     </div>
   );

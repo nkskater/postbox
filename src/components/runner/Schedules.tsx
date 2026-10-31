@@ -2,14 +2,17 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import type { RunOptions } from "@/core/types";
+import type { DatasetRef, RunOptions } from "@/core/types";
 import { DEFAULT_RUN_OPTIONS } from "@/core/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
+import { DatasetPicker } from "./DatasetPicker";
+
 interface Schedule {
+  dataset: DatasetRef | null;
   id: string;
   name: string;
   cron: string;
@@ -58,6 +61,7 @@ export function Schedules({
   const [name, setName] = useState("");
   const [cron, setCron] = useState("0 9 * * 1-5");
   const [envId, setEnvId] = useState<string | null>(environmentId);
+  const [dataset, setDataset] = useState<DatasetRef | null>(null);
   const [enabled, setEnabled] = useState(true);
   const [options, setOptions] = useState<RunOptions>({ ...DEFAULT_RUN_OPTIONS });
   const sequence = useRef(0);
@@ -97,6 +101,7 @@ export function Schedules({
     setCron(schedule?.cron ?? "0 9 * * 1-5");
     setEnvId(schedule ? schedule.environmentId : environmentId);
     setEnabled(schedule?.enabled ?? true);
+    setDataset(schedule?.dataset ?? null);
     setOptions(schedule ? { ...schedule.options } : { ...DEFAULT_RUN_OPTIONS });
     setError("");
   };
@@ -128,8 +133,8 @@ export function Schedules({
         </Button>
       </div>
       <p className="text-muted-foreground">
-        Cron times use UTC. The server must be running. Each schedule runs every request in this folder
-        without iteration data; overlapping triggers are skipped.
+        Cron times use UTC. The server must be running. Each schedule runs every request in this folder with
+        the selected dataset; overlapping triggers are skipped.
       </p>
       {error && (
         <p role="alert" className="text-destructive">
@@ -153,9 +158,18 @@ export function Schedules({
             {environments.find((env) => env.id === schedule.environmentId)?.name ?? "No environment"}
           </p>
           <p className="text-muted-foreground">
-            {schedule.options.iterations} iteration(s) · {schedule.options.delayMs} ms delay
+            {schedule.options.iterations === 0
+              ? "One per dataset row"
+              : `${schedule.options.iterations} iteration(s)`}{" "}
+            · {schedule.options.delayMs} ms delay
             {schedule.running ? " · Running" : ""}
           </p>
+          {schedule.dataset && (
+            <p className="text-muted-foreground">
+              Dataset {schedule.dataset.id} ·{" "}
+              {schedule.dataset.version ? `version ${schedule.dataset.version}` : "latest at run start"}
+            </p>
+          )}
           {schedule.nextRunAt && (
             <p className="text-muted-foreground">Next: {new Date(schedule.nextRunAt).toLocaleString()}</p>
           )}
@@ -215,6 +229,7 @@ export function Schedules({
                 cron,
                 environmentId: envId,
                 enabled,
+                dataset,
                 options: { ...options, timeoutMs: options.timeoutMs ?? null },
               };
               if (editing) await patch(editing, body);
@@ -266,12 +281,20 @@ export function Schedules({
               </SelectContent>
             </Select>
           </div>
+          <DatasetPicker
+            workspaceId={workspaceId}
+            value={dataset}
+            onChange={(value) => {
+              setDataset(value);
+              setOptions({ ...options, iterations: value ? 0 : Math.max(1, options.iterations) });
+            }}
+          />
           <div className="grid grid-cols-2 gap-2">
             <label>
-              Iterations
+              Iterations{dataset ? " (0 = one per dataset row)" : ""}
               <Input
                 type="number"
-                min={1}
+                min={dataset ? 0 : 1}
                 max={100000}
                 required
                 value={options.iterations}

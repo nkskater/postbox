@@ -4,7 +4,7 @@ import type { Caller } from "./caller";
 import { HttpError } from "./errors";
 
 export type ResourceKind =
-  "workspace" | "folder" | "request" | "environment" | "run" | "history" | "cookie" | "schedule";
+  "workspace" | "folder" | "request" | "environment" | "run" | "history" | "cookie" | "schedule" | "dataset";
 const TABLES: Record<ResourceKind, string> = {
   workspace: "workspaces",
   folder: "folders",
@@ -14,6 +14,7 @@ const TABLES: Record<ResourceKind, string> = {
   history: "history",
   cookie: "cookies",
   schedule: "schedules",
+  dataset: "datasets",
 };
 export function resourceWorkspace(kind: ResourceKind, id: string): string {
   const row = getSqlite()
@@ -117,6 +118,15 @@ export const REST_POLICIES: Record<string, Policy> = {
   "GET /api/oauth2/callback": p("account"),
   "GET /api/codegen": p("account"),
   "POST /api/codegen": p("body", "read"),
+  "GET /api/datasets": p("query", "read"),
+  "POST /api/datasets": p("body", "write"),
+  "POST /api/datasets/import": p("body", "write"),
+  "GET /api/datasets/[id]": p("resource", "read", "dataset"),
+  "PATCH /api/datasets/[id]": p("resource", "write", "dataset"),
+  "DELETE /api/datasets/[id]": p("resource", "write", "dataset"),
+  "GET /api/datasets/[id]/versions": p("resource", "read", "dataset"),
+  "POST /api/datasets/[id]/versions": p("resource", "write", "dataset"),
+  "GET /api/datasets/[id]/export": p("resource", "read", "dataset"),
   "POST /api/import": p("body", "write"),
   "POST /api/tree/move": p("move", "write"),
   "GET /api/export/collection/[id]": p("resource", "read", "folder"),
@@ -186,6 +196,14 @@ export async function authorizeRest(
 
 export const MCP_POLICIES: Record<string, WorkspaceAction | "list" | "create" | "identity"> = {
   whoami: "identity",
+  list_datasets: "read",
+  get_dataset: "read",
+  create_dataset: "write",
+  update_dataset: "write",
+  create_dataset_version: "write",
+  delete_dataset: "write",
+  import_dataset: "write",
+  export_dataset: "read",
   list_workspaces: "list",
   create_workspace: "create",
   rename_workspace: "write",
@@ -234,6 +252,7 @@ export function authorizeTool(caller: Caller, name: string, input: Record<string
   const ids = new Set<string>();
   if (input.workspaceId) ids.add(stringId(input.workspaceId));
   for (const [field, kind] of [
+    ["datasetId", "dataset"],
     ["folderId", "folder"],
     ["requestId", "request"],
     ["environmentId", "environment"],
