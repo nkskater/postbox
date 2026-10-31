@@ -485,7 +485,7 @@ export function ImportDialog() {
             disabled={busy}
             onCheckedChange={(value) => getController().setIncludeCredentials(value === true)}
           />
-          Include authentication and secret values from Hoppscotch or Thunder Client exports
+          Include authentication and secret values from Hoppscotch, Thunder Client or Insomnia exports
         </label>
         <Tabs defaultValue="file">
           <TabsList>
@@ -613,7 +613,7 @@ export function ImportDialog() {
               className="h-56 font-mono text-xs"
               disabled={busy}
               placeholder={
-                "curl https://api.example.com/users -H 'Accept: application/json'\n\n— or paste Postman / HAR / Hoppscotch / Thunder Client / OpenAPI JSON or YAML —"
+                "curl https://api.example.com/users -H 'Accept: application/json'\n\n— or paste Postman / HAR / Hoppscotch / Thunder Client / Insomnia / OpenAPI JSON or YAML —"
               }
               value={text}
               onChange={(e) => getController().setText(e.target.value)}

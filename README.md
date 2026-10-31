@@ -235,6 +235,12 @@ assertion fails:
 **Import** (top bar or sidebar) accepts Postman v2.0/v2.1 collections and environments, OpenAPI 3 / Swagger 2 (JSON or
 YAML) from a file, pasted text or a URL. It also accepts **cURL** commands. You can also paste a cURL command straight into a request's URL bar.
 
+Migrations from other clients are also detected: HAR recordings, Hoppscotch, Thunder Client and **Insomnia** (v4 JSON/YAML
+exports and v5 collection YAML). For Insomnia, the base environment becomes collection variables and each
+sub-environment becomes an environment; folder environments become folder pre-request scripts. Template tags such as
+`{% uuid %}` are left as text, scripts are imported commented out, and file bodies must be reselected. Every skipped
+item is listed in the import warnings. These exports contain credentials, so **Include credentials** must be ticked.
+
 ![Import dialog with a pasted cURL command](docs/screenshots/import.png)
 
 Export a collection from its **⋯** menu (Postman v2.1) and an environment from the Environments list. Secret values are
