@@ -1,6 +1,7 @@
 import { importThunderClient, isThunderClient } from "@/core/convert/thunder";
 import { importHar, isHar } from "@/core/convert/har";
 import { importHoppscotch, isHoppscotch } from "@/core/convert/hoppscotch";
+import { importInsomnia, isInsomnia } from "@/core/convert/insomnia";
 import { getDb } from "./db";
 /**
  * Detects and imports Postman collections/environments and OpenAPI specs.
@@ -22,7 +23,7 @@ export type ImportOutcome =
       name: string;
       folders: number;
       requests: number;
-      source: "postman" | "openapi" | "har" | "hoppscotch" | "thunder-client";
+      source: "postman" | "openapi" | "har" | "hoppscotch" | "thunder-client" | "insomnia";
       warnings?: string[];
     }
   | { kind: "environment"; id: string; name: string; variables: number; warnings?: string[] }
@@ -62,6 +63,24 @@ export function importContent(
       variables: result.variables.length,
       warnings: result.warnings,
     };
+  }
+  if (isInsomnia(data)) {
+    const converted = importInsomnia(data, options);
+    return getDb().transaction(() => {
+      const items: ImportOutcome[] = [
+        ...converted.collections.map((c): ImportOutcome => ({
+          kind: "collection",
+          source: "insomnia",
+          ...repo.importTree(workspaceId, c.root, c.variables),
+          warnings: converted.warnings,
+        })),
+        ...converted.environments.map((e): ImportOutcome => {
+          const created = repo.createEnvironment(workspaceId, e.name, e.variables);
+          return { kind: "environment", id: created.id, name: created.name, variables: e.variables.length };
+        }),
+      ];
+      return items.length === 1 ? items[0] : { kind: "batch", items, warnings: converted.warnings };
+    });
   }
   if (isPostmanCollection(data)) {
     const { root, variables } = importPostmanCollection(data);
@@ -103,6 +122,6 @@ export function importContent(
     return { kind: "environment", id: created.id, name: created.name, variables: env.variables.length };
   }
   throw new Error(
-    "Unrecognised format. Supported: Postman collection v2.0/v2.1, Postman environment, OpenAPI 3.x, Swagger 2.0, HAR 1.2, Hoppscotch, Thunder Client",
+    "Unrecognised format. Supported: Postman collection v2.0/v2.1, Postman environment, OpenAPI 3.x, Swagger 2.0, HAR 1.2, Hoppscotch, Thunder Client, Insomnia v4/v5",
   );
 }

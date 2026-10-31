@@ -1,0 +1,64 @@
+type: collection.insomnia.rest/5.0
+name: Billing
+meta:
+  id: wrk_billing
+  created: 1727000000000
+  modified: 1727000000000
+  description: Billing service
+collection:
+  - name: Invoices
+    meta:
+      id: fld_invoices
+      sortKey: -100
+    authentication:
+      type: hawk
+      id: hawk-id
+      key: hawk-key
+      algorithm: sha256
+    environment:
+      tenant: acme
+    children:
+      - url: "{{ _.host }}/invoices/{{ _.tenant }}"
+        name: Get invoices
+        meta:
+          id: req_invoices
+          sortKey: -50
+        method: GET
+        headers:
+          - name: Accept
+            value: application/json
+        scripts:
+          preRequest: "insomnia.variables.set('x', 1);"
+        settings:
+          followRedirects: "on"
+          encodeUrl: false
+      - name: Invoice stream
+        meta:
+          id: greq_stream
+        url: grpc://billing:50051
+  - url: "{{ _.host }}/health"
+    name: Health
+    meta:
+      id: req_health
+      sortKey: -200
+    method: get
+    authentication:
+      type: ntlm
+      username: CORP\svc
+      password: pw
+cookieJar:
+  name: Default Jar
+  meta:
+    id: jar_billing
+environments:
+  name: Base Environment
+  meta:
+    id: env_billing
+  data:
+    host: https://billing.test
+  subEnvironments:
+    - name: Staging
+      meta:
+        id: env_staging
+      data:
+        host: https://billing.staging
