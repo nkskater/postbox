@@ -201,6 +201,11 @@ export interface RequestSettings {
   verifySsl: boolean;
   /** Send and store cookies with the workspace cookie jar. */
   useCookieJar: boolean;
+  /**
+   * Unix domain socket path or Windows named pipe (\\.\pipe\name) to connect to instead of
+   * TCP. The URL still supplies the path, query and Host header. Must be in PROXY_ALLOW_SOCKETS.
+   */
+  socketPath?: string;
 }
 
 export const DEFAULT_SETTINGS: RequestSettings = {

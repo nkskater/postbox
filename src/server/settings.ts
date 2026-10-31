@@ -32,6 +32,7 @@ const ENV_SETTINGS: { name: string; description: string; secret?: boolean; fallb
   { name: "DATABASE_PATH", description: "SQLite database file" },
   { name: "PROXY_ALLOW_HOSTS", description: "Hosts requests may target (empty = all)" },
   { name: "PROXY_DENY_HOSTS", description: "Hosts that are always blocked" },
+  { name: "PROXY_ALLOW_SOCKETS", description: "Unix sockets / named pipes requests may use (empty = none)" },
   { name: "MCP_ALLOWED_ORIGINS", description: "Extra browser origins allowed to call /api/mcp" },
   { name: "SCRIPT_TIMEOUT_MS", description: "Script time limit", fallback: "5000" },
   { name: "SCRIPT_MEMORY_MB", description: "Script memory limit", fallback: "32" },

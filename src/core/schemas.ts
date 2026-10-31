@@ -226,6 +226,7 @@ export const settingsPatchSchema = z.object({
   timeoutMs: z.number().int().min(100).max(300_000).optional(),
   verifySsl: z.boolean().optional(),
   useCookieJar: z.boolean().optional(),
+  socketPath: z.string().max(1024).optional(),
 });
 
 /** Variable rows as edited in the UI; rows with an empty key are dropped on save. */

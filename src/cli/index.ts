@@ -19,6 +19,7 @@ import { emptyScopes, redactSecrets, variablesToRecord } from "../core/variables
 import { consoleReporter } from "./reporter";
 
 type Reporter = "cli" | ReportFormat;
+const split = (value?: string) => (value?.trim() ? value.split(",") : []);
 interface Options {
   environment?: string;
   globals?: string;
@@ -33,6 +34,7 @@ interface Options {
   reporterJunitExport?: string;
   reporterHtmlExport?: string;
   header: [string, string][];
+  allowSocket: string[];
   userAgent?: string;
   acceptHeaders: boolean;
   scriptTimeout?: number;
@@ -145,7 +147,11 @@ async function run(file: string, options: Options) {
       },
       data,
       cookieJar: new CookieJarStore(),
-      policy: HostPolicy.fromEnv(),
+      policy: new HostPolicy(
+        split(process.env.PROXY_ALLOW_HOSTS),
+        split(process.env.PROXY_DENY_HOSTS),
+        [...split(process.env.PROXY_ALLOW_SOCKETS), ...options.allowSocket],
+      ),
       secrets,
       signal: controller.signal,
       requestDefaults: {
@@ -212,6 +218,12 @@ program
   .option("--bail", "Stop after the first failed request or assertion")
   .option("--insecure", "Disable TLS certificate verification")
   .option("--timeout <ms>", "Request timeout in milliseconds", integer(1))
+  .option(
+    "--allow-socket <path>",
+    "Allow requests over this Unix socket or named pipe, or dir/* (repeatable; denied by default)",
+    (value: string, previous: string[]) => [...previous, value],
+    [],
+  )
   .option("-H, --header <header>", 'Default header for every request, "Name: value" (repeatable)', header, [])
   .option("--user-agent <value>", 'User-Agent when a request sets none ("" sends none)')
   .option("--no-accept-headers", "Do not add Accept and Accept-Encoding automatically")

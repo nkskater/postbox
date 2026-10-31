@@ -271,7 +271,7 @@ PowerShell, with variables resolved or left as `{{placeholders}}`.
 ### 8. Customize Postbox
 
 Open **Settings** with the gear icon or **Ctrl+,**. Settings are saved on the server, so they follow you to every
-browser on your network. Use the search box to find any setting. Changed settings show a dot and can be reset
+browser on your network. Use the search box to find any setting. Changed settings show a dot and can be reset the
 individually, per section, or all at once. You can also export your settings to a file and import them elsewhere.
 
 - **Appearance**: dark, light or system theme; accent color (presets or any custom color); background tone; true-black
@@ -337,6 +337,7 @@ Chromium binary (otherwise run `npx playwright-core install chromium` once).
 | `POSTBOX_SESSION_DAYS` | `30` | Session lifetime |
 | `PROXY_ALLOW_HOSTS` | _(all)_ | Comma list of hosts, `*.wildcards` or CIDRs requests may target |
 | `PROXY_DENY_HOSTS` | _(none)_ | Comma list that is always blocked (wins over allow) |
+| `PROXY_ALLOW_SOCKETS` | _(none)_ | Unix sockets / named pipes requests may connect to; everything else is denied |
 | `SCRIPT_TIMEOUT_MS` | _(setting)_ | Pins the script time limit (100–60000 ms; otherwise set in Settings) |
 | `SCRIPT_MEMORY_MB` | _(setting)_ | Pins the script memory limit (8–512 MB; otherwise set in Settings) |
 | `RUNS_MAX_ACTIVE` | _(setting)_ | Pins how many collection runs execute at once (1–32, default 4) |
@@ -354,6 +355,18 @@ addresses, CIDRs, or `*`. Wildcards exclude the apex. Names ignore case and a tr
 DNS dot. An empty setting disables that list; malformed entries, empty comma-separated
 entries, URLs, ports and invalid CIDR prefixes reject the policy when it is loaded.
 Deny rules win, and hostnames and resolved addresses are checked at every redirect hop.
+
+### Unix domain sockets and named pipes
+
+A request can connect to a local Unix socket or Windows named pipe instead of TCP: set the
+**Unix socket or named pipe** in the request's Settings tab (or `settings.socketPath` through the API/MCP; variables
+work). The URL still provides the path, query and `Host` header, e.g. `http://localhost/v1/status`,
+and auth, scripts and collection runs work as usual. Sockets are denied unless listed in
+`PROXY_ALLOW_SOCKETS`: exact absolute paths, `/dir/*` for sockets directly inside a directory, or
+`\\.\pipe\name`. Symlinks are resolved first, so a link cannot point at an unlisted socket such as
+the Docker daemon's. When mounting a socket into the container, mount only the one you list. A
+redirect to another origin leaves the socket and uses normal host policy. The CLI accepts
+`--allow-socket <path>` (repeatable). Generated code snippets do not include the socket.
 
 HTTPS-to-HTTP redirects are rejected with `EREDIRECTDOWNGRADE`, even with SSL verification
 disabled. Disable redirect following to inspect the original redirect response.
@@ -397,7 +410,7 @@ Postbox is open until you turn on one of the options below. Once auth is on, the
 account. From then on everyone signs in with a username and password, and each person creates their own API tokens
 under Profile for the CLI, scripts and MCP clients (`Authorization: Bearer pbx_…`). Tokens are shown once, can expire,
 and can be revoked at any time. Changing your password signs out your other sessions. In open mode, whoever reaches
-Profile first can create the administrator, so do this before exposing Postbox. To control that step, set
+Profile first can create the administrator, so do this before exposing Postbox. To control that step, set the
 `POSTBOX_PASSWORD` or `POSTBOX_TOKEN` first: the first account can then only be created after signing in with them.
 Each account receives a private workspace. Existing workspaces are assigned to the first administrator.
 Under **Settings → Workspace sharing**, owners can add existing accounts and assign viewer, editor or owner
