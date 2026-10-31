@@ -126,7 +126,7 @@ describe("saved request execution", () => {
     const child = repo.createRequest(ws.id, target.id, {
       url: `${server.url}/echo?source={{source}}&fallback={{fallback}}`,
       testScript: `pm.test("precedence", () => pm.expect(pm.response.json().query).to.deep.equal({ source: "target", fallback: "root-only" }));
-        console.log(pm.collectionVariables.get("secret")); pm.collectionVariables.set("changed", "yes"); pm.environment.set("nested", "yes");`,
+        console.log(pm.collectionVariables.get("secret")); pm.collectionVariables.set("secret", "rotated-child-secret"); console.log(pm.collectionVariables.get("secret")); pm.collectionVariables.set("changed", "yes"); pm.environment.set("nested", "yes");`,
     });
     const result = await context.runSingleRequest({
       workspaceId: ws.id,
@@ -138,6 +138,7 @@ describe("saved request execution", () => {
     expect(result.scriptErrors).toEqual([]);
     expect(result.tests[0].passed).toBe(true);
     expect(JSON.stringify(result.logs)).not.toContain("child-secret-value");
+    expect(JSON.stringify(result.logs)).not.toContain("rotated-child-secret");
     const variables = Object.fromEntries(
       repo.listVariables(ws.id, "collection", target.id).map((v) => [v.key, v.value]),
     );

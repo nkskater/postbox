@@ -457,9 +457,15 @@ async function executeInternal(
   const base = (): ExecuteResult => {
     syncCollection(scopes);
     return {
-      tests,
-      logs,
-      scriptErrors,
+      tests: tests.map((test) => ({
+        ...test,
+        error: test.error ? redactSecrets(test.error, secrets) : test.error,
+      })),
+      logs: logs.map((entry) => ({ ...entry, message: redactSecrets(entry.message, secrets) })),
+      scriptErrors: scriptErrors.map((error) => ({
+        ...error,
+        message: redactSecrets(error.message, secrets),
+      })),
       scopes,
       unresolved: [],
       skipped: false,
