@@ -17,7 +17,7 @@
 export const BOOTSTRAP_SOURCE = String.raw`
 "use strict";
 var __ctx = JSON.parse(__ctx_json);
-var __state = { tests: [], nextRequest: undefined, nextRequestSet: false, skip: false, pending: [] };
+var __state = { tests: [], nextRequest: undefined, nextRequestSet: false, skip: false, pending: [], timers: {}, nextTimerId: 0, runRequestCount: 0, activeDone: undefined };
 
 // ---------------------------------------------------------------- utilities
 function __isObj(v) { return v !== null && typeof v === "object"; }
@@ -87,11 +87,28 @@ globalThis.console = console;
 // ---------------------------------------------------------------- timers / misc globals
 globalThis.setTimeout = function (fn, ms) {
   var args = Array.prototype.slice.call(arguments, 2);
-  var p = __host_sleep(Number(ms) || 0).then(function () { fn.apply(null, args); });
+  var id = ++__state.nextTimerId;
+  var timer = { cancelled: false, onError: __state.activeDone };
+  __state.timers[id] = timer;
+  var p = __host_sleep(Number(ms) || 0).then(function () {
+    delete __state.timers[id];
+    if (!timer.cancelled) {
+      try { fn.apply(null, args); } catch (e) {
+        if (timer.onError) timer.onError(e);
+        else throw e;
+      }
+    }
+  });
   __state.pending.push(p);
-  return __state.pending.length;
+  return id;
 };
-globalThis.clearTimeout = function () {};
+globalThis.clearTimeout = function (id) {
+  var timer = __state.timers[id];
+  if (timer) {
+    timer.cancelled = true;
+    delete __state.timers[id];
+  }
+};
 globalThis.setInterval = function () { throw new Error("setInterval is not supported in Postbox scripts"); };
 var __B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 globalThis.btoa = function (input) {
@@ -226,8 +243,29 @@ __method(["match", "matches"], function (re) { var v = __o(this); return this.__
 __method("oneOf", function (list) { var v = __o(this); return this.__assert(list.some(function (x) { return __deepEqual(x, v); }), "expected " + __short(v) + " to be one of " + __short(list), "expected " + __short(v) + " to not be one of " + __short(list)); });
 __method("members", function (list) {
   var v = __o(this), deep = this.__flags.deep;
-  var has = function (arr, x) { return arr.some(function (y) { return deep ? __deepEqual(x, y) : x === y; }); };
-  var ok = Array.isArray(v) && list.every(function (x) { return has(v, x); }) && (this.__flags.contains || v.length === list.length);
+  var equal = function (a, b) { return deep ? __deepEqual(a, b) : a === b; };
+  var ok = Array.isArray(v) && Array.isArray(list);
+  if (ok && this.__flags.ordered) {
+    if (!this.__flags.contains && v.length !== list.length) ok = false;
+    var cursor = 0;
+    for (var i = 0; ok && i < list.length; i++) {
+      if (this.__flags.contains) {
+        while (cursor < v.length && !equal(v[cursor], list[i])) cursor++;
+      } else if (!equal(v[i], list[i])) ok = false;
+      if (this.__flags.contains) {
+        if (cursor >= v.length) ok = false;
+        else cursor++;
+      }
+    }
+  } else if (ok) {
+    var remaining = v.slice();
+    for (var j = 0; j < list.length; j++) {
+      var index = remaining.findIndex(function (item) { return equal(item, list[j]); });
+      if (index < 0) { ok = false; break; }
+      remaining.splice(index, 1);
+    }
+    if (!this.__flags.contains && remaining.length > 0) ok = false;
+  }
   return this.__assert(ok, "expected " + __short(v) + " to have the same members as " + __short(list), "expected " + __short(v) + " to not have the same members as " + __short(list));
 });
 __method(["keys", "key"], function () {
@@ -347,6 +385,9 @@ function __validateSchema(v, s, path) {
 
 function __expect(v, message) { return new Assertion(v, message); }
 __expect.fail = function (message) { throw new AssertionError(message || "expect.fail()"); };
+function __unsupported(name) {
+  return function () { throw new Error(name + " is not supported in Postbox scripts"); };
+}
 
 // ---------------------------------------------------------------- variable scopes
 var __scopes = __ctx.scopes;
@@ -518,10 +559,36 @@ var pm = {
   request: __makeRequest(__ctx.request),
   response: __makeResponse(__ctx.response),
   cookies: new PropertyList((__ctx.cookies || []).map(function (c) { return { key: c.name, value: c.value }; })),
+  vault: { get: __unsupported("pm.vault"), set: __unsupported("pm.vault"), unset: __unsupported("pm.vault") },
+  visualizer: { set: __unsupported("pm.visualizer") },
+  datasets: __unsupported("pm.datasets"),
+  mock: { create: __unsupported("pm.mock") },
+  state: { get: __unsupported("pm.state"), set: __unsupported("pm.state"), unset: __unsupported("pm.state"), clear: __unsupported("pm.state") },
+  require: __unsupported("pm.require"),
   expect: __expect,
   test: function (name, fn) {
     if (typeof fn !== "function") { __recordTest(name, true, undefined, true); return pm; }
     try {
+      if (fn.length > 0) {
+        var settled = false;
+        var finish;
+        var pending = new Promise(function (resolve) { finish = resolve; });
+        var done = function (err) {
+          if (settled) return;
+          settled = true;
+          __recordTest(name, !err, err ? __errMsg(err) : undefined);
+          finish();
+        };
+        __state.pending.push(pending);
+        var callbackResult;
+        var previousDone = __state.activeDone;
+        __state.activeDone = done;
+        try { callbackResult = fn(done); } catch (e) { done(e); return pm; }
+        finally { __state.activeDone = previousDone; }
+        if (callbackResult && typeof callbackResult.then === "function")
+          callbackResult.then(function () { done(); }, done);
+        return pm;
+      }
       var ret = fn();
       if (ret && typeof ret.then === "function") {
         var p = ret.then(function () { __recordTest(name, true); }, function (e) { __recordTest(name, false, __errMsg(e)); });
@@ -549,11 +616,22 @@ var pm = {
     return p;
   },
   execution: {
+    runRequest: function (requestId, options) {
+      if (++__state.runRequestCount > 10)
+        return Promise.reject(new Error("Script exceeded the pm.execution.runRequest quota of 10"));
+      var p = __host_run_request(String(requestId), JSON.stringify(options || {})).then(function (json) {
+        var response = JSON.parse(json);
+        return response === null ? null : __makeResponse(response);
+      });
+      __state.pending.push(p.catch(function () {}));
+      return p;
+    },
     setNextRequest: function (name) { __state.nextRequest = name === null ? null : String(name); __state.nextRequestSet = true; },
     skipRequest: function () { __state.skip = true; },
     location: [__ctx.info.requestName]
   }
 };
+pm.test.index = function () { return __state.tests.length; };
 pm.test.skip = function (name) { __recordTest(name, true, undefined, true); return pm; };
 pm.expect.fail = __expect.fail;
 

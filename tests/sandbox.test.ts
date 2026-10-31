@@ -181,6 +181,121 @@ describe("script sandbox", () => {
     expect(r.scopes.environment.code).toBe("200");
   });
 
+  it("does not run callbacks for cleared timers", async () => {
+    const r = await runScript(
+      `let fired = false;
+       const timer = setTimeout(() => { fired = true; }, 1);
+       clearTimeout(timer);
+       await new Promise((resolve) => setTimeout(resolve, 5));
+       pm.test("cleared", () => pm.expect(fired).to.be.false);`,
+      ctx(),
+    );
+    expect(r.error).toBeUndefined();
+    expect(r.tests).toEqual([{ name: "cleared", passed: true, skipped: false }]);
+  });
+
+  it("supports callback-style async tests and test indexing", async () => {
+    const r = await runScript(
+      `await new Promise((resolve) => {
+         pm.test("callback", (done) => setTimeout(() => {
+           pm.expect(pm.response.code).to.equal(201);
+           done();
+           resolve();
+         }, 1));
+       });
+       pm.test("index", () => pm.expect(pm.test.index()).to.equal(1));
+       pm.test("callback error", (done) => done(new Error("expected failure")));
+       pm.test("async assertion error", (done) => setTimeout(() => {
+         pm.expect(false).to.be.true;
+         done();
+       }, 1));`,
+      ctx(),
+    );
+    expect(r.error).toBeUndefined();
+    expect(r.tests).toEqual([
+      { name: "callback", passed: true, skipped: false },
+      { name: "index", passed: true, skipped: false },
+      { name: "callback error", passed: false, error: "expected failure", skipped: false },
+      {
+        name: "async assertion error",
+        passed: false,
+        error: "expected false to be true",
+        skipped: false,
+      },
+    ]);
+  });
+
+  it("resolves pm.execution.runRequest through its bounded host capability", async () => {
+    const runRequest = vi.fn(async () => ({
+      code: 202,
+      status: "Accepted",
+      headers: [],
+      body: '{"queued":true}',
+      responseTime: 3,
+      responseSize: 15,
+    }));
+    const r = await runScript(
+      `const response = await pm.execution.runRequest("saved-request", { variables: { id: 7 } });
+       pm.test("referenced response", () => pm.expect(response.json().queued).to.be.true);`,
+      ctx(),
+      { host: { runRequest } },
+    );
+    expect(r.error).toBeUndefined();
+    expect(r.tests[0]).toMatchObject({ name: "referenced response", passed: true });
+    expect(runRequest).toHaveBeenCalledWith(
+      "saved-request",
+      { variables: { id: 7 } },
+      expect.any(AbortSignal),
+    );
+  });
+
+  it("enforces the Postman runRequest limit and reports missing host support", async () => {
+    const runRequest = vi.fn(async () => null);
+    const limited = await runScript(
+      `for (let i = 0; i < 11; i++) await pm.execution.runRequest("saved-request");`,
+      ctx(),
+      { host: { runRequest } },
+    );
+    expect(limited.error).toMatch(/runRequest quota of 10/);
+    expect(runRequest).toHaveBeenCalledTimes(10);
+
+    const unavailable = await runScript(`await pm.execution.runRequest("saved-request");`, ctx());
+    expect(unavailable.error).toMatch(/runRequest is not available/);
+  });
+
+  it("reports clear errors for documented APIs that Postbox does not support", async () => {
+    const r = await runScript(
+      `pm.test("vault", () => pm.expect(() => pm.vault.get("key")).to.throw(/pm.vault is not supported/));
+       pm.test("visualizer", () => pm.expect(() => pm.visualizer.set("view", "<p>hi</p>")).to.throw(/pm.visualizer is not supported/));
+       pm.test("packages", () => pm.expect(() => pm.require("package")).to.throw(/pm.require is not supported/));
+       pm.test("datasets", () => pm.expect(() => pm.datasets("select 1")).to.throw(/pm.datasets is not supported/));
+       pm.test("state", () => pm.expect(() => pm.state.get("key")).to.throw(/pm.state is not supported/));
+       pm.test("mock", () => pm.expect(() => pm.mock.create({})).to.throw(/pm.mock is not supported/));`,
+      ctx(),
+    );
+    expect(r.error).toBeUndefined();
+    expect(r.tests).toHaveLength(6);
+    expect(r.tests.every((test) => test.passed)).toBe(true);
+  });
+
+  it("compares Chai members as multisets and honors ordered members", async () => {
+    const r = await runScript(
+      `pm.test("members", () => {
+         pm.expect([1, 1, 2]).to.have.members([1, 2, 1]);
+         pm.expect([1, 1, 2]).to.include.members([1, 1]);
+         pm.expect(() => pm.expect([1, 1]).to.have.members([1, 2])).to.throw(/same members/);
+       });
+       pm.test("ordered", () => {
+         pm.expect([1, 2, 3]).to.have.ordered.members([1, 2, 3]);
+         pm.expect([1, 2, 3]).to.include.ordered.members([1, 3]);
+         pm.expect(() => pm.expect([1, 2, 3]).to.have.ordered.members([2, 1, 3])).to.throw(/same members/);
+       });`,
+      ctx(),
+    );
+    expect(r.error).toBeUndefined();
+    expect(r.tests.map((test) => test.passed)).toEqual([true, true]);
+  });
+
   it("enforces time and memory limits", async () => {
     const t = await runScript("while (true) {}", ctx(), { limits: { timeoutMs: 200 } });
     expect(t.error).toMatch(/time limit/);

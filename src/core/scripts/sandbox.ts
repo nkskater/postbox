@@ -79,6 +79,11 @@ export interface SendRequestSpec {
 
 export interface ScriptHost {
   sendRequest?: (spec: SendRequestSpec, signal?: AbortSignal) => Promise<SandboxResponse>;
+  runRequest?: (
+    requestId: string,
+    options: { variables?: Record<string, unknown> },
+    signal?: AbortSignal,
+  ) => Promise<SandboxResponse | null>;
 }
 
 export interface ScriptLimits {
@@ -244,6 +249,34 @@ export async function runScript(
         );
       const spec: SendRequestSpec = parsed.data;
       return bridge(opts.host.sendRequest(spec, controller.signal).then((r) => JSON.stringify(r)));
+    });
+    define("__host_run_request", (requestIdH, optionsH) => {
+      if (++hostRequests > limits.maxHostRequests)
+        throw new Error(`Script exceeded the host request quota of ${limits.maxHostRequests}`);
+      if (!opts.host?.runRequest)
+        return bridge(Promise.reject(new Error("pm.execution.runRequest is not available here")));
+      let options: { variables?: Record<string, unknown> };
+      try {
+        const parsed: unknown = JSON.parse(vm.getString(optionsH));
+        if (
+          !parsed ||
+          typeof parsed !== "object" ||
+          Array.isArray(parsed) ||
+          ("variables" in parsed &&
+            (!parsed.variables || typeof parsed.variables !== "object" || Array.isArray(parsed.variables)))
+        )
+          throw new Error("options must be an object with an optional variables object");
+        options = parsed as typeof options;
+      } catch (error) {
+        return bridge(
+          Promise.reject(new Error(`Invalid pm.execution.runRequest options: ${(error as Error).message}`)),
+        );
+      }
+      return bridge(
+        opts.host
+          .runRequest(vm.getString(requestIdH), options, controller.signal)
+          .then((response) => JSON.stringify(response)),
+      );
     });
 
     const ctxStr = vm.newString(
