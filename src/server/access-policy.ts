@@ -96,6 +96,8 @@ export const REST_POLICIES: Record<string, Policy> = {
   "POST /api/oauth2/token": p("body", "run"),
   "POST /api/ws": p("body", "run"),
   "POST /api/socketio": p("body", "run"),
+  "POST /api/grpc": p("body", "run"),
+  "POST /api/grpc/describe": p("body", "run"),
   "POST /api/mqtt": p("body", "run"),
   "POST /api/mqtt/[id]/publish": p("account"),
   "POST /api/mqtt/[id]/subscribe": p("account"),

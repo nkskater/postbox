@@ -57,6 +57,8 @@ execute on the machine running Postbox, so VPN-connected Windows users can reach
   Subscriptions (topic filters with QoS) and the connection profile (client ID, MQTT 3.1.1/5, clean session,
   keepalive) are saved on the request. Publish text or binary with QoS and retain, and see a timestamped history.
   Automation: `POST /api/mqtt`, then `/api/mqtt/{id}/publish`, `/subscribe`, `/unsubscribe` and `/close`.
+- **gRPC**: call unary and streaming methods against `.proto` definitions you supply, using `grpc://` or `grpcs://` URLs.
+  Automation: `POST /api/grpc` and `POST /api/grpc/describe`; see [docs/grpc.md](docs/grpc.md).
 - **Server-sent events**: **Stream** opens the request as an event stream and shows events live (event, id, data),
   reconnecting with `Last-Event-ID` and the server's `retry` delay. Variables, auth, inherited headers and host policy
   apply; scripts do not run. Up to 1000 events by default; secrets are redacted. Also available as `POST /api/sse` (NDJSON).
