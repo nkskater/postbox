@@ -12,7 +12,7 @@ export const POST = route(async (req: Request, { params }: { params: Promise<{ i
     req,
     z.object({ data: z.string().max(2 * 1024 * 1024), binary: z.boolean().default(false) }),
   );
-  const session = getOwnedSession(id, oauth2Owner());
+  const session = getOwnedSession(id, oauth2Owner(), "ws");
   if (!session) throw new HttpError(404, "WebSocket session not found");
   authorize(currentCaller(), session.workspaceId, "run");
   try {

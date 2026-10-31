@@ -217,6 +217,21 @@ export interface RequestSettings {
    * TCP. The URL still supplies the path, query and Host header. Must be in PROXY_ALLOW_SOCKETS.
    */
   socketPath?: string;
+  /** Present when this request is a Socket.IO connection rather than an HTTP exchange. */
+  socketio?: SocketIoSettings;
+}
+
+export interface SocketIoSettings {
+  /** Namespace, e.g. "/chat"; defaults to "/". */
+  namespace?: string;
+  /** Server path; defaults to "/socket.io". */
+  path?: string;
+  /** Events to show; empty shows every event. */
+  listeners?: string[];
+  /** Acknowledgement timeout for emits that request one. */
+  ackTimeoutMs?: number;
+  /** Handshake auth payload (socket.handshake.auth). */
+  auth?: Record<string, unknown>;
 }
 
 export const DEFAULT_SETTINGS: RequestSettings = {

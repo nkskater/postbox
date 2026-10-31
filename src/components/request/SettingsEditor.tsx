@@ -60,6 +60,53 @@ export function SettingsEditor({
         <Switch checked={settings.useCookieJar} onCheckedChange={(useCookieJar) => set({ useCookieJar })} />
       </Row>
       <Row
+        title="Socket.IO connection"
+        hint="Connect to a Socket.IO server instead of sending an HTTP request."
+      >
+        <Switch
+          checked={!!settings.socketio}
+          onCheckedChange={(on) => set({ socketio: on ? (settings.socketio ?? {}) : undefined })}
+        />
+      </Row>
+      {settings.socketio && (
+        <>
+          <Row title="Socket.IO namespace" hint="For example /chat; the default namespace is /.">
+            <Input
+              className="h-8 w-48 font-mono text-xs"
+              value={settings.socketio.namespace ?? ""}
+              placeholder="/"
+              onChange={(e) =>
+                set({ socketio: { ...settings.socketio, namespace: e.target.value || undefined } })
+              }
+            />
+          </Row>
+          <Row title="Socket.IO path" hint="Server path, usually /socket.io.">
+            <Input
+              className="h-8 w-48 font-mono text-xs"
+              value={settings.socketio.path ?? ""}
+              placeholder="/socket.io"
+              onChange={(e) => set({ socketio: { ...settings.socketio, path: e.target.value || undefined } })}
+            />
+          </Row>
+          <Row title="Acknowledgement timeout (ms)" hint="How long to wait for an ack when one is requested.">
+            <Input
+              type="number"
+              className="h-8 w-28"
+              value={settings.socketio.ackTimeoutMs ?? 5000}
+              min={100}
+              onChange={(e) =>
+                set({
+                  socketio: {
+                    ...settings.socketio,
+                    ackTimeoutMs: Math.max(100, Number(e.target.value) || 5000),
+                  },
+                })
+              }
+            />
+          </Row>
+        </>
+      )}
+      <Row
         title="Unix socket or named pipe"
         hint="Connect here instead of over TCP; the URL still sets the path and Host. The server must allow it in PROXY_ALLOW_SOCKETS."
       >

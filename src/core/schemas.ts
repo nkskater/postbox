@@ -233,6 +233,15 @@ export const settingsPatchSchema = z.object({
   verifySsl: z.boolean().optional(),
   useCookieJar: z.boolean().optional(),
   socketPath: z.string().max(1024).optional(),
+  socketio: z
+    .object({
+      namespace: z.string().max(256).optional(),
+      path: z.string().max(256).optional(),
+      listeners: z.array(z.string().max(256)).max(100).optional(),
+      ackTimeoutMs: z.number().int().min(100).max(120_000).optional(),
+      auth: z.record(z.string(), z.unknown()).optional(),
+    })
+    .optional(),
 });
 
 /** Variable rows as edited in the UI; rows with an empty key are dropped on save. */

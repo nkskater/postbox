@@ -94,6 +94,9 @@ export const REST_POLICIES: Record<string, Policy> = {
   "POST /api/proxy": p("body", "run"),
   "POST /api/oauth2/token": p("body", "run"),
   "POST /api/ws": p("body", "run"),
+  "POST /api/socketio": p("body", "run"),
+  "POST /api/socketio/[id]/emit": p("account"),
+  "POST /api/socketio/[id]/close": p("account"),
   // Bound to the opening user and workspace inside the handlers.
   "POST /api/ws/[id]/send": p("account"),
   "POST /api/ws/[id]/close": p("account"),

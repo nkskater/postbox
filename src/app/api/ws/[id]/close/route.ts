@@ -13,7 +13,7 @@ export const POST = route(async (req: Request, { params }: { params: Promise<{ i
       reason: z.string().max(123).default(""),
     }),
   );
-  const session = getOwnedSession(id, oauth2Owner());
+  const session = getOwnedSession(id, oauth2Owner(), "ws");
   if (!session) throw new HttpError(404, "WebSocket session not found");
   session.connection.close(input.code === 1000 || input.code >= 3000 ? input.code : 1000, input.reason);
   return json({ ok: true });

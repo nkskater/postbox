@@ -15,6 +15,7 @@ import { VarInput } from "@/components/editor/VarInput";
 import { ResponseViewer } from "@/components/response/ResponseViewer";
 import { EventStreamPanel } from "@/components/response/EventStreamPanel";
 import { WebSocketPanel } from "@/components/response/WebSocketPanel";
+import { SocketIoPanel } from "@/components/response/SocketIoPanel";
 import { folderPath, useApp, type RequestDraft, type Tab } from "@/stores/app";
 import { useDialogs } from "@/stores/dialogs";
 import { useSetting } from "@/stores/settings";
@@ -68,7 +69,8 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
   );
 
   const save = () => (tab.requestId ? saveTab(tab.id) : openSave(tab.id));
-  const isWebSocket = /^wss?:\/\//i.test(d.url.trim());
+  const isSocketIo = !!d.settings.socketio;
+  const isWebSocket = isSocketIo || /^wss?:\/\//i.test(d.url.trim());
   const [streamKey, setStreamKey] = useState<number | null>(null);
   const [wsKey, setWsKey] = useState<number | null>(null);
   const send = () => {
@@ -340,7 +342,14 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
           )}
         />
         <Panel defaultSize="55" minSize="10">
-          {wsKey !== null && isWebSocket ? (
+          {wsKey !== null && isSocketIo ? (
+            <SocketIoPanel
+              key={wsKey}
+              draft={d as RequestDef}
+              onSettings={(socketio) => set({ settings: { ...d.settings, socketio } })}
+              onClose={() => setWsKey(null)}
+            />
+          ) : wsKey !== null && isWebSocket ? (
             <WebSocketPanel key={wsKey} draft={d as RequestDef} onClose={() => setWsKey(null)} />
           ) : streamKey !== null ? (
             <EventStreamPanel key={streamKey} draft={d as RequestDef} onClose={() => setStreamKey(null)} />
