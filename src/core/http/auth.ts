@@ -65,6 +65,7 @@ export function resolveAuth(auth: AuthConfig, r: Resolver): AuthConfig {
           accessTokenUrl: r.resolve(o.accessTokenUrl),
           authUrl: o.authUrl !== undefined ? r.resolve(o.authUrl) : undefined,
           redirectUri: o.redirectUri !== undefined ? r.resolve(o.redirectUri) : undefined,
+          revocationUrl: o.revocationUrl !== undefined ? r.resolve(o.revocationUrl) : undefined,
           clientId: r.resolve(o.clientId),
           clientSecret: r.resolve(o.clientSecret),
           scope: r.resolve(o.scope),
@@ -206,13 +207,8 @@ export function clearOAuth2Cache() {
 }
 
 /** POST a token request; client credentials go in the header or body as configured. */
-async function requestToken(
-  o: OAuth2Config,
-  params: Record<string, string>,
-  engine: EngineOptions = {},
-): Promise<OAuth2Token> {
-  if (!o.accessTokenUrl) throw new Error("OAuth 2.0: access token URL is required");
-  const form = new URLSearchParams(params);
+/** Add client authentication to a token-endpoint form (RFC 6749 2.3.1). */
+function clientAuth(o: OAuth2Config, form: URLSearchParams): [string, string][] {
   const headers: [string, string][] = [
     ["Content-Type", "application/x-www-form-urlencoded"],
     ["Accept", "application/json"],
@@ -229,6 +225,17 @@ async function requestToken(
     // Public clients (PKCE without a secret) identify themselves in the body.
     form.set("client_id", o.clientId);
   }
+  return headers;
+}
+
+async function requestToken(
+  o: OAuth2Config,
+  params: Record<string, string>,
+  engine: EngineOptions = {},
+): Promise<OAuth2Token> {
+  if (!o.accessTokenUrl) throw new Error("OAuth 2.0: access token URL is required");
+  const form = new URLSearchParams(params);
+  const headers = clientAuth(o, form);
   const res = await sendRequest(
     {
       method: "POST",
@@ -341,6 +348,30 @@ export async function getOAuth2Token(o: OAuth2Config, engine?: EngineOptions): P
   tokenCache.set(key, { token, expiresAt: Math.min(token.expiresAt!, Date.now() + MAX_CACHE_TTL) });
   while (tokenCache.size > MAX_CACHE_SIZE) tokenCache.delete(tokenCache.keys().next().value!);
   return token;
+}
+
+/** Revoke a token at the provider (RFC 7009). Providers answer 200 even for unknown tokens. */
+export async function revokeOAuth2Token(
+  o: OAuth2Config,
+  token: string,
+  hint: "access_token" | "refresh_token",
+  engine: EngineOptions = {},
+): Promise<void> {
+  if (!o.revocationUrl) throw new Error("OAuth 2.0: no revocation URL is configured");
+  const form = new URLSearchParams({ token, token_type_hint: hint });
+  const headers = clientAuth(o, form);
+  const res = await sendRequest(
+    {
+      method: "POST",
+      url: o.revocationUrl,
+      headers,
+      body: Buffer.from(form.toString()),
+      settings: { ...DEFAULT_SETTINGS, useCookieJar: false },
+    },
+    { ...engine, cookieJar: undefined },
+  );
+  if (res.status >= 400)
+    throw new Error(`OAuth 2.0 revocation failed (${res.status}): ${res.bodyText.slice(0, 300)}`);
 }
 
 /** Refreshes in flight, so concurrent sends with the same refresh token share one request. */

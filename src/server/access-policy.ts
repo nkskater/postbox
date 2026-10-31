@@ -92,6 +92,9 @@ export const REST_POLICIES: Record<string, Policy> = {
   "POST /api/proxy": p("body", "run"),
   "POST /api/oauth2/token": p("body", "run"),
   "POST /api/oauth2/authorize": p("body", "run"),
+  "GET /api/oauth2/tokens": p("query", "read"),
+  "POST /api/oauth2/tokens/clear": p("body", "write"),
+  "POST /api/oauth2/tokens/clear-all": p("body", "manage"),
   // Bound to the starting user and workspace inside the handlers.
   "GET /api/oauth2/authorize": p("account"),
   "GET /api/oauth2/callback": p("account"),

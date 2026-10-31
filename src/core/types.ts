@@ -46,6 +46,8 @@ export interface OAuth2Config {
   grantType: "client_credentials" | "password" | "authorization_code" | "manual";
   /** Authorization endpoint (authorization_code). */
   authUrl?: string;
+  /** Token revocation endpoint (RFC 7009), used when clearing tokens with "revoke". */
+  revocationUrl?: string;
   /** Redirect URI registered with the provider; defaults to this server's /api/oauth2/callback. */
   redirectUri?: string;
   /** Use PKCE (RFC 7636) with the authorization code; on by default. */
