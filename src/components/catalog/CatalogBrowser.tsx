@@ -12,14 +12,18 @@ export function CatalogBrowser() {
   const [results, setResults] = useState<ReturnType<typeof searchCatalog> | null>(null),
     [selected, setSelected] = useState<ReturnType<typeof getCatalogEntry> | null>(null),
     [error, setError] = useState(""),
-    [loading, setLoading] = useState(false);
-  useEffect(() => {
-    const controller = new AbortController();
+    [loading, setLoading] = useState(true);
+  const beginSearch = () => {
     setLoading(true);
     setError("");
+  };
+  useEffect(() => {
+    const controller = new AbortController();
     api.catalog
       .search({ query, tag, offset, limit: 20 }, controller.signal)
-      .then(setResults)
+      .then((value) => {
+        if (!controller.signal.aborted) setResults(value);
+      })
       .catch((error) => {
         if (!controller.signal.aborted) setError(error.message);
       })
@@ -45,6 +49,7 @@ export function CatalogBrowser() {
           variant="outline"
           size="sm"
           onClick={() => {
+            beginSearch();
             setSelected(null);
             setRefresh((v) => v + 1);
           }}
@@ -70,6 +75,7 @@ export function CatalogBrowser() {
           placeholder="Search titles, summaries, tags or owners"
           value={query}
           onChange={(e) => {
+            beginSearch();
             setQuery(e.target.value);
             setOffset(0);
           }}
@@ -80,6 +86,7 @@ export function CatalogBrowser() {
           className="max-w-48"
           value={tag}
           onChange={(e) => {
+            beginSearch();
             setTag(e.target.value);
             setOffset(0);
           }}
@@ -116,7 +123,10 @@ export function CatalogBrowser() {
               variant="outline"
               size="sm"
               disabled={!offset || loading}
-              onClick={() => setOffset((v) => Math.max(0, v - 20))}
+              onClick={() => {
+                beginSearch();
+                setOffset((v) => Math.max(0, v - 20));
+              }}
             >
               Previous
             </Button>
@@ -124,7 +134,10 @@ export function CatalogBrowser() {
               variant="outline"
               size="sm"
               disabled={loading || !results || offset + results.entries.length >= results.total}
-              onClick={() => setOffset((v) => v + 20)}
+              onClick={() => {
+                beginSearch();
+                setOffset((v) => v + 20);
+              }}
             >
               Next
             </Button>

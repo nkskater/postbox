@@ -80,7 +80,7 @@ describe("catalog access, immutable versions and discovery", () => {
   it("enforces private/team/public access before search counts, matching and pagination", () => {
     const { ws } = setup();
     const entries = withCaller(as(owner), () =>
-      ["private", "team", "public"].map((visibility, i) => {
+      ["private", "team", "public"].map((visibility) => {
         const folder = repo.createFolder(ws.id, null, { name: visibility });
         repo.createRequest(ws.id, folder.id);
         return catalog.publishCatalog(folder.id, {
