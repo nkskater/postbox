@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { DatabaseBackup, Download, Eraser, HardDrive, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/dialogs/ConfirmDialog";
-import { formatBytes } from "@/lib/format";
+import { formatBytes, formatDateTime } from "@/lib/format";
 import { useApp } from "@/stores/app";
 
 interface Info {
@@ -109,7 +109,7 @@ export function DataManagement({ isAdmin }: { isAdmin: boolean }) {
         file: file.name,
         backup,
         summary: `${n("workspaces")} workspaces, ${n("requests")} requests, ${n("environments")} environments${
-          backup.exportedAt ? `, exported ${new Date(backup.exportedAt).toLocaleString()}` : ""
+          backup.exportedAt ? `, exported ${formatDateTime(new Date(backup.exportedAt).getTime())}` : ""
         }${backup.secretsIncluded === false ? ". Secret values were left out of this file" : ""}`,
       });
     } catch (err) {

@@ -304,6 +304,9 @@ individually, per section, or all at once. You can also export your settings to 
   mode; interface font and size; density; corner radius; reduce motion.
 - **Layout**: sidebar on the left or right, rail labels, request and response stacked or side by side.
 - **Editor**: code font, size and line height, line numbers, folding, wrapping, tab size, bracket matching, variable autocomplete.
+- **Dates & units, Notifications, colors**: 12/24-hour time, date format, relative or absolute times, KB/KiB/kB sizes; toast position and
+  duration, an optional browser notification and chime when a long run finishes; custom HTTP method and status colors. See
+  [docs/formats-notifications-colors.md](docs/formats-notifications-colors.md).
 - **Requests / Responses / Tabs / Variables / Console / Collection runner**: defaults for new requests (method,
   timeout, redirects, SSL, cookies), response view and large-body threshold, preview tabs, confirmation before closing unsaved tabs,
   secret display, console limits, and runner options.

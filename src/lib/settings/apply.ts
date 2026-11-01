@@ -4,6 +4,7 @@
  * in the root layout can apply it before React hydrates (no flash of the default theme).
  */
 import { accentCssVars } from "./accent";
+import { colorVars } from "@/lib/colors";
 import type { SettingValue } from "./registry";
 
 export const APPEARANCE_CACHE_KEY = "postbox-appearance";
@@ -72,6 +73,7 @@ export function computeAppearance(values: Record<string, SettingValue>): Compute
     "--code-line-height": String(Number(values["editor.lineHeight"]) || 1.4),
     "--code-font": CODE_FONTS[String(values["editor.fontFamily"])] ?? CODE_FONTS.default,
     ...accentCssVars(String(values["appearance.accent"] ?? "apricot"), theme),
+    ...colorVars(values["appearance.methodColors"], values["appearance.statusColors"]),
   };
   const attrs: string[] = [];
   if (values["appearance.oled"]) attrs.push("data-oled");

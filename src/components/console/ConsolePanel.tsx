@@ -2,6 +2,7 @@
 /**
  * Console panel showing script console.* output and network log lines.
  */
+import { formatTime } from "@/lib/format";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Ban, ChevronDown, Search } from "lucide-react";
 import { useApp } from "@/stores/app";
@@ -81,11 +82,7 @@ export function ConsolePanel() {
         )}
         {shown.map((e, i) => (
           <div key={i} className="flex gap-3 border-b border-border/40 py-0.5">
-            {timestamps && (
-              <span className="shrink-0 text-muted-foreground">
-                {new Date(e.timestamp).toLocaleTimeString()}
-              </span>
-            )}
+            {timestamps && <span className="shrink-0 text-muted-foreground">{formatTime(e.timestamp)}</span>}
             <span className={cn("min-w-0 flex-1 break-all whitespace-pre-wrap", LEVEL_CLASS[e.level])}>
               {e.message}
             </span>

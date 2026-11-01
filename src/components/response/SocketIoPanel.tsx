@@ -1,5 +1,6 @@
 "use client";
 /** Live Socket.IO session: saved listeners, event composer with acknowledgements, event log. */
+import { formatTime } from "@/lib/format";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ArrowDownLeft, ArrowUpRight, Plug, RotateCcw, X } from "lucide-react";
@@ -222,9 +223,7 @@ export function SocketIoPanel({
       <div className="min-h-0 flex-1 overflow-auto font-mono text-xs" aria-label="Socket.IO events">
         {shown.map((e) => (
           <div key={e.n} className="flex gap-2 border-b px-3 py-1">
-            <span className="shrink-0 text-[10px] text-muted-foreground">
-              {new Date(e.at).toLocaleTimeString()}
-            </span>
+            <span className="shrink-0 text-[10px] text-muted-foreground">{formatTime(e.at)}</span>
             {e.kind === "in" && (
               <ArrowDownLeft className="size-3.5 shrink-0 text-blue-500" aria-label="received" />
             )}

@@ -4,6 +4,7 @@
  * cm6-graphql), introspection or file-loaded schemas, operation selection,
  * validation and a searchable schema explorer.
  */
+import { formatTime } from "@/lib/format";
 import { useMemo, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import { graphql as graphqlLanguage } from "cm6-graphql";
@@ -140,7 +141,7 @@ export function GraphqlBodyEditor({
         </label>
         <span className="text-muted-foreground">
           {cached
-            ? `Schema from ${cached.source}, ${new Date(cached.loadedAt).toLocaleTimeString()}`
+            ? `Schema from ${cached.source}, ${formatTime(cached.loadedAt)}`
             : "No schema: syntax checks only"}
         </span>
         {named.length > 1 && (

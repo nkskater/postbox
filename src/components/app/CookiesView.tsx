@@ -1,4 +1,5 @@
 "use client";
+import { formatDateTime } from "@/lib/format";
 import { useCallback, useEffect, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import type { CookieInfo } from "@/core/types";
@@ -77,9 +78,7 @@ export function CookiesView() {
                     <td className="py-1 pr-2">{c.name}</td>
                     <td className="max-w-80 truncate py-1 pr-2 text-muted-foreground">{c.value}</td>
                     <td className="py-1 pr-2">{c.path}</td>
-                    <td className="py-1 pr-2">
-                      {c.expires ? new Date(c.expires).toLocaleString() : "Session"}
-                    </td>
+                    <td className="py-1 pr-2">{c.expires ? formatDateTime(c.expires) : "Session"}</td>
                     <td className="py-1 pr-2">
                       {[c.httpOnly && "HttpOnly", c.secure && "Secure"].filter(Boolean).join(" ")}
                     </td>

@@ -129,7 +129,7 @@ export function HistoryList() {
                 </span>
                 <span className="min-w-0 flex-1 truncate">{h.url}</span>
                 <span className={cn("text-[10px]", statusColor(h.status))}>{h.status ?? "ERR"}</span>
-                <span className="w-12 shrink-0 text-right text-[10px] text-muted-foreground">
+                <span className="min-w-12 shrink-0 whitespace-nowrap text-right text-[10px] text-muted-foreground">
                   {relativeTime(h.createdAt)}
                 </span>
               </button>

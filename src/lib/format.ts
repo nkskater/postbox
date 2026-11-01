@@ -1,6 +1,16 @@
 /**
  * Formatting helpers shared by editors and the response viewer.
  */
+import { getSetting } from "@/lib/settings/runtime";
+import {
+  DEFAULT_LOCALE,
+  formatBytesWith,
+  formatDateTimeWith,
+  formatDateWith,
+  formatTimeWith,
+  relativeTimeWith,
+  type LocaleOptions,
+} from "@/lib/locale";
 
 /** Pretty-print XML with two-space indentation (best effort, no validation). */
 export function formatXml(xml: string): string {
@@ -21,12 +31,24 @@ export function formatXml(xml: string): string {
     .join("\n");
 }
 
-export function formatBytes(n: number | null | undefined): string {
-  if (n == null) return "—";
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(2)} KB`;
-  return `${(n / 1024 / 1024).toFixed(2)} MB`;
+/** The user's locale settings right now (time/date format, size units, relative times). */
+export function currentLocale(): LocaleOptions {
+  const pick = <T extends string>(key: string, allowed: readonly T[], fallback: T): T => {
+    const value = getSetting<string>(key);
+    return (allowed as readonly string[]).includes(value) ? (value as T) : fallback;
+  };
+  return {
+    timeFormat: pick("locale.timeFormat", ["system", "12h", "24h"], DEFAULT_LOCALE.timeFormat),
+    dateFormat: pick("locale.dateFormat", ["system", "iso", "mdy", "dmy"], DEFAULT_LOCALE.dateFormat),
+    byteUnits: pick("locale.byteUnits", ["kb", "kib", "si"], DEFAULT_LOCALE.byteUnits),
+    relativeTimes: getSetting<string>("locale.timeStyle") !== "absolute",
+  };
 }
+
+export const formatBytes = (n: number | null | undefined) => formatBytesWith(n, currentLocale());
+export const formatTime = (ts: number) => formatTimeWith(ts, currentLocale());
+export const formatDate = (ts: number) => formatDateWith(ts, currentLocale());
+export const formatDateTime = (ts: number) => formatDateTimeWith(ts, currentLocale());
 
 export function formatMs(n: number | null | undefined): string {
   if (n == null) return "—";
@@ -35,28 +57,23 @@ export function formatMs(n: number | null | undefined): string {
 }
 
 export function statusColor(status: number | null | undefined): string {
-  if (!status) return "text-destructive";
-  if (status < 300) return "text-success";
-  if (status < 400) return "text-warning";
-  return "text-destructive";
+  if (!status) return "text-status-error";
+  if (status < 300) return "text-status-ok";
+  if (status < 400) return "text-status-redirect";
+  return "text-status-error";
 }
 
+/** Literal class names, so Tailwind finds them; the colors come from CSS variables the user can change. */
 export const METHOD_COLORS: Record<string, string> = {
-  GET: "text-emerald-400",
-  POST: "text-amber-400",
-  PUT: "text-sky-400",
-  PATCH: "text-violet-400",
-  DELETE: "text-rose-400",
-  HEAD: "text-teal-400",
-  OPTIONS: "text-pink-400",
+  GET: "text-method-get",
+  POST: "text-method-post",
+  PUT: "text-method-put",
+  PATCH: "text-method-patch",
+  DELETE: "text-method-delete",
+  HEAD: "text-method-head",
+  OPTIONS: "text-method-options",
 };
 
 export const methodColor = (m: string) => METHOD_COLORS[m.toUpperCase()] ?? "text-muted-foreground";
 
-export function relativeTime(ts: number): string {
-  const diff = Date.now() - ts;
-  if (diff < 60_000) return "just now";
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
-  return new Date(ts).toLocaleDateString();
-}
+export const relativeTime = (ts: number) => relativeTimeWith(ts, currentLocale());

@@ -1,5 +1,6 @@
 "use client";
 /** Runs a GraphQL subscription and shows its messages live. */
+import { formatTime } from "@/lib/format";
 import { useRef, useState } from "react";
 import { Radio, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -121,7 +122,7 @@ export function GraphqlSubscriptionPanel({ draft }: { draft: RequestDef & { fold
           log.map((m) => (
             <div key={m.n} className="border-b px-2 py-1">
               <div className="text-[10px] text-muted-foreground">
-                #{m.n + 1} · {new Date(m.at).toLocaleTimeString()}
+                #{m.n + 1} · {formatTime(m.at)}
               </div>
               <pre
                 className={

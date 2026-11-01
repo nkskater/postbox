@@ -1,5 +1,6 @@
 "use client";
 /** Live server-sent events for the current request draft. */
+import { formatTime } from "@/lib/format";
 import { useEffect, useRef, useState } from "react";
 import { Radio, Square, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -108,7 +109,7 @@ export function EventStreamPanel({
             <div key={e.index} className="border-b px-3 py-1.5">
               <div className="text-[10px] text-muted-foreground">
                 #{e.index + 1} · {e.event}
-                {e.id && ` · id ${e.id}`} · {new Date(e.receivedAt).toLocaleTimeString()}
+                {e.id && ` · id ${e.id}`} · {formatTime(e.receivedAt)}
               </div>
               <pre className="whitespace-pre-wrap break-all">{e.data}</pre>
             </div>

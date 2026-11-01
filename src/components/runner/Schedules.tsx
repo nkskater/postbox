@@ -1,5 +1,6 @@
 "use client";
 
+import { formatDateTime } from "@/lib/format";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { DatasetRef, RunOptions } from "@/core/types";
@@ -171,7 +172,7 @@ export function Schedules({
             </p>
           )}
           {schedule.nextRunAt && (
-            <p className="text-muted-foreground">Next: {new Date(schedule.nextRunAt).toLocaleString()}</p>
+            <p className="text-muted-foreground">Next: {formatDateTime(schedule.nextRunAt)}</p>
           )}
           {schedule.lastRunId && schedule.lastRunStatus ? (
             <button
@@ -180,7 +181,7 @@ export function Schedules({
               onClick={() => onOpenRun(schedule.lastRunId!)}
             >
               Last run: {schedule.lastRunStatus}
-              {schedule.lastRunAt ? ` · ${new Date(schedule.lastRunAt).toLocaleString()}` : ""}
+              {schedule.lastRunAt ? ` · ${formatDateTime(schedule.lastRunAt)}` : ""}
             </button>
           ) : (
             <p className="text-muted-foreground">No retained run history.</p>

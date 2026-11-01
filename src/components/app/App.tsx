@@ -8,7 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { onAuthenticationRequired } from "@/lib/api";
 import { Group, Panel, Separator, usePanelRef } from "react-resizable-panels";
-import { Toaster } from "sonner";
+import { Toaster, type ToasterProps } from "sonner";
 import { Terminal } from "lucide-react";
 import { useApp } from "@/stores/app";
 import { useDialogs } from "@/stores/dialogs";
@@ -87,6 +87,8 @@ export function App({ authEnabled }: { authEnabled: boolean }) {
   const consoleOpen = useApp((s) => s.consoleOpen);
   const setConsoleOpen = useApp((s) => s.setConsoleOpen);
   const theme = useApp((s) => s.theme);
+  const toastPosition = useSetting<string>("notifications.position");
+  const toastSeconds = useSetting<number>("notifications.durationSeconds");
   const sidebarRight = useSetting<string>("layout.sidebarPosition") === "right";
   const entriesCount = useApp((s) => s.consoleEntries.length);
   const saveTabId = useDialogs((s) => s.saveTabId);
@@ -274,7 +276,13 @@ export function App({ authEnabled }: { authEnabled: boolean }) {
       <ExamplesDialog />
       <DatasetEditorDialog />
       <CodeSnippetDialog />
-      <Toaster theme={theme} position="bottom-right" richColors closeButton />
+      <Toaster
+        theme={theme}
+        position={toastPosition as ToasterProps["position"]}
+        duration={toastSeconds * 1000}
+        richColors
+        closeButton
+      />
     </TooltipProvider>
   );
 }

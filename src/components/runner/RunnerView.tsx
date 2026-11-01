@@ -3,6 +3,7 @@
  * Collection runner tab: choose requests, options and iteration data, run with
  * live progress, inspect per-request results and export reports.
  */
+import { notifyRunFinished } from "@/lib/notify";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import { ChevronDown, ChevronRight, Database, FileUp, Loader2, Play, Square, Trash2 } from "lucide-react";
@@ -216,6 +217,7 @@ export function RunnerView({ folderId }: { folderId: string }) {
           }
         });
         if (e.type === "log") log(e.entries);
+        if (e.type === "done") notifyRunFinished(e.summary);
       }
       if (!terminal)
         throw new Error("Run progress disconnected. Open the run from history to check its status.");
