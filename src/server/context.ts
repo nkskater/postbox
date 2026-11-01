@@ -11,6 +11,7 @@ import type { AuthConfig, FolderDef, RequestDef, Variable } from "@/core/types";
 import { execute, type ExecuteResult, type SavedRequestResolver } from "@/core/executor";
 import { CookieJarStore } from "@/core/http/cookies";
 import { HostPolicy } from "@/core/http/policy";
+import { withOutbound } from "./outbound";
 import {
   emptyScopes,
   variablesToRecord,
@@ -26,7 +27,7 @@ import { authCredentialValues, credentialRedactionValues, sensitiveFieldValues }
 let policy: HostPolicy | null = null;
 /** Host policy from PROXY_ALLOW_HOSTS / PROXY_DENY_HOSTS (parsed once). */
 export function getPolicy(): HostPolicy {
-  return (policy ??= HostPolicy.fromEnv());
+  return withOutbound((policy ??= HostPolicy.fromEnv()));
 }
 
 export interface ScopeContext {

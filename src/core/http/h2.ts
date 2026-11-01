@@ -12,6 +12,7 @@ import type { HttpVersionMode } from "../types";
 import type { SingleResponse } from "./engine";
 import { RequestError } from "./engine";
 import { HostPolicyError, type HostPolicy } from "./policy";
+import { isProxyError, openProxyTunnel, tlsOptions } from "./outbound";
 
 export interface H2Options {
   mode: Exclude<HttpVersionMode, "http1">;
@@ -220,7 +221,25 @@ export async function sendOnceH2(
     else req.end();
   });
 
-  function connect(): Promise<net.Socket> {
+  async function connect(): Promise<net.Socket> {
+    const network = opts.policy.network;
+    const proxy = network?.proxyFor(url) ?? null;
+    const identity = isHttps ? network?.tlsFor(hostname, port) : undefined;
+    // Through a proxy: CONNECT first, then TLS (ALPN) end to end with the target.
+    let tunnel: net.Socket | undefined;
+    if (proxy) {
+      try {
+        tunnel = await openProxyTunnel(proxy, hostname, port, {
+          timeoutMs: opts.timeoutMs,
+          signal: opts.signal,
+          verifySsl: opts.verifySsl,
+          proxyIdentity: network?.tlsFor(proxy.host, proxy.port),
+        });
+      } catch (err) {
+        if (isProxyError(err)) throw new RequestError(err.message, err.code);
+        throw err;
+      }
+    }
     return new Promise((resolve, reject) => {
       const onError = (err: Error) => {
         const code = (err as NodeJS.ErrnoException).code ?? "EREQUEST";
@@ -229,12 +248,11 @@ export async function sendOnceH2(
       };
       const sock = isHttps
         ? tls.connect({
-            host: hostname,
-            port,
-            lookup,
+            ...(tunnel ? { socket: tunnel } : { host: hostname, port, lookup }),
             ALPNProtocols: ["h2", "http/1.1"],
             servername: net.isIP(hostname) ? undefined : hostname,
             rejectUnauthorized: opts.verifySsl,
+            ...tlsOptions(identity),
           })
         : net.connect({ host: hostname, port, lookup });
       let done = false;

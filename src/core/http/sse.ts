@@ -10,6 +10,7 @@ import net from "node:net";
 import { StringDecoder } from "node:string_decoder";
 import type { PreparedRequest } from "../types";
 import { HostPolicyError, OPEN_POLICY, type HostPolicy } from "./policy";
+import { isProxyError, planConnection, tlsOptions } from "./outbound";
 
 export interface SseEvent {
   /** "message" unless the stream set an event name. */
@@ -179,7 +180,7 @@ function openOnce(
     const socketPath = prepared.settings.socketPath;
     try {
       if (socketPath) opts.policy.assertSocket(socketPath);
-      else opts.policy.assert(url.hostname);
+      else opts.policy.assertTarget(url.hostname, !!opts.policy.network?.proxyFor(url));
     } catch (err) {
       return reject(err);
     }
@@ -209,6 +210,20 @@ function openOnce(
       headers.push("Content-Length", String(prepared.body.length));
 
     const isHttps = url.protocol === "https:";
+    const plan = socketPath
+      ? null
+      : planConnection(
+          url,
+          {
+            policy: opts.policy,
+            lookup,
+            verifySsl: prepared.settings.verifySsl,
+            timeoutMs: prepared.settings.timeoutMs,
+            signal: opts.signal,
+          },
+          `${url.pathname}${url.search}`,
+        );
+    if (plan) for (const [k, v] of plan.headers) headers.push(k, v);
     let settled = false;
     const finish = (ended: string, retryable: boolean) => {
       if (settled) return;
@@ -217,22 +232,21 @@ function openOnce(
       opts.signal?.removeEventListener("abort", onAbort);
       resolve({ ended, retryable });
     };
-    const req = (isHttps ? https : http).request(
+    const req = (plan ? (plan.secure ? https : http) : isHttps ? https : http).request(
       {
         method: prepared.method,
-        protocol: url.protocol,
-        ...(socketPath
-          ? { socketPath }
+        ...(plan
+          ? { ...plan.options, path: plan.path, protocol: plan.secure ? "https:" : "http:" }
           : {
-              hostname: url.hostname.replace(/^\[|\]$/g, ""),
-              port: url.port || (isHttps ? 443 : 80),
-              lookup,
+              protocol: url.protocol,
+              socketPath,
+              path: `${url.pathname}${url.search}`,
+              rejectUnauthorized: prepared.settings.verifySsl,
+              servername: net.isIP(url.hostname) ? undefined : url.hostname,
+              ...tlsOptions(opts.policy.network?.tlsFor(url.hostname, Number(url.port) || 443)),
             }),
-        path: `${url.pathname}${url.search}`,
         headers: headers as unknown as http.OutgoingHttpHeaders,
-        agent: false,
-        rejectUnauthorized: prepared.settings.verifySsl,
-        servername: net.isIP(url.hostname) ? undefined : url.hostname,
+        agent: plan?.options.createConnection ? undefined : false,
         setHost: false,
       },
       (res) => {
@@ -285,6 +299,10 @@ function openOnce(
       if (err instanceof HostPolicyError) {
         settled = true;
         return reject(err);
+      }
+      if (isProxyError(err)) {
+        settled = true;
+        return reject(new Error(err.message));
       }
       finish(err.message, true);
     });

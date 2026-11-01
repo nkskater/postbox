@@ -6,9 +6,11 @@
  * nothing can route around that check.
  */
 import dns from "node:dns/promises";
+import crypto from "node:crypto";
 import net from "node:net";
 import * as grpc from "@grpc/grpc-js";
 import { type HostPolicy, OPEN_POLICY } from "../http/policy";
+import { tlsOptions } from "../http/outbound";
 import { decodeMessage, encodeMessage, ProtoError, resolveMethod, type GrpcMethodInfo } from "./proto";
 import type protobuf from "protobufjs";
 
@@ -120,7 +122,7 @@ export async function resolveGrpcTarget(rawUrl: string, policy: HostPolicy): Pro
     throw new ProtoError(`Invalid URL: ${rawUrl}`);
   }
   const { tls, hostname, port } = parseTarget(url);
-  policy.assert(hostname);
+  policy.assertDirect(hostname, port, "gRPC");
   const addresses = net.isIP(hostname)
     ? [hostname]
     : (await dns.lookup(hostname, { all: true })).map((a) => a.address);
@@ -130,10 +132,29 @@ export async function resolveGrpcTarget(rawUrl: string, policy: HostPolicy): Pro
   return { url, tls, hostname, targets };
 }
 
-export function grpcCredentials(t: GrpcTarget, verifySsl: boolean): grpc.ChannelCredentials {
-  return t.tls
-    ? grpc.credentials.createSsl(null, null, null, { rejectUnauthorized: verifySsl })
-    : grpc.credentials.createInsecure();
+export function grpcCredentials(
+  t: GrpcTarget,
+  verifySsl: boolean,
+  policy: HostPolicy = OPEN_POLICY,
+): grpc.ChannelCredentials {
+  if (!t.tls) return grpc.credentials.createInsecure();
+  const port = Number(t.url.port) || 443;
+  const opts = tlsOptions(policy.network?.tlsFor(t.hostname, port));
+  const customCa = opts.ca ? Buffer.from(opts.ca.join("\n")) : null;
+  // grpc-js cannot take a passphrase, so an encrypted key is decrypted in memory first.
+  const key = opts.key
+    ? opts.passphrase
+      ? (crypto
+          .createPrivateKey({ key: opts.key, passphrase: opts.passphrase })
+          .export({ type: "pkcs8", format: "pem" }) as string)
+      : opts.key
+    : null;
+  return grpc.credentials.createSsl(
+    customCa,
+    key ? Buffer.from(key) : null,
+    opts.cert ? Buffer.from(opts.cert) : null,
+    { rejectUnauthorized: verifySsl },
+  );
 }
 
 /** Channel settings that keep TLS names right and stop environment proxies bypassing the policy. */
@@ -173,7 +194,7 @@ export async function startGrpcCall(
 
   const target = await resolveGrpcTarget(input.url, policy);
   const { url, targets } = target;
-  const credentials = grpcCredentials(target, input.verifySsl);
+  const credentials = grpcCredentials(target, input.verifySsl, policy);
   const channelOptions = grpcChannelOptions(target);
 
   const now = () => Date.now();

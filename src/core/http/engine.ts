@@ -22,6 +22,7 @@ import { authenticateMessage, negotiateMessage, parseChallenge } from "./ntlm";
 import { signAwsRequest } from "./aws-sigv4";
 import { HostPolicy, HostPolicyError, OPEN_POLICY } from "./policy";
 import { sendOnceH2 } from "./h2";
+import { isProxyError, planConnection, tlsOptions, type TlsIdentity } from "./outbound";
 
 export interface EngineOptions {
   /** Isolates OAuth token reuse between workspaces or standalone callers. */
@@ -161,11 +162,12 @@ function sendOnce(
     agent?: http.Agent;
     /** Connect to this Unix socket / named pipe instead of resolving the URL host. */
     socketPath?: string;
+    /** TLS identity for a Unix-socket https target (direct connections use the connection plan). */
+    identity?: TlsIdentity;
   },
 ): Promise<SingleResponse> {
   return new Promise((resolve, reject) => {
     const isHttps = url.protocol === "https:";
-    const lib = isHttps ? https : http;
     const start = performance.now();
     let dnsAt = start;
     let tcpAt = 0;
@@ -192,19 +194,38 @@ function sendOnce(
     if (!hasHeader(headers, "host")) headerObj.push("Host", url.host);
     for (const [k, v] of headers) headerObj.push(k, v);
 
+    // Proxy and TLS profile selection (a Unix socket bypasses both).
+    const plan = opts.socketPath
+      ? null
+      : planConnection(
+          url,
+          {
+            policy: opts.policy,
+            lookup,
+            verifySsl: opts.verifySsl,
+            timeoutMs: opts.timeoutMs,
+            signal: opts.signal,
+          },
+          `${url.pathname}${url.search}`,
+        );
+    if (plan) for (const [k, v] of plan.headers) headerObj.push(k, v);
+    const lib = plan ? (plan.secure ? https : http) : isHttps ? https : http;
+
     const req = lib.request(
       {
         method,
-        protocol: url.protocol,
-        ...(opts.socketPath
-          ? { socketPath: opts.socketPath }
-          : { hostname: url.hostname.replace(/^\[|\]$/g, ""), port: url.port || (isHttps ? 443 : 80) }),
-        path: `${url.pathname}${url.search}`,
+        ...(plan
+          ? { ...plan.options, path: plan.path, protocol: plan.secure ? "https:" : "http:" }
+          : {
+              protocol: url.protocol,
+              socketPath: opts.socketPath,
+              path: `${url.pathname}${url.search}`,
+              rejectUnauthorized: opts.verifySsl,
+              servername: net.isIP(url.hostname) ? undefined : url.hostname,
+              ...tlsOptions(opts.identity),
+            }),
         headers: headerObj as unknown as http.OutgoingHttpHeaders,
-        ...(opts.socketPath ? {} : { lookup }),
-        agent: opts.agent ?? false,
-        rejectUnauthorized: opts.verifySsl,
-        servername: net.isIP(url.hostname) ? undefined : url.hostname,
+        agent: opts.agent ?? (plan?.options.createConnection ? undefined : false),
         setHost: false,
       },
       (res) => {
@@ -288,6 +309,7 @@ function sendOnce(
       settled = true;
       cleanup();
       if (err instanceof RequestError || err instanceof HostPolicyError) return reject(err);
+      if (isProxyError(err)) return reject(new RequestError(err.message, err.code));
       const code = (err as NodeJS.ErrnoException).code ?? "EREQUEST";
       reject(new RequestError(friendlyError(err, code, url), code));
     }
@@ -364,7 +386,13 @@ export async function sendRequest(
       }
       // A socket endpoint replaces DNS and TCP entirely, so it is checked instead of the host.
       if (socketPath) policy.assertSocket(socketPath);
-      else policy.assert(url.hostname);
+      else policy.assertTarget(url.hostname, !!policy.network?.proxyFor(url));
+      const proxied = !socketPath && !!policy.network?.proxyFor(url);
+      if (proxied && prepared.ntlm)
+        throw new RequestError(
+          "NTLM authentication cannot be used through the outbound proxy; add the host to the proxy bypass list.",
+          "EPROXYUNSUPPORTED",
+        );
 
       // Merge jar cookies with any Cookie header the user set explicitly.
       let hopHeaders = headers;
@@ -389,6 +417,12 @@ export async function sendRequest(
       }
 
       const httpVersion = settings.httpVersion ?? "http1";
+      if (httpVersion === "http2" && proxied && url.protocol === "http:") {
+        throw new RequestError(
+          "Cleartext HTTP/2 cannot be sent through the outbound proxy; use https, HTTP/1.1 or bypass the proxy.",
+          "EH2UNSUPPORTED",
+        );
+      }
       if (httpVersion === "http2" && (socketPath || prepared.ntlm)) {
         throw new RequestError(
           `HTTP/2 cannot be used with ${socketPath ? "a Unix socket or named pipe" : "NTLM authentication"}; choose Auto or HTTP/1.1.`,
@@ -417,6 +451,7 @@ export async function sendRequest(
           signal: options.signal,
           maxBodyBytes,
           socketPath,
+          identity: socketPath ? policy.network?.tlsFor(url.hostname, Number(url.port) || 443) : undefined,
           agent: ntlmState === "negotiating" || ntlmState === "authenticating" ? ntlmAgent : undefined,
         }));
 

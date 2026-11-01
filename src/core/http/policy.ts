@@ -19,6 +19,7 @@
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
+import type { OutboundNetwork } from "./outbound";
 
 export class HostPolicyError extends Error {
   constructor(message: string) {
@@ -115,6 +116,28 @@ function matches(rules: CompiledRules, host: string, ip?: string): boolean {
   return false;
 }
 
+/** A set of host patterns (names, wildcards, addresses, CIDRs) for bypass lists and TLS profiles. */
+export class HostPatternSet {
+  private rules: CompiledRules;
+  constructor(patterns: string[], setting: string) {
+    this.rules = compile(patterns, setting);
+  }
+  get empty(): boolean {
+    return this.rules.empty;
+  }
+  /** Names and wildcards by name; address rules only for literal addresses. */
+  matches(host: string): boolean {
+    const h = normalizeHost(host);
+    return matches(this.rules, h, net.isIP(h) ? h : undefined);
+  }
+}
+
+/** True when the rules name this host or a parent wildcard (`*` and address rules do not count). */
+function matchesExplicitName(rules: CompiledRules, host: string): boolean {
+  const h = normalizeHost(host);
+  return rules.names.includes(h) || rules.wildcards.some((w) => h.endsWith(w) && h.length > w.length);
+}
+
 const PIPE = /^\\\\[.?]\\pipe\\[^\\]+$/i;
 
 /** Normalize a socket path or named pipe; null when it is not an absolute local endpoint. */
@@ -150,11 +173,19 @@ function compileSockets(patterns: string[]): { exact: Set<string>; dirs: string[
 }
 
 export class HostPolicy {
+  private allowPatterns: string[];
+  private denyPatterns: string[];
+  private socketPatterns: string[];
   private allow: CompiledRules;
   private deny: CompiledRules;
   private sockets: { exact: Set<string>; dirs: string[] };
+  /** Outbound proxy and TLS identities used with this policy; null connects directly. */
+  network: OutboundNetwork | null = null;
 
   constructor(allow: string[] = [], deny: string[] = [], sockets: string[] = []) {
+    this.allowPatterns = allow.map((p) => p.trim()).filter(Boolean);
+    this.denyPatterns = deny.map((p) => p.trim()).filter(Boolean);
+    this.socketPatterns = sockets.map((p) => p.trim()).filter(Boolean);
     this.allow = compile(allow, "PROXY_ALLOW_HOSTS");
     this.deny = compile(deny, "PROXY_DENY_HOSTS");
     this.sockets = compileSockets(sockets);
@@ -169,6 +200,49 @@ export class HostPolicy {
     );
   }
 
+  /** The same rules with a different outbound network (the rules are immutable once compiled). */
+  withNetwork(network: OutboundNetwork | null): HostPolicy {
+    const copy = Object.create(HostPolicy.prototype) as HostPolicy;
+    Object.assign(copy, this);
+    copy.network = network;
+    return copy;
+  }
+
+  /**
+   * Check a connection target. Direct connections are checked again against every resolved
+   * address by the DNS hook. A proxy resolves the name itself, so only the name can be checked:
+   *  - deny rules and literal addresses are enforced as usual;
+   *  - when an allow list exists, the name must match it by name or wildcard (address-only
+   *    allow rules cannot be verified, so they do not admit a name);
+   *  - when deny rules contain addresses or ranges, which can only be enforced on resolved
+   *    addresses, the name must be allowed explicitly (a name or wildcard, not `*`).
+   */
+  checkTarget(host: string, viaProxy: boolean): string | null {
+    const h = normalizeHost(host);
+    const reason = this.check(h);
+    if (reason || !viaProxy || net.isIP(h)) return reason;
+    if (!this.allow.empty && !(this.allow.any || matchesExplicitName(this.allow, h)))
+      return `Host "${h}" is not in PROXY_ALLOW_HOSTS (through a proxy only host names can be matched)`;
+    if (this.deny.hasBlocks && !matchesExplicitName(this.allow, h))
+      return `Host "${h}" cannot be verified through the outbound proxy: PROXY_DENY_HOSTS contains address rules that only apply to resolved addresses. List the host by name in PROXY_ALLOW_HOSTS, or add it to the proxy bypass list`;
+    return null;
+  }
+
+  assertTarget(host: string, viaProxy: boolean): void {
+    const reason = this.checkTarget(host, viaProxy);
+    if (reason) throw new HostPolicyError(reason);
+  }
+
+  /** Protocols that dial resolved addresses themselves cannot use a proxy; they refuse instead. */
+  assertDirect(host: string, port: number, protocol: string): void {
+    this.assert(host);
+    const proxy = this.network?.proxyForHost(host, port);
+    if (proxy)
+      throw new HostPolicyError(
+        `${protocol} cannot use the outbound proxy. Add "${normalizeHost(host)}" to the proxy bypass list to connect directly`,
+      );
+  }
+
   /** Returns null when the socket or pipe may be used, or a reason string. */
   checkSocket(socketPath: string): string | null {
     const normalized = normalizeSocketPath(socketPath);
@@ -181,6 +255,11 @@ export class HostPolicy {
   assertSocket(socketPath: string): void {
     const reason = this.checkSocket(socketPath);
     if (reason) throw new HostPolicyError(reason);
+  }
+
+  /** Read-only description of the rules, for display. */
+  describe(): { allow: string[]; deny: string[]; sockets: string[] } {
+    return { allow: this.allowPatterns, deny: this.denyPatterns, sockets: this.socketPatterns };
   }
 
   /** Returns null when allowed, or a reason string when blocked. */

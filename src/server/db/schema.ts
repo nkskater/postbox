@@ -808,5 +808,31 @@ export const hookEvents = sqliteTable(
   (t) => [index("hook_events_listener_idx").on(t.listenerId, t.receivedAt)],
 );
 
+/** The single outbound proxy (id "default"). Credentials are write-only through the API. */
+export const outboundProxy = sqliteTable("outbound_proxy", {
+  id: text("id").primaryKey(),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  url: text("url").notNull(),
+  username: text("username").notNull().default(""),
+  password: text("password").notNull().default(""),
+  /** JSON array of bypass patterns. */
+  bypass: text("bypass", { mode: "json" }).$type<string[]>().notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+/** A custom CA and/or client certificate used for matching hosts. The key never leaves the server. */
+export const tlsProfiles = sqliteTable("tls_profiles", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  /** JSON array of host patterns: host, *.domain or host:port. */
+  hosts: text("hosts", { mode: "json" }).$type<string[]>().notNull(),
+  caPem: text("ca_pem").notNull().default(""),
+  certPem: text("cert_pem").notNull().default(""),
+  keyPem: text("key_pem").notNull().default(""),
+  passphrase: text("passphrase").notNull().default(""),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
 export type HookListenerRow = typeof hookListeners.$inferSelect;
 export type HookEventRow = typeof hookEvents.$inferSelect;

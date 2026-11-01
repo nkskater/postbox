@@ -155,6 +155,13 @@
       "when": 1793556324167,
       "tag": "0021_fair_nico_minoru",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1793572092552,
+      "tag": "0022_dazzling_jigsaw",
+      "breakpoints": true
     }
   ]
 }

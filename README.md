@@ -402,6 +402,14 @@ DNS dot. An empty setting disables that list; malformed entries, empty comma-sep
 entries, URLs, ports and invalid CIDR prefixes reject the policy when it is loaded.
 Deny rules win, and hostnames and resolved addresses are checked at every redirect hop.
 
+### Outbound proxy, custom CAs and client certificates
+
+Administrators can route requests, SSE, WebSocket and Socket.IO through an HTTP(S) proxy (with a bypass
+list), trust private CAs, and present client certificates (mTLS) per host, in **Settings → Request
+execution**. A proxy resolves names itself, so the host policy can only check the name through it; see
+[docs/outbound-network.md](docs/outbound-network.md) for exactly how `PROXY_ALLOW_HOSTS` and `PROXY_DENY_HOSTS`
+apply, and which clients cannot use a proxy (gRPC, MQTT).
+
 ### Unix domain sockets and named pipes
 
 A request can connect to a local Unix socket or Windows named pipe instead of TCP: set the

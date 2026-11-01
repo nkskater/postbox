@@ -8,6 +8,7 @@ import net from "node:net";
 import WebSocket from "ws";
 import type { PreparedRequest } from "../types";
 import { HostPolicyError, OPEN_POLICY, type HostPolicy } from "../http/policy";
+import { createOutboundAgent } from "../http/outbound";
 
 export const MAX_WS_MESSAGE_BYTES = 1024 * 1024;
 
@@ -53,7 +54,7 @@ export function connectWebSocket(
   const url = new URL(prepared.url);
   if (url.protocol !== "ws:" && url.protocol !== "wss:")
     throw new Error(`WebSocket URLs must start with ws:// or wss:// (got ${url.protocol})`);
-  policy.assert(url.hostname);
+  policy.assertTarget(url.hostname, !!policy.network?.proxyFor(url));
 
   const lookup: net.LookupFunction = (hostname, options, cb) => {
     dns.lookup(hostname, options, (err, address, family) => {
@@ -69,9 +70,16 @@ export function connectWebSocket(
   const headers: Record<string, string> = {};
   for (const [k, v] of prepared.headers) if (!RESERVED.has(k.toLowerCase())) headers[k] = v;
 
+  const agent = createOutboundAgent(url, {
+    policy,
+    lookup,
+    verifySsl: prepared.settings.verifySsl,
+    timeoutMs: prepared.settings.timeoutMs,
+    signal: opts.signal,
+  });
   const ws = new WebSocket(url, opts.protocols?.length ? opts.protocols : undefined, {
     headers,
-    lookup,
+    agent,
     rejectUnauthorized: prepared.settings.verifySsl,
     handshakeTimeout: prepared.settings.timeoutMs,
     maxPayload: maxBytes,
