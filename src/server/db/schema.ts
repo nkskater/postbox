@@ -1,4 +1,5 @@
 import type { MockRoute } from "@/core/mocks/model";
+import type { Scenario } from "@/core/mocks/scenarios";
 import type { ExecutionDetails } from "@/core/runner/details";
 /**
  * Drizzle schema for the Postbox SQLite database.
@@ -416,6 +417,7 @@ export const mockServers = sqliteTable(
     status: integer("status"),
     headers: text("headers", { mode: "json" }).$type<KeyValue[]>().notNull(),
     routes: text("routes", { mode: "json" }).$type<MockRoute[]>().notNull(),
+    scenarios: text("scenarios", { mode: "json" }).$type<Scenario[]>().notNull().default([]),
     revision: integer("revision").notNull().default(1),
     keyHash: text("key_hash").notNull(),
     ...timestamps,

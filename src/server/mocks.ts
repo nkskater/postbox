@@ -4,6 +4,13 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { mockCreateSchema, mockPatchSchema, type MockRoute } from "@/core/mocks/model";
 import { matchMock } from "@/core/mocks/matcher";
+import {
+  MAX_SIMULATED_DELAY_MS,
+  ScenarioState,
+  SESSION_HEADER,
+  evaluateScenarios,
+  parseSession,
+} from "@/core/mocks/scenarios";
 import { requestFromExample, sanitizeExample } from "@/core/examples";
 import { credentialRedactionValues, redactSensitiveFields } from "@/core/retention";
 import { redactStoredValue } from "@/core/variables/resolver";
@@ -16,6 +23,10 @@ import { HttpError, notFound } from "./errors";
 import { newId } from "./defaults";
 import { readBodyText } from "./http";
 const { mockServers, mockLogs, variables } = schema;
+/** Scenario counters live in memory (they are test-session state, not data) and survive hot reloads. */
+const scenarioState = ((
+  globalThis as unknown as { __postboxScenarioState?: ScenarioState }
+).__postboxScenarioState ??= new ScenarioState());
 const hash = (key: string) => createHash("sha256").update(key).digest("hex");
 const row = (id: string) => {
   const result = getDb().select().from(mockServers).where(eq(mockServers.id, id)).get();
@@ -174,6 +185,8 @@ export function updateMock(id: string, raw: z.input<typeof mockPatchSchema>) {
     })
     .where(eq(mockServers.id, id))
     .run();
+  // Counters belong to the scenarios as defined; a changed set starts every session over.
+  if (patch.scenarios) scenarioState.reset(id);
   return getMock(id);
 }
 export function refreshMock(id: string) {
@@ -199,7 +212,15 @@ export function rotateMockKey(id: string) {
 export function deleteMock(id: string) {
   row(id);
   getDb().delete(mockServers).where(eq(mockServers.id, id)).run();
+  scenarioState.reset(id);
   return { ok: true };
+}
+/** Restart the failure simulations of one session (or every session) so a test run starts clean. */
+export function resetMockState(id: string, session?: string) {
+  row(id);
+  if (session !== undefined && parseSession(session) === null)
+    throw new HttpError(400, "Invalid session name");
+  return { ok: true, cleared: scenarioState.reset(id, session) };
 }
 export function listMockLogs(id: string) {
   row(id);
@@ -264,6 +285,8 @@ export async function serveMock(request: Request, id: string) {
     const url = new URL(request.url),
       prefix = `/mock/${id}`,
       path = url.pathname.slice(prefix.length) || "/";
+    const session = parseSession(request.headers.get(SESSION_HEADER));
+    if (session === null) return error(400, "Invalid x-mock-session header");
     const body = await readBodyText(request, 1024 * 1024);
     const statusHeader = request.headers.get("x-mock-response-code");
     if (statusHeader && !/^\d{3}$/.test(statusHeader)) return error(400, "Invalid example response status");
@@ -283,7 +306,16 @@ export async function serveMock(request: Request, id: string) {
       },
     );
     if (request.signal.aborted) return error(499, "Mock request cancelled");
-    if (record.delayMs)
+    const outcome = evaluateScenarios(
+      record.scenarios ?? [],
+      { method: request.method, path },
+      scenarioState,
+      { mockId: id, session },
+      Date.now(),
+    );
+    const delayMs = Math.min(MAX_SIMULATED_DELAY_MS, record.delayMs + outcome.delayMs);
+    const failure = outcome.failure;
+    if (delayMs)
       await new Promise<void>((resolve, reject) => {
         const abort = () => {
           clearTimeout(timer);
@@ -292,10 +324,10 @@ export async function serveMock(request: Request, id: string) {
         const timer = setTimeout(() => {
           request.signal.removeEventListener("abort", abort);
           resolve();
-        }, record.delayMs);
+        }, delayMs);
         request.signal.addEventListener("abort", abort, { once: true });
       });
-    const status = selected ? (record.status ?? selected.status) : 404;
+    const status = failure ? failure.status : selected ? (record.status ?? selected.status) : 404;
     getDb().transaction((tx) => {
       tx.insert(mockLogs)
         .values({
@@ -304,7 +336,7 @@ export async function serveMock(request: Request, id: string) {
           method: request.method,
           path: selected ? redactStoredValue(selected.path, secrets(record.workspaceId)) : "[unmatched]",
           status,
-          exampleId: selected?.id ?? null,
+          exampleId: failure ? null : (selected?.id ?? null),
           durationMs: Date.now() - started,
           createdAt: Date.now(),
         })
@@ -326,13 +358,27 @@ export async function serveMock(request: Request, id: string) {
           )
           .run();
     });
+    if (failure) {
+      const simulated = new Headers();
+      for (const [name, value] of failure.headers) simulated.set(name, value);
+      for (const [name, value] of Object.entries(secure)) simulated.set(name, value);
+      simulated.set("Content-Type", failure.contentType);
+      simulated.set("X-Postbox-Mock-Scenario", failure.scenarioId);
+      simulated.set("X-Postbox-Mock-Session", session);
+      return new Response(
+        request.method === "HEAD" ? null : redactStoredValue(failure.body, secrets(record.workspaceId)),
+        { status, headers: simulated },
+      );
+    }
     if (!selected) return error(404, "No saved example matched the request");
     const headers = new Headers();
     for (const header of [...selected.response.headers, ...safeHeaders(record.headers, record.workspaceId)])
       if (header.enabled && !blockedHeaders.has(header.key.toLowerCase()))
         headers.set(header.key, header.value);
+    for (const [name, value] of outcome.headers) headers.set(name, value);
     for (const [name, value] of Object.entries(secure)) headers.set(name, value);
     headers.set("X-Postbox-Mock-Example", selected.id);
+    headers.set("X-Postbox-Mock-Session", session);
     if (!headers.has("Content-Type")) headers.set("Content-Type", "text/plain; charset=utf-8");
     const responseBody =
       selected.response.bodyEncoding === "base64"

@@ -1,0 +1,1 @@
+ALTER TABLE `mock_servers` ADD `scenarios` text DEFAULT '[]' NOT NULL;
