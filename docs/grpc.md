@@ -2,7 +2,19 @@
 
 Postbox calls gRPC methods server-side (unary, client-streaming, server-streaming and
 bidirectional) against definitions you supply with the request. This page covers the
-automation interface; the request editor is tracked separately.
+automation interface; the editor is described in the next section. Definitions are stored on each request; sharing them across requests is tracked separately.
+
+## In the app
+
+Enter a `grpc://` or `grpcs://` URL and the request gets a **gRPC** tab. Choose **Proto files**
+(paste, add or upload `.proto` files) or **Server reflection**, press **Load methods** /
+**Discover methods**, and pick a method from the list (each is labelled unary, client,
+server or bidirectional streaming). Write the message as JSON in the **Body** tab (an array
+for client and bidirectional streaming); headers are the call metadata, **Authorization**
+applies, and **Timeout** under Settings is the call deadline. **Invoke** runs the call and
+streams sent and received messages, response metadata and the final status into the panel.
+For client and bidirectional methods the panel stays open so you can send further messages,
+end the request stream, or cancel. Everything is saved with the request.
 
 ## Definitions
 

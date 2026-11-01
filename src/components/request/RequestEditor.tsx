@@ -17,6 +17,9 @@ import { EventStreamPanel } from "@/components/response/EventStreamPanel";
 import { WebSocketPanel } from "@/components/response/WebSocketPanel";
 import { SocketIoPanel } from "@/components/response/SocketIoPanel";
 import { MqttPanel } from "@/components/response/MqttPanel";
+import { GrpcPanel } from "@/components/response/GrpcPanel";
+import { GrpcEditor } from "@/components/request/GrpcEditor";
+import { isGrpcUrl } from "@/lib/grpc";
 import { folderPath, useApp, type RequestDraft, type Tab } from "@/stores/app";
 import { useDialogs } from "@/stores/dialogs";
 import { useSetting } from "@/stores/settings";
@@ -72,7 +75,8 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
   const save = () => (tab.requestId ? saveTab(tab.id) : openSave(tab.id));
   const isSocketIo = !!d.settings.socketio;
   const isMqtt = /^mqtts?:\/\//i.test(d.url.trim());
-  const isWebSocket = isSocketIo || isMqtt || /^wss?:\/\//i.test(d.url.trim());
+  const isGrpc = isGrpcUrl(d.url);
+  const isWebSocket = isSocketIo || isMqtt || isGrpc || /^wss?:\/\//i.test(d.url.trim());
   const [streamKey, setStreamKey] = useState<number | null>(null);
   const [wsKey, setWsKey] = useState<number | null>(null);
   const send = () => {
@@ -250,9 +254,11 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
           <Button
             className="h-9 w-24"
             onClick={send}
-            title={isWebSocket ? "Connect (Ctrl+Enter)" : "Send (Ctrl+Enter)"}
+            title={
+              isGrpc ? "Invoke (Ctrl+Enter)" : isWebSocket ? "Connect (Ctrl+Enter)" : "Send (Ctrl+Enter)"
+            }
           >
-            {isWebSocket ? "Connect" : "Send"}
+            {isGrpc ? "Invoke" : isWebSocket ? "Connect" : "Send"}
           </Button>
         )}
         <Button
@@ -298,6 +304,17 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
               <TabsTrigger value="settings" className="text-xs">
                 Settings
               </TabsTrigger>
+              {isGrpc && (
+                <TabsTrigger value="grpc" className="text-xs">
+                  <TabLabel
+                    label="gRPC"
+                    dot={
+                      !!d.settings.grpc?.method &&
+                      (!!d.settings.grpc.reflection || Object.keys(d.settings.grpc.protos).length > 0)
+                    }
+                  />
+                </TabsTrigger>
+              )}
             </TabsList>
             <div className="min-h-0 flex-1 overflow-auto px-3 py-2">
               <TabsContent value="params" className="mt-0">
@@ -334,6 +351,14 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
               <TabsContent value="settings" className="mt-0">
                 <SettingsEditor settings={d.settings} onChange={(settings) => set({ settings })} />
               </TabsContent>
+              {isGrpc && (
+                <TabsContent value="grpc" className="mt-0">
+                  <GrpcEditor
+                    draft={d as RequestDef}
+                    onSettings={(grpc) => set({ settings: { ...d.settings, grpc } })}
+                  />
+                </TabsContent>
+              )}
             </div>
           </Tabs>
         </Panel>
@@ -344,7 +369,9 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
           )}
         />
         <Panel defaultSize="55" minSize="10">
-          {wsKey !== null && isMqtt ? (
+          {wsKey !== null && isGrpc ? (
+            <GrpcPanel key={wsKey} draft={d as RequestDef} onClose={() => setWsKey(null)} />
+          ) : wsKey !== null && isMqtt ? (
             <MqttPanel
               key={wsKey}
               draft={d as RequestDef}

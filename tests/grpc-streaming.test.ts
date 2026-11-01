@@ -302,4 +302,38 @@ describe("interactive gRPC API", () => {
     expect(unary.status).toBe(400);
     expect(((await unary.json()) as { error: string }).error).toMatch(/cannot be interactive/);
   });
+
+  it('opens a session for interactive "auto" only on client-streaming methods', async () => {
+    const repo = await import("@/server/repo");
+    const open = await import("@/app/api/grpc/route");
+    const cancel = await import("@/app/api/grpc/[id]/cancel/route");
+    const ws = repo.createWorkspace("grpc auto");
+    const request = (m: string, raw = "") => ({
+      url,
+      body: { mode: "raw", raw, language: "json" },
+      settings: { grpc: { protos: { "chat.proto": PROTO }, service: "test.Chat", method: m } },
+    });
+    const auto = await post(open, "http://localhost/api/grpc", {
+      workspaceId: ws.id,
+      interactive: "auto",
+      request: request("Sum"),
+    });
+    const stream = await reader(auto);
+    const id = (await stream.next((l) => l.type === "session")).id as string;
+    expect((await post(cancel, `http://localhost/api/grpc/${id}/cancel`, {}, id)).status).toBe(200);
+    await stream.next((l) => l.type === "done");
+
+    const plain = await post(open, "http://localhost/api/grpc", {
+      workspaceId: ws.id,
+      interactive: "auto",
+      request: request("Unary", '{"text":"p"}'),
+    });
+    expect(plain.status).toBe(200);
+    const events = (await plain.text())
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => JSON.parse(l) as { type: string });
+    expect(events.some((e) => e.type === "session")).toBe(false);
+    expect(events.at(-1)!.type).toBe("done");
+  });
 });
