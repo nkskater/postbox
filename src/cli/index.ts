@@ -17,6 +17,7 @@ import { flattenTree, runCollection } from "../core/runner/runner";
 import { DEFAULT_RUN_OPTIONS, type Variable } from "../core/types";
 import { emptyScopes, redactSecrets, variablesToRecord } from "../core/variables/resolver";
 import { CliError, EXIT } from "./errors";
+import { registerSdk } from "./sdk";
 import { registerManagement } from "./manage";
 import { consoleReporter } from "./reporter";
 
@@ -243,6 +244,7 @@ program
   .action(run);
 
 registerManagement(program);
+registerSdk(program);
 
 await program.parseAsync().catch((error: unknown) => {
   const { code } = error as { code?: unknown; exitCode?: number };

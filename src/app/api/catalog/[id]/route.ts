@@ -1,3 +1,5 @@
+import { sdkOptionsSchema } from "@/core/sdk/model";
+import { generateCatalogSdk } from "@/server/sdk";
 import { randomBytes } from "node:crypto";
 import { catalogVersionSchema } from "@/core/catalog/model";
 import { renderDocumentation } from "@/core/documentation/render";
@@ -11,6 +13,25 @@ export const GET = route(async (req: Request, { params }: { params: Promise<{ id
     caller = callerOf(req);
   const version = catalogVersionSchema.parse(query.get("version") ?? undefined);
   const entry = getCatalogEntry(id, version, caller);
+  if (query.get("format") === "sdk") {
+    const options = sdkOptionsSchema.parse({
+      language: query.get("language"),
+      name: query.get("name") ?? undefined,
+      version: entry.label,
+    });
+    const artifact = generateCatalogSdk(id, entry.version, options.language, options.name, caller);
+    return new Response(Buffer.from(artifact.archive), {
+      headers: {
+        "Content-Type": artifact.contentType,
+        "Content-Disposition": `attachment; filename="${artifact.filename}"`,
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+        "X-SDK-SHA256": artifact.sha256,
+        "X-Source-SHA256": artifact.sourceHash,
+        "X-Catalog-Version": String(entry.version),
+      },
+    });
+  }
   if (query.get("format") === "collection")
     return json(exportCatalog(id, version, caller), {
       headers: {

@@ -1,3 +1,5 @@
+import { generateCatalogSdk } from "./sdk";
+import { sdkOptionsSchema } from "@/core/sdk/model";
 import * as catalog from "./catalog";
 import { catalogPublishSchema, catalogMetadataSchema, catalogSearchSchema } from "@/core/catalog/model";
 import * as documentation from "./documentation";
@@ -489,6 +491,38 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
       }
     },
   );
+  server.registerTool(
+    "generate_catalog_sdk",
+    {
+      title: "Generate Catalog SDK",
+      description:
+        "Generate a deterministic installable TypeScript/npm or Python wheel SDK from a permitted immutable catalog version. Returns base64 bytes, filename, source/artifact hashes and pinned version; no credentials or install scripts are embedded.",
+      inputSchema: {
+        entryId: z.string().min(1),
+        version: z.number().int().positive().optional(),
+        language: sdkOptionsSchema.shape.language,
+        name: sdkOptionsSchema.shape.name,
+      },
+    },
+    async ({ entryId, version, language, name }) => {
+      try {
+        const artifact = generateCatalogSdk(entryId, version, language, name);
+        return okJson({
+          filename: artifact.filename,
+          contentType: artifact.contentType,
+          sha256: artifact.sha256,
+          sourceHash: artifact.sourceHash,
+          catalogVersion: artifact.catalogVersion,
+          catalogLabel: artifact.catalogLabel,
+          operations: artifact.operations,
+          base64: Buffer.from(artifact.archive).toString("base64"),
+        });
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+
   server.registerTool(
     "get_catalog_entry",
     {

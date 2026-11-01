@@ -204,6 +204,8 @@ Collections also have a **Documentation** tab for searchable previews and owner-
 
 The **Catalog** rail discovers permitted versioned APIs across workspaces. Owners publish sanitized collections with tags, owner labels and private/team/public visibility; consumers browse versions and import independent forks. See [API catalog](docs/api-catalog.md).
 
+The catalog can download deterministic, version-pinned **TypeScript/npm** and **Python** client packages with runtime auth/error/pagination hooks. The local `postbox sdk generate` command also accepts collection and OpenAPI files. See [client SDKs](docs/client-sdks.md).
+
 ### 4. Scripts and tests
 
 **Pre-request Script** runs before the request is sent and can change it or set variables. **Post-response Script** runs

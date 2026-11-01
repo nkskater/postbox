@@ -290,6 +290,7 @@ export const MCP_POLICIES: Record<string, WorkspaceAction | "list" | "create" | 
   import_documentation_collection: "write",
   search_catalog: "identity",
   get_catalog_entry: "identity",
+  generate_catalog_sdk: "identity",
   get_collection_catalog: "read",
   publish_catalog_entry: "manage",
   update_catalog_entry: "manage",
