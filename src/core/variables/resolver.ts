@@ -111,10 +111,12 @@ export function extractVariableNames(input: string): string[] {
  * Redact the values of secret variables from free text (logs, console output).
  * Very short values are skipped to avoid redacting common substrings.
  */
+export const REDACTION_MASK = "********";
+
 export function redactSecrets(text: string, secrets: Iterable<string>): string {
   let out = text;
   for (const secret of secrets) {
-    if (secret && secret.length >= 3) out = out.split(secret).join("********");
+    if (secret && secret.length >= 3) out = out.split(secret).join(REDACTION_MASK);
   }
   return out;
 }

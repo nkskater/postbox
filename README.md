@@ -303,6 +303,10 @@ individually, per section, or all at once. You can also export your settings to 
 - **Requests / Responses / Tabs / Variables / Console / Collection runner**: defaults for new requests (method,
   timeout, redirects, SSL, cookies), response view and large-body threshold, preview tabs, confirmation before closing unsaved tabs,
   secret display, console limits, and runner options.
+- **History & data** (administrators): how many history entries to keep per workspace (`HISTORY_LIMIT` still overrides it),
+  how many days to keep them, and whether to skip history for requests that use secrets. This section also shows the database
+  file and size, compacts it, clears history, cookies or run results, and makes or restores a full backup. See
+  [docs/backup-and-data.md](docs/backup-and-data.md).
 - **Server (environment)** shows read-only settings that come from environment variables (see [Configuration](#configuration)).
 
 ![Settings: appearance and accent colors](docs/screenshots/settings.png)

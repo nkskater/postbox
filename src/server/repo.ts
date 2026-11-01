@@ -2,7 +2,7 @@
  * Repository layer: maps SQLite rows to core domain types and back.
  * All functions are synchronous (better-sqlite3).
  */
-import { and, asc, desc, eq, inArray, isNull, lt, max } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lt, max, notInArray } from "drizzle-orm";
 import type {
   CookieInfo,
   Environment,
@@ -699,26 +699,46 @@ export function persistScopeDiff(
 // ------------------------------------------------------------------ history
 
 const HISTORY_LIMIT = Number(process.env.HISTORY_LIMIT) || 500;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
-export function addHistory(entry: Omit<typeof history.$inferInsert, "id" | "createdAt" | "createdBy">) {
+export interface HistoryRetention {
+  /** Entries kept per workspace. */
+  limit?: number;
+  /** Entries older than this many days are removed; 0 or undefined keeps them. */
+  retentionDays?: number;
+}
+
+/** Remove history older than the retention period (all workspaces); returns how many were removed. */
+export function purgeExpiredHistory(retentionDays: number | undefined, at = now()): number {
+  if (!retentionDays || retentionDays <= 0) return 0;
+  return getDb()
+    .delete(history)
+    .where(lt(history.createdAt, at - retentionDays * DAY_MS))
+    .run().changes;
+}
+
+export function addHistory(
+  entry: Omit<typeof history.$inferInsert, "id" | "createdAt" | "createdBy">,
+  retention: HistoryRetention = {},
+) {
+  const limit = retention.limit ?? HISTORY_LIMIT;
   const db = getDb();
   const id = newId();
   db.insert(history)
     .values({ ...entry, id, createdAt: now(), createdBy: actorId() })
     .run();
-  // Trim old entries.
-  const cutoff = db
-    .select({ createdAt: history.createdAt })
+  // Keep exactly the newest `limit` entries. Ties on the same millisecond are broken by id, so a
+  // burst of requests cannot make the trim delete more than it should.
+  const keep = db
+    .select({ id: history.id })
     .from(history)
     .where(eq(history.workspaceId, entry.workspaceId))
-    .orderBy(desc(history.createdAt))
-    .limit(1)
-    .offset(HISTORY_LIMIT)
-    .get();
-  if (cutoff)
-    db.delete(history)
-      .where(and(eq(history.workspaceId, entry.workspaceId), lt(history.createdAt, cutoff.createdAt + 1)))
-      .run();
+    .orderBy(desc(history.createdAt), desc(history.id))
+    .limit(limit);
+  db.delete(history)
+    .where(and(eq(history.workspaceId, entry.workspaceId), notInArray(history.id, keep)))
+    .run();
+  purgeExpiredHistory(retention.retentionDays);
   return id;
 }
 

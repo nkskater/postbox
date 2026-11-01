@@ -34,6 +34,7 @@ import { useDialogs } from "@/stores/dialogs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ConfirmDialog } from "@/components/dialogs/ConfirmDialog";
+import { DataManagement } from "./DataManagement";
 import { cn } from "@/lib/utils";
 import { SettingControl } from "./SettingControl";
 import { UsersSettings } from "./UsersSettings";
@@ -249,6 +250,7 @@ export function SettingsView() {
               </header>
               {section === "appearance" && <AppearancePreview />}
               {renderSettings(sectionDefs)}
+              {section === "data" && <DataManagement isAdmin={!!identity?.isAdmin} />}
             </>
           ) : section === "users" && identity?.isAdmin ? (
             <UsersSettings />
