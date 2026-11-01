@@ -11,12 +11,12 @@ import {
   getAuthConfig,
   parseUserSession,
   safeEqual,
-  sessionTtlMs,
   verifySession,
   type AuthConfig,
 } from "./auth";
 import type { UserRow } from "./db/schema";
 import { HttpError } from "./errors";
+import { sessionEpoch, sessionTtl } from "./session-settings";
 import { countUsers, getUser, resolveToken, storedSecret, toPublicUser, type PublicUser } from "./users";
 
 export type Caller =
@@ -35,7 +35,7 @@ export interface AuthState {
 }
 
 export function getAuthState(): AuthState {
-  const cfg = getAuthConfig();
+  const cfg = getAuthConfig(process.env, { epoch: sessionEpoch(), sessionTtlMs: sessionTtl() });
   const hasUsers = countUsers() > 0;
   return { cfg, hasUsers, enabled: !!cfg || hasUsers };
 }
@@ -111,7 +111,7 @@ const isSecure = (req: Request) =>
 
 /** Attach a fresh account session cookie to a response. */
 export function setUserSessionCookie(res: NextResponse, req: Request, user: UserRow) {
-  const session = createUserSession(sessionSecret(), user, sessionTtlMs());
+  const session = createUserSession(sessionSecret(), user, sessionTtl());
   res.cookies.set(SESSION_COOKIE, session.value, {
     httpOnly: true,
     sameSite: "lax",

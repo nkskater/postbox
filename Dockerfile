@@ -12,7 +12,10 @@ RUN npm run build
 # ---- runtime stage
 FROM node:22-bookworm-slim AS runtime
 WORKDIR /app
+# Shown under Settings -> Security & about: docker build --build-arg POSTBOX_COMMIT=$(git rev-parse --short HEAD) .
+ARG POSTBOX_COMMIT=
 ENV NODE_ENV=production \
+    POSTBOX_COMMIT=$POSTBOX_COMMIT \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3000 \
     HOSTNAME=0.0.0.0 \

@@ -34,6 +34,8 @@ const ENV_SETTINGS: { name: string; description: string; secret?: boolean; fallb
   { name: "PROXY_DENY_HOSTS", description: "Hosts that are always blocked" },
   { name: "PROXY_ALLOW_SOCKETS", description: "Unix sockets / named pipes requests may use (empty = none)" },
   { name: "MCP_ALLOWED_ORIGINS", description: "Extra browser origins allowed to call /api/mcp" },
+  { name: "MCP_ENABLED", description: "Serve the MCP endpoint (true/false)", fallback: "true" },
+  { name: "MCP_READ_ONLY", description: "Block MCP tools that change data (true/false)", fallback: "false" },
   { name: "SCRIPT_TIMEOUT_MS", description: "Script time limit", fallback: "5000" },
   { name: "SCRIPT_MEMORY_MB", description: "Script memory limit", fallback: "32" },
   { name: "API_BODY_LIMIT_MB", description: "Largest API/MCP request body", fallback: "25" },
