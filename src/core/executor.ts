@@ -1,3 +1,5 @@
+import { parseContract, validateContractRequest, validateContractResponse } from "./contracts/validate";
+import type { ContractDiagnostic } from "./contracts/model";
 import type { ModuleSnapshot } from "./packages/model";
 import { redactStoredValue } from "./variables/resolver";
 import { credentialRedactionValues, redactSensitiveFields } from "./retention";
@@ -88,6 +90,7 @@ export interface ScriptError {
 }
 
 export interface ExecuteResult {
+  contractDiagnostics?: ContractDiagnostic[];
   visualization?: Visualization | null;
   visualizationResult?: VisualizerResult;
   response?: HttpResponse;
@@ -258,6 +261,17 @@ async function executeInternal(
   const secrets = opts.secrets ?? [];
   const logs: ConsoleEntry[] = [];
   const tests: TestResult[] = [];
+  const contractDiagnostics: ContractDiagnostic[] = [];
+  const recordContract = (diagnostics: ContractDiagnostic[]) => {
+    contractDiagnostics.push(...diagnostics);
+    for (const item of diagnostics)
+      if (item.status !== "deferred")
+        tests.push({
+          name: `Contract: ${item.location}`,
+          passed: item.status === "passed",
+          ...(item.status === "error" ? { error: item.message } : {}),
+        });
+  };
   const scriptErrors: ScriptError[] = [];
   let visualization: Visualization | null | undefined;
   let visualizationResult: VisualizerResult | undefined;
@@ -483,6 +497,7 @@ async function executeInternal(
             visualizationResult,
           }
         : {}),
+      ...(request.contract ? { contractDiagnostics } : {}),
       tests: tests.map((test) => ({
         ...test,
         error: test.error ? redactSecrets(test.error, secrets) : test.error,
@@ -537,6 +552,20 @@ async function executeInternal(
     bodySize: prepared.body?.length ?? 0,
   };
 
+  if (request.contract) {
+    try {
+      recordContract(
+        validateContractRequest(parseContract(request.contract), {
+          url: prepared.url,
+          headers: prepared.headers,
+          body: prepared.body?.toString("utf8"),
+        }),
+      );
+    } catch {
+      recordContract([{ location: "contract", status: "error", message: "Invalid contract definition" }]);
+    }
+  }
+
   // 3. send
   let response: HttpResponse;
   try {
@@ -558,6 +587,20 @@ async function executeInternal(
     message: `${sent.method} ${sent.url} → ${response.status} ${response.statusText} (${Math.round(response.timings.total)} ms, ${response.size} B)`,
     timestamp: Date.now(),
   });
+
+  if (request.contract) {
+    try {
+      recordContract(
+        validateContractResponse(parseContract(request.contract), {
+          status: response.status,
+          body: response.bodyText,
+          incomplete: response.truncated || response.isBinary,
+        }),
+      );
+    } catch {
+      recordContract([{ location: "contract", status: "error", message: "Invalid contract definition" }]);
+    }
+  }
 
   // 4. test scripts
   const cookiesAfter = jar ? await jar.forUrl(response.url) : [];

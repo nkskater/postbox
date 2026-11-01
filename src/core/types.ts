@@ -1,3 +1,4 @@
+import type { RequestContract } from "./contracts/model";
 /**
  * Core domain model shared by the UI, API routes, runner and CLI.
  * This module must stay free of Node/Next/DB imports so it can be used anywhere.
@@ -314,6 +315,7 @@ export interface RequestDef {
   settings: RequestSettings;
   description?: string;
   examples?: ResponseExample[];
+  contract?: RequestContract | null;
 }
 
 /** A folder or collection (collection = folder without parent). */

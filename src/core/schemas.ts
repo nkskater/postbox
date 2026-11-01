@@ -1,3 +1,5 @@
+import { contractSchema } from "./contracts/model";
+import { parseContract } from "./contracts/validate";
 import { visualizationSchema } from "./visualizer/model";
 /**
  * Runtime schemas for the domain model, shared by the REST API, the MCP server
@@ -353,6 +355,17 @@ export const requestInputSchema = z
     settings: settingsPatchSchema,
     description: z.string(),
     examples: z.array(responseExampleSchema),
+    contract: contractSchema.nullable().superRefine((value, ctx) => {
+      if (value)
+        try {
+          parseContract(value);
+        } catch (error) {
+          ctx.addIssue({
+            code: "custom",
+            message: error instanceof Error ? error.message : "Invalid contract",
+          });
+        }
+    }),
   })
   .partial();
 

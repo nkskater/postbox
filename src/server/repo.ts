@@ -1,3 +1,4 @@
+import { parseContract } from "@/core/contracts/validate";
 /**
  * Repository layer: maps SQLite rows to core domain types and back.
  * All functions are synchronous (better-sqlite3).
@@ -58,6 +59,7 @@ export function rowToRequest(r: RequestRow): RequestDef & { folderId: string; so
     testScript: r.testScript,
     settings: { ...DEFAULT_SETTINGS, ...r.settings },
     description: r.description,
+    contract: r.contract ?? null,
     examples: (r.examples ?? []).map((example) => sanitizeExample(example, secrets)),
     folderId: r.folderId,
     sort: r.sort,
@@ -387,6 +389,7 @@ function storedExamples(
 export function createRequest(workspaceId: string, folderId: string, partial: Partial<RequestDef> = {}) {
   requireFolderIn(workspaceId, folderId);
   const def = defaultRequest(partial);
+  if (def.contract) def.contract = parseContract(def.contract);
   if (!def.params.length) def.params = paramsFromUrl(def.url);
   getDb()
     .insert(requests)
@@ -406,6 +409,7 @@ export function createRequest(workspaceId: string, folderId: string, partial: Pa
       testScript: def.testScript,
       settings: def.settings,
       examples: storedExamples(def.examples ?? [], workspaceId, folderId, def.auth),
+      contract: def.contract ?? null,
       description: def.description ?? "",
       createdAt: now(),
       updatedAt: now(),
@@ -416,6 +420,7 @@ export function createRequest(workspaceId: string, folderId: string, partial: Pa
 
 export function updateRequest(id: string, patch: Partial<RequestDef>) {
   const { id: _id, ...rest } = patch;
+  if (rest.contract) rest.contract = parseContract(rest.contract);
   if (rest.examples) {
     const current = getRequest(id);
     if (!current) return null;

@@ -1,3 +1,4 @@
+import type { RequestContract } from "@/core/contracts/model";
 import type { MockRoute } from "@/core/mocks/model";
 import type { Scenario } from "@/core/mocks/scenarios";
 import type { ExecutionDetails } from "@/core/runner/details";
@@ -78,6 +79,7 @@ export const requests = sqliteTable(
     preRequestScript: text("pre_request_script").notNull().default(""),
     testScript: text("test_script").notNull().default(""),
     settings: text("settings", { mode: "json" }).$type<RequestSettings>().notNull(),
+    contract: text("contract", { mode: "json" }).$type<RequestContract | null>(),
     examples: text("examples", { mode: "json" }).$type<ResponseExample[]>().notNull(),
     description: text("description").notNull().default(""),
     ...timestamps,
