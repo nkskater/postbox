@@ -2,7 +2,7 @@
 
 Postbox calls gRPC methods server-side (unary, client-streaming, server-streaming and
 bidirectional) against definitions you supply with the request. This page covers the
-automation interface; the request editor and server reflection are tracked separately.
+automation interface; the request editor and interactive streaming sessions are tracked separately.
 
 ## Definitions
 
@@ -67,3 +67,17 @@ be made to the first, the next is tried.
 `POST /api/grpc/describe` with `{ workspaceId, protos }` returns
 `{ services: [{ name, fullName, methods: [{ name, path, requestType, responseType, clientStreaming, serverStreaming }] }] }`
 without any network access.
+
+## Reflection
+
+Instead of supplying `.proto` files, set `settings.grpc.reflection` to `true` (with `protos`
+as `{}`) and Postbox fetches the definitions from the server's reflection service, trying
+`grpc.reflection.v1` and then `v1alpha`. File dependencies the server does not return with
+the requested services are fetched by name; at most 200 files and 8 MiB are accepted.
+Reflection uses the request's URL, headers and authentication as metadata, TLS settings,
+timeout and cancellation, and the same host-policy checks as calls. A server without
+reflection returns HTTP 400 with an explanatory error.
+
+`POST /api/grpc/reflect` takes the same body as `POST /api/grpc` (the message body and
+`settings.grpc` are ignored) and returns the same `{ services: [...] }` shape as
+`/api/grpc/describe`.

@@ -98,6 +98,7 @@ export const REST_POLICIES: Record<string, Policy> = {
   "POST /api/socketio": p("body", "run"),
   "POST /api/grpc": p("body", "run"),
   "POST /api/grpc/describe": p("body", "run"),
+  "POST /api/grpc/reflect": p("body", "run"),
   "POST /api/mqtt": p("body", "run"),
   "POST /api/mqtt/[id]/publish": p("account"),
   "POST /api/mqtt/[id]/subscribe": p("account"),

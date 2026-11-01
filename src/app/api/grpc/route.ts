@@ -1,32 +1,20 @@
 /**
- * POST /api/grpc — call a gRPC method (unary or streaming) using the .proto sources and
- * method stored in the request's settings. The body holds the message JSON (an array for
- * client and bidirectional streaming). Host policy applies; events stream back as NDJSON.
- * The target is checked before anything is sent, so setup problems return HTTP 400.
+ * POST /api/grpc — call a gRPC method (unary or streaming) using the .proto sources in the
+ * request's settings, or the server's reflection service when `settings.grpc.reflection` is
+ * set. The body holds the message JSON (an array for client and bidirectional streaming).
+ * Host policy applies; events stream back as NDJSON. The target is checked before anything
+ * is sent, so setup problems return HTTP 400.
  */
-import { z } from "zod";
-import type { FolderDef } from "@/core/types";
-import { DEFAULT_SETTINGS } from "@/core/types";
-import { requestInputSchema } from "@/core/schemas";
 import { startGrpcCall } from "@/core/grpc/client";
 import { loadProtoRoot, ProtoError, resolveMethod } from "@/core/grpc/proto";
-import { prepareRequest } from "@/core/http/prepare";
-import { Resolver, redactStoredValue } from "@/core/variables/resolver";
-import { authCredentialValues, credentialRedactionValues } from "@/core/retention";
+import { reflectRoot } from "@/core/grpc/reflection";
+import { redactStoredValue } from "@/core/variables/resolver";
 import { createEventStream } from "@/server/event-stream";
-import { getPolicy, loadScopes } from "@/server/context";
-import { defaultRequest } from "@/server/defaults";
+import { getPolicy } from "@/server/context";
+import { grpcRequestSchema, loadGrpcRequest } from "@/server/grpc-request";
 import { HttpError, parseBody, route } from "@/server/http";
-import * as repo from "@/server/repo";
 
 export const dynamic = "force-dynamic";
-
-const schema = z.object({
-  workspaceId: z.string().min(1),
-  environmentId: z.string().nullish(),
-  folderId: z.string().nullish(),
-  request: requestInputSchema,
-});
 
 /** Body JSON -> messages: an array for client-streaming methods, one object otherwise. */
 function parseMessages(raw: string, clientStreaming: boolean): unknown[] {
@@ -44,31 +32,28 @@ function parseMessages(raw: string, clientStreaming: boolean): unknown[] {
 }
 
 export const POST = route(async (req: Request) => {
-  const input = await parseBody(req, schema);
-  if (input.folderId) repo.requireFolderIn(input.workspaceId, input.folderId);
-  if (input.environmentId) repo.requireEnvironmentIn(input.workspaceId, input.environmentId);
-  const chain: FolderDef[] = input.folderId ? repo.getFolderChain(input.folderId) : [];
-  const ctx = loadScopes(input.workspaceId, input.environmentId ?? null, chain[0]?.id ?? null);
-  const resolver = new Resolver(ctx.scopes);
-  const r = input.request;
-  const settings = { ...DEFAULT_SETTINGS, ...(r.settings ?? {}) };
-  if (!settings.grpc) throw new HttpError(400, "Add .proto definitions and select a method first");
-  const grpcSettings = settings.grpc;
-
+  const input = await parseBody(req, grpcRequestSchema);
   const events = createEventStream();
+  let secrets: string[] = [];
   try {
-    const request = defaultRequest({ ...r, method: "POST", settings });
-    const { prepared, effectiveAuth, resolvedBody } = await prepareRequest(request, chain, resolver, {
-      policy: getPolicy(),
-      signal: req.signal,
-    });
-    if (prepared.digest || prepared.ntlm || prepared.awsv4)
-      throw new ProtoError("This authentication type cannot be used for gRPC");
+    const { settings, prepared, resolvedBody, secrets: all } = await loadGrpcRequest(input, req.signal);
+    secrets = all;
+    const grpcSettings = settings.grpc;
+    if (!grpcSettings) throw new HttpError(400, "Add .proto definitions or enable reflection first");
     if (resolvedBody.mode !== "raw" && resolvedBody.mode !== "none")
       throw new ProtoError("gRPC bodies must be raw JSON");
-    const secrets = credentialRedactionValues([...ctx.secrets, ...authCredentialValues(effectiveAuth)]);
 
-    const root = loadProtoRoot(grpcSettings.protos);
+    const root = grpcSettings.reflection
+      ? await reflectRoot(
+          {
+            url: prepared.url,
+            metadata: prepared.headers,
+            verifySsl: settings.verifySsl,
+            timeoutMs: settings.timeoutMs,
+          },
+          { policy: getPolicy(), signal: req.signal },
+        )
+      : loadProtoRoot(grpcSettings.protos);
     const { info } = resolveMethod(root, grpcSettings.service, grpcSettings.method);
     const messages = parseMessages(resolvedBody.mode === "raw" ? resolvedBody.raw : "", info.clientStreaming);
 
@@ -93,7 +78,7 @@ export const POST = route(async (req: Request) => {
     events.close();
     if (err instanceof HttpError) throw err;
     // Definition, message and host-policy problems are the caller's to fix.
-    throw new HttpError(400, redactStoredValue((err as Error).message, ctx.secrets));
+    throw new HttpError(400, redactStoredValue((err as Error).message, secrets));
   }
   return new Response(events.stream, {
     headers: {

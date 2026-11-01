@@ -70,7 +70,7 @@ export function buildMetadata(headers: GrpcMetadata): grpc.Metadata {
   return md;
 }
 
-const flatten = (md: grpc.Metadata): GrpcMetadata => {
+export const flattenMetadata = (md: grpc.Metadata): GrpcMetadata => {
   const out: GrpcMetadata = [];
   for (const key of Object.keys(md.getMap()))
     for (const v of md.get(key)) out.push([key, Buffer.isBuffer(v) ? v.toString("base64") : String(v)]);
@@ -85,6 +85,50 @@ function parseTarget(url: URL): { tls: boolean; hostname: string; port: number }
     tls,
     hostname: url.hostname.replace(/^\[|\]$/g, ""),
     port: Number(url.port) || (tls ? 443 : 80),
+  };
+}
+
+export interface GrpcTarget {
+  url: URL;
+  tls: boolean;
+  hostname: string;
+  /** One grpc-js target per resolved address, in resolver order. */
+  targets: string[];
+}
+
+/** Parse the URL and resolve the host; every resolved address must pass the host policy. */
+export async function resolveGrpcTarget(rawUrl: string, policy: HostPolicy): Promise<GrpcTarget> {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    throw new ProtoError(`Invalid URL: ${rawUrl}`);
+  }
+  const { tls, hostname, port } = parseTarget(url);
+  policy.assert(hostname);
+  const addresses = net.isIP(hostname)
+    ? [hostname]
+    : (await dns.lookup(hostname, { all: true })).map((a) => a.address);
+  // Every candidate must pass the policy, not just the one tried first.
+  for (const address of addresses) policy.assert(hostname, address);
+  const targets = addresses.map((a) => (net.isIPv6(a) ? `ipv6:[${a}]:${port}` : `ipv4:${a}:${port}`));
+  return { url, tls, hostname, targets };
+}
+
+export function grpcCredentials(t: GrpcTarget, verifySsl: boolean): grpc.ChannelCredentials {
+  return t.tls
+    ? grpc.credentials.createSsl(null, null, null, { rejectUnauthorized: verifySsl })
+    : grpc.credentials.createInsecure();
+}
+
+/** Channel settings that keep TLS names right and stop environment proxies bypassing the policy. */
+export function grpcChannelOptions(t: GrpcTarget): grpc.ChannelOptions {
+  return {
+    "grpc.enable_http_proxy": 0,
+    "grpc.max_receive_message_length": MAX_GRPC_MESSAGE_BYTES,
+    "grpc.max_send_message_length": MAX_GRPC_MESSAGE_BYTES,
+    "grpc.default_authority": t.url.host,
+    ...(t.tls && !net.isIP(t.hostname) ? { "grpc.ssl_target_name_override": t.hostname } : {}),
   };
 }
 
@@ -110,31 +154,10 @@ export async function startGrpcCall(
       throw new ProtoError(`Messages are limited to ${MAX_GRPC_MESSAGE_BYTES} bytes`);
   const metadata = buildMetadata(input.metadata);
 
-  let url: URL;
-  try {
-    url = new URL(input.url);
-  } catch {
-    throw new ProtoError(`Invalid URL: ${input.url}`);
-  }
-  const { tls, hostname, port } = parseTarget(url);
-  policy.assert(hostname);
-  const addresses = net.isIP(hostname)
-    ? [hostname]
-    : (await dns.lookup(hostname, { all: true })).map((a) => a.address);
-  // Every candidate must pass the policy, not just the one tried first.
-  for (const address of addresses) policy.assert(hostname, address);
-  const targets = addresses.map((a) => (net.isIPv6(a) ? `ipv6:[${a}]:${port}` : `ipv4:${a}:${port}`));
-
-  const credentials = tls
-    ? grpc.credentials.createSsl(null, null, null, { rejectUnauthorized: input.verifySsl })
-    : grpc.credentials.createInsecure();
-  const channelOptions: grpc.ChannelOptions = {
-    "grpc.enable_http_proxy": 0,
-    "grpc.max_receive_message_length": MAX_GRPC_MESSAGE_BYTES,
-    "grpc.max_send_message_length": MAX_GRPC_MESSAGE_BYTES,
-    "grpc.default_authority": url.host,
-    ...(tls && !net.isIP(hostname) ? { "grpc.ssl_target_name_override": hostname } : {}),
-  };
+  const target = await resolveGrpcTarget(input.url, policy);
+  const { url, targets } = target;
+  const credentials = grpcCredentials(target, input.verifySsl);
+  const channelOptions = grpcChannelOptions(target);
 
   const now = () => Date.now();
   // One absolute deadline covers every address tried.
@@ -236,7 +259,7 @@ export async function startGrpcCall(
 
       call.on("metadata", (md: grpc.Metadata) => {
         heardFromServer = true;
-        onEvent({ type: "metadata", metadata: flatten(md), at: now() });
+        onEvent({ type: "metadata", metadata: flattenMetadata(md), at: now() });
       });
       // Failures arrive as a status; the listener only stops Node treating them as uncaught.
       (call as NodeJS.EventEmitter).on("error", () => undefined);
@@ -259,7 +282,7 @@ export async function startGrpcCall(
           code: s.code,
           codeName: grpc.status[s.code] ?? String(s.code),
           details: s.details,
-          trailers: flatten(s.metadata),
+          trailers: flattenMetadata(s.metadata),
           at: now(),
         });
         finish();
