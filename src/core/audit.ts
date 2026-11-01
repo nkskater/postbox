@@ -15,6 +15,7 @@ export type AuditEntityKind =
   | "cookie"
   | "schedule"
   | "dataset"
+  | "scriptPackage"
   | "mock"
   | "grpcDefinition"
   | "member"
@@ -44,6 +45,7 @@ export const SAFE_FIELDS: Partial<Record<AuditEntityKind, readonly string[]>> = 
   variable: ["key", "scope", "type", "enabled"],
   schedule: ["name", "cron", "enabled", "folder_id", "environment_id", "dataset_id"],
   dataset: ["name", "description"],
+  scriptPackage: ["name", "description", "latest_version"],
   mock: ["name", "folder_id"],
   grpcDefinition: ["name"],
   cookie: ["domain", "path", "name"],
@@ -115,6 +117,7 @@ const SINGULAR: Record<string, string> = {
   environments: "environment",
   variables: "variable",
   datasets: "dataset",
+  "script-packages": "scriptPackage",
   mocks: "mock",
   schedules: "schedule",
   runs: "run",
@@ -132,6 +135,7 @@ const KIND_BY_SEGMENT: Record<string, AuditEntityKind> = {
   environments: "environment",
   variables: "variable",
   datasets: "dataset",
+  "script-packages": "scriptPackage",
   mocks: "mock",
   schedules: "schedule",
   runs: "run",

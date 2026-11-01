@@ -198,7 +198,10 @@ export async function runScript(
   const pump = () => {
     if (disposed) return;
     const r = runtime.executePendingJobs();
-    if (r.error) {jobError=describeError(vm,r.error);r.error.dispose();}
+    if (r.error) {
+      jobError = describeError(vm, r.error);
+      r.error.dispose();
+    }
   };
 
   const define = (name: string, fn: (...args: QuickJSHandle[]) => QuickJSHandle | void) => {
@@ -389,7 +392,10 @@ export async function runScript(
     let error: string | undefined;
     // Poll the guest promise rather than allocating host callbacks that can survive a timeout.
     while (true) {
-      if(jobError){error=jobError;break;}
+      if (jobError) {
+        error = jobError;
+        break;
+      }
       const outcome = vm.getPromiseState(evaluation);
       if (outcome.type === "fulfilled") {
         if (vm.typeof(outcome.value) === "string") error = vm.getString(outcome.value);

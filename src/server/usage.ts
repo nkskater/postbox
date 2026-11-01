@@ -263,9 +263,11 @@ const STORAGE_SQL = [
    FROM run_results rr JOIN runs r ON r.id = rr.run_id WHERE r.workspace_id = ?`,
   `SELECT COALESCE(SUM(LENGTH(CAST(dv.data AS BLOB))), 0) AS n
    FROM dataset_versions dv JOIN datasets d ON d.id = dv.dataset_id WHERE d.workspace_id = ?`,
+  `SELECT COALESCE(SUM(LENGTH(CAST(pv.source AS BLOB))), 0) AS n
+   FROM script_package_versions pv JOIN script_packages p ON p.id = pv.package_id WHERE p.workspace_id = ?`,
 ];
 
-/** Bytes retained for a workspace: history, run results and dataset versions. */
+/** Bytes retained for a workspace: history, run results, datasets and script packages. */
 export function storageBytes(workspaceId: string): number {
   const sqlite = getSqlite();
   return STORAGE_SQL.reduce(

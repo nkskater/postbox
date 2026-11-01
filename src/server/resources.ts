@@ -26,7 +26,7 @@ export const RESOURCE_TABLES: Record<ResourceKind, string> = {
   dataset: "datasets",
   mock: "mock_servers",
   grpcDefinition: "grpc_definitions",
-  scriptPackage:"script_packages",
+  scriptPackage: "script_packages",
 };
 export function resourceWorkspace(kind: ResourceKind, id: string): string {
   const row = getSqlite()

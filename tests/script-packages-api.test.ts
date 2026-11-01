@@ -48,6 +48,19 @@ const send = (ws: { id: string }, folder: { id: string }, testScript: string) =>
     request: repo.createRequest(ws.id, folder.id, { url: base, testScript }),
   });
 describe("versioned script packages", () => {
+  it("counts every retained version toward workspace storage without recording source in audit changes", async () => {
+    const { storageBytes } = await import("@/server/usage");
+    const { describeChange, entityKindOf } = await import("@/core/audit");
+    const ws = repo.createWorkspace("Package storage");
+    const before = storageBytes(ws.id);
+    const source = "exports.value=1; // é";
+    const pkg = packages.createScriptPackage(ws.id, { name: "metered", source });
+    expect(storageBytes(ws.id) - before).toBe(Buffer.byteLength(source));
+    packages.reviseScriptPackage(pkg.id, { expectedVersion: 1, source });
+    expect(storageBytes(ws.id) - before).toBe(Buffer.byteLength(source) * 2);
+    expect(entityKindOf("/api/script-packages/[id]/versions")).toBe("scriptPackage");
+    expect(JSON.stringify(describeChange("scriptPackage", {}, { source }))).not.toContain(source);
+  });
   it("creates immutable code, checks stale revisions and caches only immutable definitions", () => {
     const { ws, pkg } = setup();
     const first = packages.moduleSnapshot(ws.id),
