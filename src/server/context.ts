@@ -1,3 +1,5 @@
+import { renderVisualization } from "@/core/visualizer/render";
+import { redactSensitiveFields } from "@/core/retention";
 /**
  * Bridges the core executor with persistence: loads variable scopes, cookie jar
  * and inherited folder settings from SQLite, runs the request, then persists
@@ -304,6 +306,10 @@ export async function runSingleRequest(input: RunSingleInput): Promise<RunSingle
     ...queryCredentialValues(result.response?.url ?? ""),
     ...sensitiveFieldValues(result.response?.bodyText ?? ""),
   ]);
+  if (result.visualization) {
+    result.visualization = redactStoredValue(redactSensitiveFields(result.visualization), secrets);
+    result.visualizationResult = await renderVisualization(result.visualization, secrets, input.signal);
+  }
   const warnings = persistScopes(ctx, result.scopes);
   if (jar) repo.saveCookies(input.workspaceId, jar.getChanges());
 

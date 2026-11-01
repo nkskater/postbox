@@ -18,7 +18,7 @@ export const BOOTSTRAP_SOURCE = String.raw`
 "use strict";
 var __ctx = JSON.parse(__ctx_json);
 var __skipSignal = {};
-var __state = { tests: [], nextRequest: undefined, nextRequestSet: false, skip: false, pending: [], timers: {}, nextTimerId: 0, runRequestCount: 0, testCount: 0, asyncErrors: [], activeDone: undefined };
+var __state = { visualization: __ctx.visualization, tests: [], nextRequest: undefined, nextRequestSet: false, skip: false, pending: [], timers: {}, nextTimerId: 0, runRequestCount: 0, testCount: 0, asyncErrors: [], activeDone: undefined };
 
 // ---------------------------------------------------------------- utilities
 function __isObj(v) { return v !== null && typeof v === "object"; }
@@ -244,7 +244,17 @@ var pm = {
     };
   })(),
   vault: { get: __unsupported("pm.vault"), set: __unsupported("pm.vault"), unset: __unsupported("pm.vault") },
-  visualizer: { set: __unsupported("pm.visualizer") },
+  visualizer: {
+    set: function(template, data, options) {
+      if(typeof template!=="string")throw new Error("pm.visualizer.set expects a template string");
+      if(template.length>131072)throw new Error("Visualization template exceeds 128 KiB");
+      var value=JSON.parse(JSON.stringify({template:template,data:data===undefined?{}:data,options:options||{}}));
+      if(JSON.stringify(value).length>393216)throw new Error("Visualization data exceeds its limit");
+      __state.visualization=value;__state.visualizationSet=true;
+    },
+    get: function() {return __state.visualization?JSON.parse(JSON.stringify(__state.visualization)):null;},
+    clear: function(){__state.visualization=null;__state.visualizationSet=true;}
+  },
   datasets: __unsupported("pm.datasets"),
   mock: { create: __unsupported("pm.mock") },
   state: { get: __unsupported("pm.state"), set: __unsupported("pm.state"), unset: __unsupported("pm.state"), clear: __unsupported("pm.state") },
@@ -393,6 +403,8 @@ function __finalize() {
   var r = pm.request;
   return JSON.stringify({
     scopes: __scopes,
+    visualization: __state.visualization,
+    visualizationSet: __state.visualizationSet===true,
     tests: __state.tests,
     nextRequest: __state.nextRequest,
     nextRequestSet: __state.nextRequestSet,

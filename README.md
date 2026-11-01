@@ -588,3 +588,5 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the design. Planned work is tracked a
 ## License
 
 [MIT](LICENSE)
+
+Use **Visualization** in the response panel for offline tables and SVG charts from request scripts. See the [response visualization guide](docs/response-visualizer.md).

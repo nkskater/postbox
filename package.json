@@ -60,6 +60,8 @@
     "drizzle-orm": "^0.45.4",
     "fast-xml-parser": "5.11.2",
     "graphql": "^16.14.2",
+    "handlebars": "^4.7.10",
+    "linkedom": "^0.18.14",
     "lucide-react": "^1.64.0",
     "mqtt": "5.16.1",
     "nanoid": "^6.0.2",

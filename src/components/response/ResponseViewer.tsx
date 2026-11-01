@@ -192,6 +192,9 @@ export function ResponseViewer({
               </span>
             )}
           </TabsTrigger>
+          <TabsTrigger value="visualization" className="text-xs">
+            Visualization
+          </TabsTrigger>
           <TabsTrigger value="sent" className="text-xs">
             Request
           </TabsTrigger>
@@ -407,6 +410,26 @@ export function ResponseViewer({
         )}
       </TabsContent>
 
+      <TabsContent value="visualization" className="min-h-0 flex-1 overflow-auto p-3">
+        {result.visualizationResult?.error ? (
+          <p role="alert" className="text-sm text-destructive">
+            {result.visualizationResult.error}
+          </p>
+        ) : result.visualizationResult?.html ? (
+          <iframe
+            key={result.visualizationResult.html}
+            title="Response visualization"
+            sandbox=""
+            referrerPolicy="no-referrer"
+            className="h-full min-h-64 w-full rounded border bg-white"
+            srcDoc={result.visualizationResult.html}
+          />
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Use pm.visualizer.set(template, data) in a request script to create a table or chart.
+          </p>
+        )}
+      </TabsContent>
       <TabsContent value="headers" className="min-h-0 flex-1 overflow-auto p-3">
         <KeyValueTable rows={res?.headers ?? []} />
         {res?.trailers && res.trailers.length > 0 && (

@@ -2,6 +2,7 @@
 /**
  * JavaScript editor for pre-request / post-response scripts with a snippet list.
  */
+import { TABLE_VISUALIZER_EXAMPLE, CHART_VISUALIZER_EXAMPLE } from "@/core/visualizer/examples";
 import { CodeEditor } from "@/components/editor/CodeEditor";
 
 const PRE_SNIPPETS: { label: string; code: string }[] = [
@@ -24,6 +25,8 @@ const PRE_SNIPPETS: { label: string; code: string }[] = [
 ];
 
 const TEST_SNIPPETS: { label: string; code: string }[] = [
+  { label: "Visualize as a table", code: TABLE_VISUALIZER_EXAMPLE },
+  { label: "Visualize as a bar chart", code: CHART_VISUALIZER_EXAMPLE },
   {
     label: "Status code is 200",
     code: 'pm.test("Status code is 200", () => {\n  pm.response.to.have.status(200);\n});',

@@ -93,3 +93,5 @@ redaction, timeout cleanup, external cancellation, intervals and binary streams.
 References: [sandbox API](https://learning.postman.com/docs/tests-and-scripts/write-scripts/postman-sandbox-reference/overview/),
 [execution semantics](https://learning.postman.com/docs/tests-and-scripts/write-scripts/postman-sandbox-reference/pm-execution/),
 [test APIs](https://learning.postman.com/docs/tests-and-scripts/write-scripts/postman-sandbox-reference/pm-test-expect/).
+
+`pm.visualizer.set/get/clear` now supports isolated response tables and SVG charts. Template scripts use `pm.getData` and an offline DOM; external assets and browser capabilities are disabled. See [response visualizations](response-visualizer.md).

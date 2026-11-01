@@ -1,3 +1,4 @@
+import { visualizationSchema } from "./visualizer/model";
 /**
  * Runtime schemas for the domain model, shared by the REST API, the MCP server
  * and the script sandbox. Unknown keys are stripped; anything structurally wrong
@@ -381,6 +382,8 @@ const scopeValues = z.record(z.string(), z.string());
 
 /** What __finalize() hands back. User code can replace it, so nothing is trusted. */
 export const sandboxStateSchema = z.object({
+  visualization: visualizationSchema.nullable().optional(),
+  visualizationSet: z.boolean().optional(),
   scopes: z.object({
     globals: scopeValues,
     collection: scopeValues,
