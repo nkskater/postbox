@@ -28,10 +28,27 @@ export function executionSettings(env: NodeJS.ProcessEnv = process.env): Executi
 }
 
 /** Current run admission limits (read on every reservation so changes apply immediately). */
-export function runQueueLimits(env: NodeJS.ProcessEnv = process.env): { maxActive: number; maxQueued: number } {
+export function runQueueLimits(env: NodeJS.ProcessEnv = process.env): {
+  maxActive: number;
+  maxQueued: number;
+} {
   const { values } = resolveSettings(readSavedSettings(), env);
   return {
     maxActive: values["execution.maxActiveRuns"] as number,
     maxQueued: values["execution.maxQueuedRuns"] as number,
+  };
+}
+
+/** Current history retention rules (read on every recorded request so changes apply immediately). */
+export function historySettings(env: NodeJS.ProcessEnv = process.env): {
+  limit: number;
+  retentionDays: number;
+  skipSecrets: boolean;
+} {
+  const { values } = resolveSettings(readSavedSettings(), env);
+  return {
+    limit: values["history.limit"] as number,
+    retentionDays: values["history.retentionDays"] as number,
+    skipSecrets: values["history.skipSecrets"] as boolean,
   };
 }

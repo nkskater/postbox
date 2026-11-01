@@ -17,7 +17,8 @@ export type SettingCategory =
   | "variables"
   | "console"
   | "runner"
-  | "execution";
+  | "execution"
+  | "data";
 
 export const CATEGORIES: { id: SettingCategory; label: string; description: string }[] = [
   { id: "appearance", label: "Appearance", description: "Theme, colors, typography and density." },
@@ -41,6 +42,11 @@ export const CATEGORIES: { id: SettingCategory; label: string; description: stri
     id: "execution",
     label: "Request execution",
     description: "Server-side defaults for every request and script. Administrators only.",
+  },
+  {
+    id: "data",
+    label: "History & data",
+    description: "How long request history is kept, backups, and database maintenance. Administrators only.",
   },
 ];
 
@@ -794,6 +800,47 @@ export const SETTINGS: SettingDef[] = [
     min: 0,
     max: 500,
     keywords: ["runner", "queue", "backlog"],
+  },
+
+  // ---------------------------------------------------------------- history & data
+  {
+    key: "history.limit",
+    category: "data",
+    label: "History entries per workspace",
+    description: "Older entries are removed once a workspace has more than this many.",
+    type: "number",
+    scope: "server",
+    env: "HISTORY_LIMIT",
+    default: 500,
+    min: 10,
+    max: 20000,
+    step: 10,
+    keywords: ["history", "retention", "limit"],
+  },
+  {
+    key: "history.retentionDays",
+    category: "data",
+    label: "Keep history for",
+    description:
+      "Remove history entries older than this many days. 0 keeps them until the entry limit is reached.",
+    type: "number",
+    scope: "server",
+    default: 0,
+    min: 0,
+    max: 3650,
+    unit: "days",
+    keywords: ["history", "retention", "expire", "delete"],
+  },
+  {
+    key: "history.skipSecrets",
+    category: "data",
+    label: "Skip history for requests that use secrets",
+    description:
+      "Do not record a request in history when its sent URL, headers or body contain a secret variable or credential value.",
+    type: "boolean",
+    scope: "server",
+    default: false,
+    keywords: ["history", "secret", "privacy"],
   },
 ];
 

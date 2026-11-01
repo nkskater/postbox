@@ -1,0 +1,259 @@
+/**
+ * Full backup and restore of workspace data, plus database maintenance.
+ *
+ * A backup holds workspaces, collections, requests, environments, variables, datasets,
+ * schedules, workspace memberships and instance settings as one JSON document. It does not
+ * hold accounts, sessions, API tokens, run results, history or cookies. Secret values are
+ * stored in the database in plain text, so a backup that includes them must be handled like
+ * a credentials file; `includeSecrets: false` produces a best-effort scrubbed copy.
+ *
+ * These functions take the database as an argument so they can be tested against a fresh one.
+ */
+import fs from "node:fs";
+import { inArray, sql } from "drizzle-orm";
+import type { SQLiteTable } from "drizzle-orm/sqlite-core";
+import type Database from "better-sqlite3";
+import { z } from "zod";
+import { withoutAuthCredentials } from "@/core/retention";
+import { sanitizeSettings } from "@/lib/settings/registry";
+import { schema, type DB } from "./db";
+
+export const BACKUP_FORMAT = 1;
+
+const TABLES = {
+  workspaces: schema.workspaces,
+  folders: schema.folders,
+  environments: schema.environments,
+  variables: schema.variables,
+  requests: schema.requests,
+  datasets: schema.datasets,
+  datasetVersions: schema.datasetVersions,
+  schedules: schema.schedules,
+  workspaceMembers: schema.workspaceMembers,
+  appSettings: schema.appSettings,
+} as const;
+type TableName = keyof typeof TABLES;
+/** Insert order: parents before children. */
+const ORDER: TableName[] = [
+  "workspaces",
+  "folders",
+  "environments",
+  "variables",
+  "requests",
+  "datasets",
+  "datasetVersions",
+  "schedules",
+  "workspaceMembers",
+  "appSettings",
+];
+
+export interface Backup {
+  postboxBackup: typeof BACKUP_FORMAT;
+  exportedAt: string;
+  secretsIncluded: boolean;
+  tables: Record<TableName, Record<string, unknown>[]>;
+}
+
+const envelope = z.object({
+  postboxBackup: z.literal(BACKUP_FORMAT),
+  exportedAt: z.string().optional(),
+  secretsIncluded: z.boolean().optional(),
+  tables: z.object(
+    Object.fromEntries(
+      ORDER.map((t) => [t, z.array(z.record(z.string(), z.unknown())).default([])]),
+    ) as Record<TableName, z.ZodDefault<z.ZodArray<z.ZodRecord<z.ZodString, z.ZodUnknown>>>>,
+  ),
+});
+
+export class BackupError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BackupError";
+  }
+}
+
+const SENSITIVE_NAME = /authorization|cookie|token|password|secret|api[-_]?key|credential/i;
+type Row = { key?: unknown; value?: unknown; [k: string]: unknown };
+const maskHeaders = (rows: unknown) =>
+  Array.isArray(rows)
+    ? rows.map((row: Row) =>
+        typeof row?.key === "string" && SENSITIVE_NAME.test(row.key) ? { ...row, value: "" } : row,
+      )
+    : rows;
+
+export function createBackup(db: DB, opts: { includeSecrets: boolean }): Backup {
+  const tables = {} as Backup["tables"];
+  for (const name of ORDER) {
+    tables[name] = db.select().from(TABLES[name]).all() as Record<string, unknown>[];
+  }
+  if (!opts.includeSecrets) {
+    tables.variables = tables.variables.map((v) => (v.type === "secret" ? { ...v, value: "" } : v));
+    const scrub = (r: Record<string, unknown>) => ({
+      ...r,
+      auth: r.auth ? withoutAuthCredentials(r.auth as never) : r.auth,
+      headers: maskHeaders(r.headers),
+    });
+    tables.folders = tables.folders.map(scrub);
+    tables.requests = tables.requests.map(scrub);
+    tables.datasetVersions = tables.datasetVersions.map((v) => {
+      const secret = new Set((v.secretColumns as string[]) ?? []);
+      if (!secret.size) return v;
+      const data = v.table as { columns: string[]; rows: Record<string, string>[] };
+      return {
+        ...v,
+        missingSecrets: true,
+        table: {
+          columns: data.columns,
+          rows: data.rows.map((row) =>
+            Object.fromEntries(Object.entries(row).map(([k, val]) => [k, secret.has(k) ? "" : val])),
+          ),
+        },
+      };
+    });
+    tables.appSettings = tables.appSettings.map((s) =>
+      s.key === "execution.defaultHeaders" ? { ...s, value: maskHeaders(s.value) } : s,
+    );
+  }
+  return {
+    postboxBackup: BACKUP_FORMAT,
+    exportedAt: new Date().toISOString(),
+    secretsIncluded: opts.includeSecrets,
+    tables,
+  };
+}
+
+export type RestoreSummary = Record<TableName, number> & { skippedSettings: string[] };
+
+/** Insert in chunks so wide rows stay under SQLite's bound-parameter limit. */
+function insertAll(db: DB, name: TableName, rows: Record<string, unknown>[]) {
+  for (let i = 0; i < rows.length; i += 25) {
+    db.insert(TABLES[name])
+      .values(rows.slice(i, i + 25) as never)
+      .run();
+  }
+}
+
+/**
+ * Replace all workspace data with a backup, atomically. Run results, history and cookies of
+ * the replaced workspaces are removed with them. References to accounts that do not exist in
+ * this database (creators, memberships) are dropped rather than failing the restore.
+ */
+export function restoreBackup(db: DB, sqlite: Database.Database, input: unknown): RestoreSummary {
+  const parsed = envelope.safeParse(input);
+  if (!parsed.success)
+    throw new BackupError("This is not a Postbox backup file, or it comes from an unsupported version");
+  const tables = parsed.data.tables as Backup["tables"];
+
+  const users = new Set(
+    db
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .all()
+      .map((u) => u.id),
+  );
+  const known = (id: unknown) => typeof id === "string" && users.has(id);
+  const withCreator = (rows: Record<string, unknown>[]) =>
+    rows.map((r) => ("createdBy" in r && !known(r.createdBy) ? { ...r, createdBy: null } : r));
+
+  const { valid, errors } = sanitizeSettings(
+    Object.fromEntries(tables.appSettings.map((s) => [String(s.key), s.value])),
+  );
+  const savedAt = new Map(tables.appSettings.map((s) => [String(s.key), s.updatedAt]));
+  const settings = Object.entries(valid)
+    .filter(([, value]) => value !== null)
+    .map(([key, value]) => {
+      const at = savedAt.get(key);
+      return { key, value, updatedAt: typeof at === "number" ? at : Date.now() };
+    });
+
+  const rows: Record<TableName, Record<string, unknown>[]> = {
+    ...tables,
+    datasets: withCreator(tables.datasets),
+    datasetVersions: withCreator(tables.datasetVersions),
+    schedules: withCreator(tables.schedules),
+    workspaceMembers: tables.workspaceMembers.filter((m) => known(m.userId)),
+    appSettings: settings,
+  };
+
+  try {
+    sqlite.transaction(() => {
+      // Cross-table references (schedules -> datasets) are only consistent once everything is in.
+      sqlite.pragma("defer_foreign_keys = ON");
+      db.delete(schema.workspaces).run(); // cascades to everything workspace-scoped
+      db.delete(schema.appSettings).run();
+      for (const name of ORDER) insertAll(db, name, rows[name]);
+    })();
+  } catch (err) {
+    throw new BackupError(
+      `The backup could not be restored (nothing was changed): ${(err as Error).message}`,
+    );
+  }
+  return {
+    ...(Object.fromEntries(ORDER.map((name) => [name, rows[name].length])) as Record<TableName, number>),
+    skippedSettings: errors,
+  };
+}
+
+export interface DatabaseInfo {
+  path: string;
+  sizeBytes: number;
+  walBytes: number;
+  /** Space inside the file that VACUUM can give back. */
+  reclaimableBytes: number;
+  counts: Record<"workspaces" | "requests" | "history" | "cookies" | "runs" | "datasets", number>;
+}
+
+export function databaseInfo(db: DB, sqlite: Database.Database, file: string): DatabaseInfo {
+  const size = (path: string) => {
+    try {
+      return fs.statSync(path).size;
+    } catch {
+      return 0;
+    }
+  };
+  const count = (table: SQLiteTable) =>
+    (
+      db
+        .select({ n: sql<number>`count(*)` })
+        .from(table)
+        .get() as { n: number }
+    ).n;
+  const pageSize = sqlite.pragma("page_size", { simple: true }) as number;
+  const free = sqlite.pragma("freelist_count", { simple: true }) as number;
+  return {
+    path: file,
+    sizeBytes: size(file),
+    walBytes: size(`${file}-wal`),
+    reclaimableBytes: free * pageSize,
+    counts: {
+      workspaces: count(schema.workspaces),
+      requests: count(schema.requests),
+      history: count(schema.history),
+      cookies: count(schema.cookies),
+      runs: count(schema.runs),
+      datasets: count(schema.datasets),
+    },
+  };
+}
+
+/** Rewrite the database file without free pages. Returns the file sizes before and after. */
+export function compactDatabase(sqlite: Database.Database, file: string): { before: number; after: number } {
+  const total = () => {
+    const size = (p: string) => (fs.existsSync(p) ? fs.statSync(p).size : 0);
+    return size(file) + size(`${file}-wal`);
+  };
+  const before = total();
+  sqlite.pragma("wal_checkpoint(TRUNCATE)");
+  sqlite.exec("VACUUM");
+  sqlite.pragma("wal_checkpoint(TRUNCATE)");
+  return { before, after: total() };
+}
+
+export type ClearTarget = "history" | "cookies" | "runs";
+
+/** Delete history, cookies or run results, for one workspace or all of them. */
+export function clearData(db: DB, target: ClearTarget, workspaceIds?: string[]): number {
+  const table = { history: schema.history, cookies: schema.cookies, runs: schema.runs }[target];
+  const scoped = workspaceIds ? inArray(table.workspaceId, workspaceIds) : undefined;
+  return db.delete(table).where(scoped).run().changes;
+}

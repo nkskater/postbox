@@ -116,8 +116,9 @@ function NumberControl({
         onChange={(e) => onChange(Number(e.target.value))}
         className="flex-1 accent-primary"
       />
-      <span className="w-12 text-right text-xs tabular-nums">
+      <span className="min-w-12 shrink-0 text-right text-xs tabular-nums">
         {local}
+        {def.unit && def.unit.length > 2 ? " " : ""}
         {def.unit}
       </span>
     </div>

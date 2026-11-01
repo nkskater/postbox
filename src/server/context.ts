@@ -3,7 +3,7 @@
  * and inherited folder settings from SQLite, runs the request, then persists
  * variable changes, cookies and history.
  */
-import type { FolderDef, RequestDef, Variable } from "@/core/types";
+import type { AuthConfig, FolderDef, RequestDef, Variable } from "@/core/types";
 import { execute, type ExecuteResult, type SavedRequestResolver } from "@/core/executor";
 import { CookieJarStore } from "@/core/http/cookies";
 import { HostPolicy } from "@/core/http/policy";
@@ -11,11 +11,12 @@ import {
   emptyScopes,
   variablesToRecord,
   redactStoredValue,
+  REDACTION_MASK,
   type VariableScopes,
 } from "@/core/variables/resolver";
 import type { OAuth2Token } from "@/core/http/auth";
 import * as repo from "./repo";
-import { executionSettings } from "./execution-settings";
+import { executionSettings, historySettings } from "./execution-settings";
 import { authCredentialValues, credentialRedactionValues, sensitiveFieldValues } from "@/core/retention";
 
 let policy: HostPolicy | null = null;
@@ -239,6 +240,16 @@ export interface RunSingleResult extends ExecuteResult {
   historyId?: string;
 }
 
+/**
+ * True when the request used a secret variable or credential. The recorded "sent" request is
+ * already redacted, so a replaced value leaves the mask behind; a verbatim match is checked too.
+ */
+function usesSecrets(secrets: string[], sentText: string, auth?: AuthConfig): boolean {
+  if (sentText.includes(REDACTION_MASK)) return true;
+  const values = credentialRedactionValues([...secrets, ...(auth ? authCredentialValues(auth) : [])]);
+  return values.some((value) => sentText.includes(value));
+}
+
 /** Execute one request with full persistence (used by /api/proxy and MCP). */
 export async function runSingleRequest(input: RunSingleInput): Promise<RunSingleResult> {
   // Inherited auth, headers and scripts must come from the caller's workspace.
@@ -297,7 +308,11 @@ export async function runSingleRequest(input: RunSingleInput): Promise<RunSingle
   if (jar) repo.saveCookies(input.workspaceId, jar.getChanges());
 
   let historyId: string | undefined;
-  if (input.saveHistory !== false && !result.skipped) {
+  const retention = historySettings();
+  // The sent request is resolved, so a secret variable or credential value shows up in it verbatim.
+  const sentText = result.sent ? JSON.stringify(result.sent) : "";
+  const usedSecrets = retention.skipSecrets && usesSecrets(ctx.secrets, sentText, effectiveAuth);
+  if (input.saveHistory !== false && !result.skipped && !usedSecrets) {
     const entry = redactStoredValue(
       {
         workspaceId: input.workspaceId,
@@ -326,7 +341,7 @@ export async function runSingleRequest(input: RunSingleInput): Promise<RunSingle
     entry.workspaceId = input.workspaceId;
     entry.requestId = input.requestId ?? null;
     entry.request = { ...entry.request, id: input.request.id, folderId: input.folderId };
-    historyId = repo.addHistory(entry);
+    historyId = repo.addHistory(entry, retention);
   }
   return { ...result, warnings, historyId };
 }
