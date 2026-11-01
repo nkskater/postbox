@@ -1,3 +1,5 @@
+import * as catalog from "./catalog";
+import { catalogPublishSchema, catalogMetadataSchema, catalogSearchSchema } from "@/core/catalog/model";
 import * as documentation from "./documentation";
 import { publicationInputSchema } from "@/core/documentation/model";
 import { contractReport } from "@/core/contracts/report";
@@ -465,6 +467,122 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
     async ({ publicationId, workspaceId }) => {
       try {
         return okJson(documentation.importDocumentation(publicationId, workspaceId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "search_catalog",
+    {
+      title: "Search API Catalog",
+      description:
+        "Search only accessible public/team/private catalog metadata, with authorization applied before totals and pagination.",
+      inputSchema: { search: catalogSearchSchema.default({ query: "", tag: "", limit: 20, offset: 0 }) },
+    },
+    async ({ search }) => {
+      try {
+        return okJson(catalog.searchCatalog(search));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "get_catalog_entry",
+    {
+      title: "Get Catalog Entry Version",
+      description:
+        "Read an immutable sanitized catalog version; private/team access is checked. Omit version for latest.",
+      inputSchema: { entryId: z.string().min(1), version: z.number().int().positive().optional() },
+    },
+    async ({ entryId, version }) => {
+      try {
+        return okJson(catalog.getCatalogEntry(entryId, version));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "get_collection_catalog",
+    {
+      title: "Get Collection Catalog Publication",
+      description:
+        "Get accessible catalog metadata for a source collection and whether the caller may publish.",
+      inputSchema: { folderId: z.string().min(1) },
+    },
+    async ({ folderId }) => {
+      try {
+        return okJson(catalog.getFolderCatalog(folderId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "publish_catalog_entry",
+    {
+      title: "Publish Catalog Version",
+      description:
+        "Owner-only explicit sanitized version publication. Labels are unique/immutable. expectedRevision is 0 for a new or revoked entry.",
+      inputSchema: { folderId: z.string().min(1), publication: catalogPublishSchema },
+    },
+    async ({ folderId, publication }) => {
+      try {
+        return okJson(catalog.publishCatalog(folderId, publication));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "update_catalog_entry",
+    {
+      title: "Update Catalog Sharing and Metadata",
+      description:
+        "Owner-only metadata/sharing change without changing immutable content versions. Send full metadata and current expectedRevision.",
+      inputSchema: { folderId: z.string().min(1), metadata: catalogMetadataSchema },
+    },
+    async ({ folderId, metadata }) => {
+      try {
+        return okJson(catalog.updateCatalog(folderId, metadata));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "revoke_catalog_entry",
+    {
+      title: "Revoke Catalog Entry",
+      description: "Owner-only revoke all catalog versions, removing search/read/download/import access.",
+      inputSchema: { folderId: z.string().min(1) },
+    },
+    async ({ folderId }) => {
+      try {
+        return okJson(catalog.revokeCatalog(folderId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "import_catalog_entry",
+    {
+      title: "Import or Fork Catalog Version",
+      description:
+        "Explicitly create an independent sanitized collection from a permitted catalog version in a writable destination. Omit version for latest.",
+      inputSchema: {
+        entryId: z.string().min(1),
+        workspaceId: z.string().min(1),
+        version: z.number().int().positive().optional(),
+      },
+    },
+    async ({ entryId, workspaceId, version }) => {
+      try {
+        return okJson(catalog.importCatalog(entryId, workspaceId, version));
       } catch (error) {
         return errResult(error);
       }

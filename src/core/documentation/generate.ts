@@ -11,12 +11,12 @@ import { DOCUMENTATION_LIMITS as limits, type DocumentationSnapshot } from "./mo
 
 const sensitiveName = /authorization|cookie|token|password|secret|api[-_]?key|credential/i;
 
-/** Build a whitelist snapshot. No scripts, credentials, uploads, settings or original example requests survive. */
-export function generateDocumentation(
+/** Known values for sanitizing publication metadata with the same rules as its snapshot. */
+export function documentationRedactions(
   root: FolderNode,
   variables: Variable[],
   additionalSecrets: string[] = [],
-): DocumentationSnapshot {
+): string[] {
   const allSecrets = [
     ...additionalSecrets,
     ...variables.filter((v) => v.type === "secret").map((v) => v.value),
@@ -34,7 +34,16 @@ export function generateDocumentation(
   };
   gather(root);
   allSecrets.push(...sensitiveFieldValues(root));
-  const secrets = credentialRedactionValues(allSecrets);
+  return credentialRedactionValues(allSecrets);
+}
+
+/** Build a whitelist snapshot. No scripts, credentials, uploads, settings or original example requests survive. */
+export function generateDocumentation(
+  root: FolderNode,
+  variables: Variable[],
+  additionalSecrets: string[] = [],
+): DocumentationSnapshot {
+  const secrets = documentationRedactions(root, variables, additionalSecrets);
   const omissions = new Set<string>([
     "Credentials, variable values, scripts, request settings and upload bytes are omitted. Descriptions are displayed as text.",
   ]);

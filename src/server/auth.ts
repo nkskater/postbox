@@ -119,6 +119,7 @@ export function verifyLoginSecret(cfg: AuthConfig, secret: string): boolean {
 /** Routes reachable without authentication. */
 export function isPublicPath(pathname: string): boolean {
   return (
+    /^\/api\/catalog(?:\/[a-zA-Z0-9_-]+)?$/.test(pathname) ||
     /^\/api\/documentation\/[a-zA-Z0-9_-]+$/.test(pathname) ||
     pathname.startsWith("/mock/") ||
     pathname === "/login" ||

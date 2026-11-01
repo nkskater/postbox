@@ -27,6 +27,8 @@ export const BACKUP_FORMAT = 1;
 
 const TABLES = {
   documentationPublications: schema.documentationPublications,
+  catalogEntries: schema.catalogEntries,
+  catalogVersions: schema.catalogVersions,
   workspaces: schema.workspaces,
   grpcDefinitions: schema.grpcDefinitions,
   folders: schema.folders,
@@ -52,6 +54,8 @@ const ORDER: TableName[] = [
   "variables",
   "requests",
   "documentationPublications",
+  "catalogEntries",
+  "catalogVersions",
   "datasets",
   "datasetVersions",
   "schedules",
@@ -121,6 +125,17 @@ export function createBackup(db: DB, opts: { includeSecrets: boolean }): Backup 
         requestId: route.requestId,
         response: sanitizeExample(route.response, mockSecrets),
       })),
+    }));
+    tables.catalogVersions = tables.catalogVersions.map((version) => ({
+      ...version,
+      snapshot: redactStoredValue(version.snapshot, mockSecrets),
+    }));
+    tables.catalogEntries = tables.catalogEntries.map((entry) => ({
+      ...entry,
+      title: redactStoredValue(entry.title, mockSecrets),
+      description: redactStoredValue(entry.description, mockSecrets),
+      tags: redactStoredValue(entry.tags, mockSecrets),
+      owners: redactStoredValue(entry.owners, mockSecrets),
     }));
     tables.documentationPublications = tables.documentationPublications.map((publication) => ({
       ...publication,
@@ -217,6 +232,7 @@ export function restoreBackup(db: DB, sqlite: Database.Database, input: unknown)
 
   const rows: Record<TableName, Record<string, unknown>[]> = {
     ...tables,
+    catalogEntries: tables.catalogEntries.map((entry) => ({ ...entry, enabled: false })),
     documentationPublications: tables.documentationPublications.map((row) => ({ ...row, enabled: false })),
     grpcDefinitions: withCreator(tables.grpcDefinitions),
     datasets: withCreator(tables.datasets),

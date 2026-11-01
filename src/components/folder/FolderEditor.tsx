@@ -15,6 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { AuthEditor } from "@/components/request/AuthEditor";
 import { KeyValueEditor } from "@/components/request/KeyValueEditor";
 import { ScriptEditor } from "@/components/request/ScriptEditor";
+import { CatalogPublisher } from "@/components/catalog/CatalogPublisher";
 import { DocumentationEditor } from "./DocumentationEditor";
 import { VariablesEditor } from "@/components/env/VariablesEditor";
 
@@ -106,6 +107,11 @@ export function FolderEditor({ folderId }: { folderId: string }) {
             Post-response Script
           </TabsTrigger>
           {isCollection && (
+            <TabsTrigger value="catalog" className="text-xs">
+              Catalog publishing
+            </TabsTrigger>
+          )}
+          {isCollection && (
             <TabsTrigger value="documentation" className="text-xs">
               Documentation
             </TabsTrigger>
@@ -120,6 +126,11 @@ export function FolderEditor({ folderId }: { folderId: string }) {
           {isCollection && (
             <TabsContent value="documentation" className="mt-0">
               <DocumentationEditor key={folderId} folderId={folderId} />
+            </TabsContent>
+          )}
+          {isCollection && (
+            <TabsContent value="catalog" className="mt-0">
+              <CatalogPublisher key={folderId} folderId={folderId} name={data.name} />
             </TabsContent>
           )}
           <TabsContent value="overview" className="mt-0 max-w-3xl">
