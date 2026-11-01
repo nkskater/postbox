@@ -1852,6 +1852,57 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
     },
   );
   server.registerTool(
+    "test_mock_handler",
+    {
+      description:
+        "Run a mock handler (saved, by handlerId, or unsaved code) in the sandbox against a made-up request. Nothing is stored; pass state/count to rehearse a later call",
+      inputSchema: {
+        mockId: z.string(),
+        handlerId: z.string().max(64).optional(),
+        code: z.string().max(16384).optional(),
+        request: z
+          .object({
+            method: z.string().max(16).optional(),
+            path: z.string().max(500).optional(),
+            query: z
+              .array(z.tuple([z.string().max(500), z.string().max(2000)]))
+              .max(50)
+              .optional(),
+            headers: z.record(z.string().max(200), z.string().max(2000)).optional(),
+            body: z
+              .string()
+              .max(1024 * 1024)
+              .optional(),
+          })
+          .optional(),
+        state: z.record(z.string(), z.unknown()).optional(),
+        count: z.number().int().min(1).optional(),
+        session: z.string().max(64).optional(),
+      },
+    },
+    async ({ mockId, ...input }) => {
+      try {
+        return okJson(await mocks.testMockHandler(mockId, input));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "get_mock_state",
+    {
+      description: "Read the in-memory per-session state and call counts of a mock's handlers",
+      inputSchema: { mockId: z.string() },
+    },
+    async ({ mockId }) => {
+      try {
+        return okJson(mocks.inspectMockState(mockId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
     "clear_mock_logs",
     { description: "Clear retained mock request metadata", inputSchema: { mockId: z.string() } },
     async ({ mockId }) => {

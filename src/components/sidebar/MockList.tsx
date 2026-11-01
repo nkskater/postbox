@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { MockDocument, MockSummary } from "@/core/mocks/model";
 import { useApp } from "@/stores/app";
 import { useDialogs } from "@/stores/dialogs";
+import { MockHandlers } from "./MockHandlers";
 import { MockScenarios } from "./MockScenarios";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -325,11 +326,19 @@ function MockPanel({ workspaceId }: { workspaceId: string }) {
               {selected.routeCount} examples.
             </p>
             <p className="text-muted-foreground">
-              Snapshots change only when refreshed. No request scripts run; failure simulations are fixed
-              rules. Logs retain matched templates and status, without incoming query values, headers or
-              bodies.
+              Snapshots change only when refreshed. Request scripts do not run; failure simulations are fixed
+              rules, and handlers run only in a sandbox. Logs retain matched templates and status, without
+              incoming query values, headers or bodies.
             </p>
             <MockScenarios
+              mock={selected}
+              busy={busy}
+              onChanged={(updated) => {
+                setSelected(updated);
+                void refresh();
+              }}
+            />
+            <MockHandlers
               mock={selected}
               busy={busy}
               onChanged={(updated) => {

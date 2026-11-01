@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { KeyValue, ResponseExample } from "../types";
 import type { MockCandidate } from "./matcher";
+import { handlersSchema, type MockHandler } from "./handlers";
 import { scenariosSchema, type Scenario } from "./scenarios";
 export interface MockRoute extends MockCandidate {
   requestId: string;
@@ -20,6 +21,8 @@ const settingsFields = {
     .max(100),
   /** Failure simulations applied to every request, with counters kept per session. */
   scenarios: scenariosSchema,
+  /** Sandboxed JavaScript that can compute the response; run after the failure simulations. */
+  handlers: handlersSchema,
 };
 export const mockSettingsSchema = z.object({
   ...settingsFields,
@@ -31,6 +34,7 @@ export const mockSettingsSchema = z.object({
   status: settingsFields.status.default(null),
   headers: settingsFields.headers.default([]),
   scenarios: settingsFields.scenarios.default([]),
+  handlers: settingsFields.handlers.default([]),
 });
 export const mockCreateSchema = mockSettingsSchema.extend({
   workspaceId: z.string().min(1),
@@ -51,6 +55,7 @@ export interface MockSummary {
   status: number | null;
   headers: KeyValue[];
   scenarios: Scenario[];
+  handlers: MockHandler[];
   revision: number;
   routeCount: number;
   createdAt: number;

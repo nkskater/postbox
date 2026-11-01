@@ -81,7 +81,41 @@ function handler(req: http.IncomingMessage, res: http.ServerResponse) {
       case "GET /api/mocks/m1/logs":
         return reply(200, [{ id: "l1", method: "GET", path: "/pets", status: 200 }]);
       case "POST /api/mocks/m1/reset":
-        return reply(200, { ok: true });
+        return reply(200, { ok: true, cleared: JSON.parse(body || "{}").session ? 1 : 3 });
+      case "POST /api/mocks":
+        return reply(201, {
+          id: "m2",
+          name: JSON.parse(body).name,
+          key: "k_once",
+          received: JSON.parse(body),
+        });
+      case "GET /api/mocks/m1":
+        return reply(200, {
+          id: "m1",
+          handlers: [
+            { id: "old", name: "Old", enabled: true, match: {}, code: "return" },
+            { id: "keep", name: "Keep", enabled: true, match: {}, code: "return" },
+          ],
+        });
+      case "PATCH /api/mocks/m1":
+        return reply(200, { id: "m1", handlers: JSON.parse(body).handlers });
+      case "GET /api/mocks/m1/state":
+        return reply(200, { sessions: [{ session: "a", state: { n: 2 }, counts: { h: 2 } }] });
+      case "POST /api/mocks/m1/handlers/test": {
+        const input = JSON.parse(body);
+        return reply(
+          200,
+          input.code.includes("boom")
+            ? { ok: false, error: "boom", logs: ["hello"], state: {}, ms: 1 }
+            : {
+                ok: true,
+                result: { json: { path: input.request.path } },
+                state: input.state,
+                logs: [],
+                ms: 1,
+              },
+        );
+      }
       case "DELETE /api/mocks/m1":
         return reply(200, { ok: true });
       case "GET /api/limited":
@@ -300,6 +334,85 @@ describe("postbox management commands", () => {
     expect((await invoke(["mock", "delete", "m1"], authed())).code).toBe(2);
     expect((await invoke(["mock", "delete", "m1", "-y"], authed())).code).toBe(0);
     expect(seen.filter((entry) => entry.method === "DELETE")).toHaveLength(1);
+  });
+
+  it("launches mocks, resets sessions and manages handlers", async () => {
+    seen.length = 0;
+    const handlers = path.join(directory, "handlers.json");
+    await writeFile(handlers, '[{"id":"h","name":"H","code":"return"}]');
+    const launched = JSON.parse(
+      (
+        await invoke(
+          ["mock", "launch", "c1", "-w", "w1", "--name", "Pets", "--handlers", handlers, "-o", "json"],
+          authed(),
+        )
+      ).stdout,
+    );
+    expect(launched).toMatchObject({ id: "m2", key: "k_once", url: `${base}/mock/m2` });
+    const created = JSON.parse(seen.find((e) => e.method === "POST" && e.url === "/api/mocks")!.body);
+    expect(created).toMatchObject({
+      workspaceId: "w1",
+      folderId: "c1",
+      name: "Pets",
+      handlers: [{ id: "h" }],
+    });
+    expect(created).not.toHaveProperty("public");
+
+    const one = await invoke(["mock", "reset", "m1", "--session", "ci-1"], authed());
+    expect(one.stdout).toContain("session ci-1 (1 cleared)");
+    expect(JSON.parse(seen.filter((e) => e.url === "/api/mocks/m1/reset").at(-1)!.body)).toEqual({
+      session: "ci-1",
+    });
+    expect((await invoke(["mock", "reset", "m1"], authed())).stdout).toContain("(3 cleared)");
+
+    const state = JSON.parse((await invoke(["mock", "state", "m1", "-o", "json"], authed())).stdout);
+    expect(state.sessions[0]).toMatchObject({ session: "a", state: { n: 2 } });
+
+    const file = path.join(directory, "price-quote.js");
+    await writeFile(file, 'state.set("n", 1); return { json: 1 }');
+    seen.length = 0;
+    await invoke(
+      ["mock", "handler", "set", "m1", file, "--method", "post", "--path", "/q/:id", "-o", "json"],
+      authed(),
+    );
+    const patch = JSON.parse(seen.find((e) => e.method === "PATCH")!.body).handlers;
+    expect(patch.map((h: { id: string }) => h.id)).toEqual(["old", "keep", "price-quote"]);
+    expect(patch[2]).toMatchObject({
+      enabled: true,
+      match: { method: "POST", path: "/q/:id" },
+      code: 'state.set("n", 1); return { json: 1 }',
+    });
+    await invoke(
+      ["mock", "handler", "set", "m1", file, "--id", "keep", "--disabled", "-o", "json"],
+      authed(),
+    );
+    const replaced = JSON.parse(seen.filter((e) => e.method === "PATCH").at(-1)!.body).handlers;
+    expect(replaced.map((h: { id: string }) => h.id)).toEqual(["old", "keep"]);
+    expect(replaced[1].enabled).toBe(false);
+
+    const tested = await invoke(
+      ["mock", "handler", "test", "m1", file, "--path", "/q/7", "--state", '{"n":4}', "-o", "json"],
+      authed(),
+    );
+    expect(JSON.parse(tested.stdout)).toMatchObject({
+      ok: true,
+      result: { json: { path: "/q/7" } },
+      state: { n: 4 },
+    });
+    const bad = path.join(directory, "bad.js");
+    await writeFile(bad, "boom");
+    const failed = await invoke(["mock", "handler", "test", "m1", bad, "-o", "json"], authed());
+    expect(failed.code).toBe(1);
+    expect(failed.stderr).toContain("log: hello");
+    expect((await invoke(["mock", "handler", "test", "m1", file, "--state", "{"], authed())).code).toBe(2);
+
+    expect((await invoke(["mock", "handler", "delete", "m1", "old"], authed())).code).toBe(0);
+    expect(
+      JSON.parse(seen.filter((e) => e.method === "PATCH").at(-1)!.body).handlers.map(
+        (h: { id: string }) => h.id,
+      ),
+    ).toEqual(["keep"]);
+    expect((await invoke(["mock", "handler", "delete", "m1", "nope"], authed())).code).toBe(4);
   });
 
   it("stores profiles privately and masks tokens when listing", async () => {

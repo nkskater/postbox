@@ -11,6 +11,16 @@ import {
   evaluateScenarios,
   parseSession,
 } from "@/core/mocks/scenarios";
+import {
+  HandlerState,
+  handlerApplies,
+  handlerHeaders,
+  runHandler,
+  type HandlerInput,
+  type HandlerResult,
+  type HandlerRun,
+  type StateValues,
+} from "@/core/mocks/handlers";
 import { requestFromExample, sanitizeExample } from "@/core/examples";
 import { credentialRedactionValues, redactSensitiveFields } from "@/core/retention";
 import { redactStoredValue } from "@/core/variables/resolver";
@@ -27,6 +37,10 @@ const { mockServers, mockLogs, variables } = schema;
 const scenarioState = ((
   globalThis as unknown as { __postboxScenarioState?: ScenarioState }
 ).__postboxScenarioState ??= new ScenarioState());
+/** Handler state is likewise test-session data held in memory. */
+const handlerState = ((
+  globalThis as unknown as { __postboxHandlerState?: HandlerState }
+).__postboxHandlerState ??= new HandlerState());
 const hash = (key: string) => createHash("sha256").update(key).digest("hex");
 const row = (id: string) => {
   const result = getDb().select().from(mockServers).where(eq(mockServers.id, id)).get();
@@ -187,6 +201,7 @@ export function updateMock(id: string, raw: z.input<typeof mockPatchSchema>) {
     .run();
   // Counters belong to the scenarios as defined; a changed set starts every session over.
   if (patch.scenarios) scenarioState.reset(id);
+  if (patch.handlers) handlerState.reset(id);
   return getMock(id);
 }
 export function refreshMock(id: string) {
@@ -213,6 +228,7 @@ export function deleteMock(id: string) {
   row(id);
   getDb().delete(mockServers).where(eq(mockServers.id, id)).run();
   scenarioState.reset(id);
+  handlerState.reset(id);
   return { ok: true };
 }
 /** Restart the failure simulations of one session (or every session) so a test run starts clean. */
@@ -220,7 +236,90 @@ export function resetMockState(id: string, session?: string) {
   row(id);
   if (session !== undefined && parseSession(session) === null)
     throw new HttpError(400, "Invalid session name");
-  return { ok: true, cleared: scenarioState.reset(id, session) };
+  return { ok: true, cleared: Math.max(scenarioState.reset(id, session), handlerState.reset(id, session)) };
+}
+
+/** Per-session handler state and call counts, for debugging. */
+export function inspectMockState(id: string) {
+  row(id);
+  return { sessions: handlerState.inspect(id) };
+}
+
+export interface HandlerTestInput {
+  /** Handler to run: a saved one by id, or unsaved code. */
+  handlerId?: string;
+  code?: string;
+  request?: {
+    method?: string;
+    path?: string;
+    query?: [string, string][];
+    headers?: Record<string, string>;
+    body?: string;
+  };
+  state?: StateValues;
+  count?: number;
+  session?: string;
+  /** Use the mock's saved example with this id (or the first one matching the path) as `example`. */
+  exampleId?: string;
+}
+
+/** Run a handler against a made-up request without touching saved session state. */
+export async function testMockHandler(
+  id: string,
+  input: HandlerTestInput,
+): Promise<HandlerRun & { state: StateValues }> {
+  const record = row(id);
+  const saved = input.handlerId ? (record.handlers ?? []).find((h) => h.id === input.handlerId) : undefined;
+  if (input.handlerId && !saved) throw notFound("Handler");
+  const code = input.code ?? saved?.code;
+  if (code === undefined) throw new HttpError(400, "Provide code or a handlerId");
+  const session = input.session ?? "test";
+  if (parseSession(session) === null) throw new HttpError(400, "Invalid session name");
+  const method = (input.request?.method ?? "GET").toUpperCase();
+  const path = input.request?.path ?? "/";
+  if (!/^[A-Z]{1,16}$/.test(method) || !path.startsWith("/"))
+    throw new HttpError(400, "Invalid test request");
+  const bodyText = input.request?.body ?? "";
+  const route = input.exampleId
+    ? record.routes.find((r) => r.id === input.exampleId)
+    : matchMock(
+        record.routes,
+        { method, path, query: input.request?.query ?? [], body: bodyText },
+        { matchQuery: false, matchBody: false },
+      );
+  if (input.exampleId && !route) throw notFound("Example");
+  const handlerInput: HandlerInput = {
+    request: {
+      method,
+      path,
+      query: input.request?.query ?? [],
+      headers: input.request?.headers ?? {},
+      body: bodyText,
+    },
+    example: route ? exampleOf(sanitizeExample(route.response, secrets(record.workspaceId)), route.id) : null,
+    state: input.state ?? {},
+    count: input.count ?? 1,
+    session,
+    mockId: id,
+    handlerId: saved?.id ?? input.handlerId ?? "test",
+  };
+  const run = await runHandler(code, handlerInput);
+  return { ...run, state: run.ok ? run.state : handlerInput.state };
+}
+
+function exampleOf(
+  response: { name: string; status: number; headers: KeyValue[]; body: string; bodyEncoding?: string },
+  id: string,
+) {
+  return {
+    id,
+    name: response.name,
+    status: response.status,
+    headers: Object.fromEntries(
+      response.headers.filter((h) => h.enabled).map((h) => [h.key.toLowerCase(), h.value]),
+    ),
+    body: response.bodyEncoding === "base64" ? null : response.body,
+  };
 }
 export function listMockLogs(id: string) {
   row(id);
@@ -327,7 +426,49 @@ export async function serveMock(request: Request, id: string) {
         }, delayMs);
         request.signal.addEventListener("abort", abort, { once: true });
       });
-    const status = failure ? failure.status : selected ? (record.status ?? selected.status) : 404;
+    // A handler runs for requests that no failure simulation has already answered.
+    let handled: { result: HandlerResult | null; id: string; name: string } | null = null;
+    let handlerFailure: { id: string; name: string; message: string } | null = null;
+    const handler = failure
+      ? undefined
+      : (record.handlers ?? []).find((h) => handlerApplies(h, { method: request.method, path }));
+    if (handler) {
+      const example = selected ? exampleOf(selected.response, selected.id) : null;
+      const run = await handlerState.serialize(id, session, async () => {
+        const turn = handlerState.begin(id, session, handler.id, Date.now());
+        const outcomeRun = await runHandler(handler.code, {
+          request: {
+            method: request.method,
+            path,
+            query: [...url.searchParams],
+            headers: handlerHeaders(request.headers),
+            body,
+          },
+          example,
+          state: turn.state,
+          count: turn.count,
+          session,
+          mockId: id,
+          handlerId: handler.id,
+        });
+        if (outcomeRun.ok)
+          handlerState.commit(id, session, handler.id, turn.count, outcomeRun.state, Date.now());
+        else handlerState.countOnly(id, session, handler.id, turn.count, Date.now());
+        return outcomeRun;
+      });
+      if (run.ok) handled = { result: run.result, id: handler.id, name: handler.name };
+      else handlerFailure = { id: handler.id, name: handler.name, message: run.error };
+    }
+    const custom = handled?.result ?? null;
+    const status = failure
+      ? failure.status
+      : handlerFailure
+        ? 500
+        : custom
+          ? (custom.status ?? record.status ?? selected?.status ?? 200)
+          : selected
+            ? (record.status ?? selected.status)
+            : 404;
     getDb().transaction((tx) => {
       tx.insert(mockLogs)
         .values({
@@ -336,7 +477,10 @@ export async function serveMock(request: Request, id: string) {
           method: request.method,
           path: selected ? redactStoredValue(selected.path, secrets(record.workspaceId)) : "[unmatched]",
           status,
-          exampleId: failure ? null : (selected?.id ?? null),
+          exampleId:
+            failure || handlerFailure || custom?.body !== undefined || custom?.json !== undefined
+              ? null
+              : (selected?.id ?? null),
           durationMs: Date.now() - started,
           createdAt: Date.now(),
         })
@@ -370,20 +514,56 @@ export async function serveMock(request: Request, id: string) {
         { status, headers: simulated },
       );
     }
-    if (!selected) return error(404, "No saved example matched the request");
+    if (handlerFailure) {
+      const failed = new Headers();
+      for (const [name, value] of Object.entries(secure)) failed.set(name, value);
+      failed.set("Content-Type", "application/json");
+      failed.set("X-Postbox-Mock-Handler", handlerFailure.id);
+      failed.set("X-Postbox-Mock-Session", session);
+      return new Response(
+        request.method === "HEAD"
+          ? null
+          : redactStoredValue(
+              JSON.stringify({
+                error: "Mock handler failed",
+                handler: handlerFailure.name,
+                detail: handlerFailure.message.slice(0, 500),
+              }),
+              secrets(record.workspaceId),
+            ),
+        { status, headers: failed },
+      );
+    }
+    if (!selected && !custom) return error(404, "No saved example matched the request");
+    const ownBody = custom !== null && (custom.body !== undefined || custom.json !== undefined);
     const headers = new Headers();
-    for (const header of [...selected.response.headers, ...safeHeaders(record.headers, record.workspaceId)])
+    const rows: KeyValue[] = [
+      ...(selected && !ownBody ? selected.response.headers : []),
+      ...safeHeaders(record.headers, record.workspaceId),
+      ...Object.entries(custom?.headers ?? {}).map(([key, value]) => ({ key, value, enabled: true })),
+    ];
+    for (const header of rows)
       if (header.enabled && !blockedHeaders.has(header.key.toLowerCase()))
         headers.set(header.key, header.value);
     for (const [name, value] of outcome.headers) headers.set(name, value);
     for (const [name, value] of Object.entries(secure)) headers.set(name, value);
-    headers.set("X-Postbox-Mock-Example", selected.id);
+    if (selected && !ownBody) headers.set("X-Postbox-Mock-Example", selected.id);
+    if (handled) headers.set("X-Postbox-Mock-Handler", handled.id);
     headers.set("X-Postbox-Mock-Session", session);
+    if (custom?.contentType) headers.set("Content-Type", custom.contentType);
+    else if (custom?.json !== undefined && !headers.has("Content-Type"))
+      headers.set("Content-Type", "application/json");
     if (!headers.has("Content-Type")) headers.set("Content-Type", "text/plain; charset=utf-8");
-    const responseBody =
-      selected.response.bodyEncoding === "base64"
-        ? Buffer.from(selected.response.body, "base64")
-        : selected.response.body;
+    const responseBody = ownBody
+      ? redactStoredValue(
+          custom!.json !== undefined ? JSON.stringify(custom!.json) : String(custom!.body),
+          secrets(record.workspaceId),
+        )
+      : selected
+        ? selected.response.bodyEncoding === "base64"
+          ? Buffer.from(selected.response.body, "base64")
+          : selected.response.body
+        : "";
     return new Response(request.method === "HEAD" || [204, 205, 304].includes(status) ? null : responseBody, {
       status,
       headers,
