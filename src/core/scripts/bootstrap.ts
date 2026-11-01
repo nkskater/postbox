@@ -97,6 +97,28 @@ globalThis.require = function (name) {
   if (name === "buffer") return { Buffer: __libraries.Buffer };
   throw new Error("Module '" + name + "' is not available in the Postbox sandbox");
 };
+// Module factories and exports live only inside this fresh guest runtime.
+var __moduleCache=Object.create(null),__moduleLoading=Object.create(null);
+var __packageSnapshot=__ctx.scriptModules||{modules:{},aliases:{}};
+var __builtins={chai:__libraries.chai,"postman-collection":__sdk,buffer:{Buffer:__libraries.Buffer},lodash:__libraries.lodash,ajv:__libraries.Ajv};
+var __approved=Object.create(null);
+__approvedPackageCatalog.forEach(function(item){__approved[item.specifier]=item.name;});
+function __packageRequire(specifier){
+ if(typeof specifier!=="string")throw new Error("pm.require expects a package specifier");
+ if(Object.prototype.hasOwnProperty.call(__approved,specifier))return __builtins[__approved[specifier]];
+ var canonical=Object.prototype.hasOwnProperty.call(__packageSnapshot.aliases,specifier)?__packageSnapshot.aliases[specifier]:specifier;
+ if(!Object.prototype.hasOwnProperty.call(__packageSnapshot.modules,canonical))throw new Error("Package '"+specifier+"' is unavailable or not approved; use a pinned bundled or workspace package");
+ if(Object.prototype.hasOwnProperty.call(__moduleCache,canonical))return __moduleCache[canonical].exports;
+ if(__moduleLoading[canonical])throw new Error("Cyclic package import: "+canonical);
+ __moduleLoading[canonical]=true;
+ try{
+  var module={exports:{}};
+  var localRequire=function(name){if(name==="chai"||name==="postman-collection"||name==="buffer")return __builtins[name];return __packageRequire(name);};
+  new Function("module","exports","require","pm", '"use strict";\n'+__packageSnapshot.modules[canonical].source)(module,module.exports,localRequire,pm);
+  __moduleCache[canonical]=module;
+  return module.exports;
+ }finally{delete __moduleLoading[canonical];}
+}
 function __unsupported(name) {
   return function () { throw new Error(name + " is not supported in Postbox scripts"); };
 }
@@ -258,7 +280,7 @@ var pm = {
   datasets: __unsupported("pm.datasets"),
   mock: { create: __unsupported("pm.mock") },
   state: { get: __unsupported("pm.state"), set: __unsupported("pm.state"), unset: __unsupported("pm.state"), clear: __unsupported("pm.state") },
-  require: __unsupported("pm.require"),
+  require: __packageRequire,
   expect: __expect,
   test: function (name, fn) {
     __state.testCount++;

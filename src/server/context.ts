@@ -1,3 +1,4 @@
+import { moduleSnapshot } from "./script-packages";
 import { renderVisualization } from "@/core/visualizer/render";
 import { assertStorage, reserveUsage } from "./usage";
 import { redactSensitiveFields } from "@/core/retention";
@@ -277,6 +278,7 @@ export async function runSingleRequest(input: RunSingleInput): Promise<RunSingle
       : new CookieJarStore(repo.listCookies(input.workspaceId));
 
   const result = await execute({
+    scriptModules: moduleSnapshot(input.workspaceId),
     request: input.request,
     resolveRequest: savedRequestResolver(input.workspaceId, input.environmentId, ctx.secrets),
     ancestors: chain,

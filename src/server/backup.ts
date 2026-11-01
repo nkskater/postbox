@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { sanitizeExample } from "@/core/examples";
 import { credentialRedactionValues, sensitiveFieldValues } from "@/core/retention";
 import { redactStoredValue } from "@/core/variables/resolver";
@@ -36,6 +36,8 @@ const TABLES = {
   datasetVersions: schema.datasetVersions,
   schedules: schema.schedules,
   mockServers: schema.mockServers,
+  scriptPackages: schema.scriptPackages,
+  scriptPackageVersions: schema.scriptPackageVersions,
   workspaceMembers: schema.workspaceMembers,
   appSettings: schema.appSettings,
 } as const;
@@ -52,6 +54,8 @@ const ORDER: TableName[] = [
   "datasetVersions",
   "schedules",
   "mockServers",
+  "scriptPackages",
+  "scriptPackageVersions",
   "workspaceMembers",
   "appSettings",
 ];
@@ -116,6 +120,16 @@ export function createBackup(db: DB, opts: { includeSecrets: boolean }): Backup 
         response: sanitizeExample(route.response, mockSecrets),
       })),
     }));
+    tables.scriptPackageVersions = tables.scriptPackageVersions.map((version) => {
+      const source = redactStoredValue(String(version.source), mockSecrets);
+      return {
+        ...version,
+        source,
+        hash: createHash("sha256").update(source).digest("hex"),
+        approved: false,
+        approvedBy: null,
+      };
+    });
     tables.variables = tables.variables.map((v) => (v.type === "secret" ? { ...v, value: "" } : v));
     const scrub = (r: Record<string, unknown>) => ({
       ...r,
@@ -201,6 +215,11 @@ export function restoreBackup(db: DB, sqlite: Database.Database, input: unknown)
     datasets: withCreator(tables.datasets),
     datasetVersions: withCreator(tables.datasetVersions),
     schedules: withCreator(tables.schedules),
+    scriptPackageVersions: withCreator(tables.scriptPackageVersions).map((version) => ({
+      ...version,
+      approved: false,
+      approvedBy: null,
+    })),
     workspaceMembers: tables.workspaceMembers.filter((m) => known(m.userId)),
     appSettings: settings,
   };

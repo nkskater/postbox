@@ -4,6 +4,18 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
+const approvedCatalog = JSON.parse(
+  await readFile(new URL("../src/core/packages/catalog.json", import.meta.url), "utf8"),
+);
+for (const entry of approvedCatalog) {
+  const installed = JSON.parse(
+    await readFile(path.join(root, "node_modules", entry.name, "package.json"), "utf8"),
+  );
+  if (installed.version !== entry.version)
+    throw new Error(
+      `Approved sandbox library ${entry.name} changed from ${entry.version} to ${installed.version}; review and update its catalog pin`,
+    );
+}
 const result = await build({
   absWorkingDir: root,
   entryPoints: ["scripts/sandbox/libraries.js"],
@@ -49,6 +61,9 @@ for (const input of Object.keys(result.metafile.inputs)) {
 }
 const bundledSource =
   result.outputFiles[0].text +
+  "\nglobalThis.__approvedPackageCatalog=" +
+  JSON.stringify(approvedCatalog) +
+  ";\n" +
   "\n/*\n" +
   [...notices.values()].sort().join("\n\n").replaceAll("*/", "* /") +
   "\n*/\n";

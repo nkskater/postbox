@@ -95,3 +95,5 @@ References: [sandbox API](https://learning.postman.com/docs/tests-and-scripts/wr
 [test APIs](https://learning.postman.com/docs/tests-and-scripts/write-scripts/postman-sandbox-reference/pm-test-expect/).
 
 `pm.visualizer.set/get/clear` now supports isolated response tables and SVG charts. Template scripts use `pm.getData` and an offline DOM; external assets and browser capabilities are disabled. See [response visualizations](response-visualizer.md).
+
+`pm.require` supports pinned approved bundled libraries and versioned workspace packages. Source is immutable, owner approval is required, and evaluated modules remain local to each script isolate. See [script packages](script-packages.md).

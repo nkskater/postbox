@@ -1,3 +1,4 @@
+import type { ModuleSnapshot } from "../packages/model";
 /**
  * Collection runner engine: runs every request of a folder/collection
  * sequentially for N iterations, with iteration data, delays, stop-on-failure
@@ -104,6 +105,7 @@ export interface RunCollectionInput {
   retainResults?: boolean;
   oauth2CacheScope?: string;
   scriptLimits?: Partial<ScriptLimits>;
+  scriptModules?: ModuleSnapshot;
   requestDefaults?: RequestDefaults;
   onExecution?: (item: RunItem, result: ExecuteResult) => void;
 }
@@ -253,6 +255,7 @@ export async function runCollection(
         overrides: { timeoutMs: opts.timeoutMs, verifySsl: opts.verifySsl },
         oauth2CacheScope: input.oauth2CacheScope,
         scriptLimits: input.scriptLimits,
+        scriptModules: input.scriptModules,
         requestDefaults: input.requestDefaults,
       });
       input.onExecution?.(item, r);
