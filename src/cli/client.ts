@@ -11,7 +11,7 @@ export interface RequestOptions {
 /** Minimal client for the Postbox REST API; it talks to a running server, never the database. */
 export class ApiClient {
   constructor(
-    private readonly base: string,
+    readonly base: string,
     private readonly token?: string,
     private readonly fetchImpl: Fetch = fetch,
     private readonly timeoutMs = 30_000,

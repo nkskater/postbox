@@ -1,6 +1,7 @@
 import type { DocumentationSnapshot } from "@/core/documentation/model";
 import type { RequestContract } from "@/core/contracts/model";
 import type { MockRoute } from "@/core/mocks/model";
+import type { MockHandler } from "@/core/mocks/handlers";
 import type { Scenario } from "@/core/mocks/scenarios";
 import type { ExecutionDetails } from "@/core/runner/details";
 import type { AuditChange } from "@/core/audit";
@@ -428,6 +429,7 @@ export const mockServers = sqliteTable(
     headers: text("headers", { mode: "json" }).$type<KeyValue[]>().notNull(),
     routes: text("routes", { mode: "json" }).$type<MockRoute[]>().notNull(),
     scenarios: text("scenarios", { mode: "json" }).$type<Scenario[]>().notNull().default([]),
+    handlers: text("handlers", { mode: "json" }).$type<MockHandler[]>().notNull().default([]),
     revision: integer("revision").notNull().default(1),
     keyHash: text("key_hash").notNull(),
     ...timestamps,

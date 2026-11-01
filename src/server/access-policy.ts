@@ -182,6 +182,8 @@ export const REST_POLICIES: Record<string, Policy> = {
   "POST /api/mocks/[id]/key": p("resource", "write", "mock"),
   "POST /api/mocks/[id]/refresh": p("resource", "write", "mock"),
   "POST /api/mocks/[id]/reset": p("resource", "write", "mock"),
+  "POST /api/mocks/[id]/handlers/test": p("resource", "write", "mock"),
+  "GET /api/mocks/[id]/state": p("resource", "write", "mock"),
   "GET /api/mocks/[id]/export": p("resource", "read", "mock"),
   "GET /api/script-packages": p("query", "read"),
   "POST /api/script-packages": p("body", "write"),
@@ -314,6 +316,8 @@ export const MCP_POLICIES: Record<string, WorkspaceAction | "list" | "create" | 
   list_mock_logs: "read",
   clear_mock_logs: "write",
   reset_mock_state: "write",
+  test_mock_handler: "write",
+  get_mock_state: "write",
 
   get_dataset: "read",
   create_dataset: "write",

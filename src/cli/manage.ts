@@ -601,11 +601,19 @@ export function registerManagement(program: Command) {
   );
   mock
     .command("reset <id>")
-    .description("Reset a mock server's state")
+    .description("Restart failure-simulation counters and handler state for one session or all sessions")
+    .option("--session <name>", "Only this x-mock-session (default: all sessions)")
     .action(
-      act(async (ctx, [mockId]) => {
-        await ctx.api.request("POST", `/api/mocks/${enc(mockId)}/reset`);
-        out(`Reset mock ${mockId}`);
+      act(async (ctx, [mockId], command) => {
+        const { session } = command.opts<{ session?: string }>();
+        const result = await ctx.api.request<{ cleared?: number }>(
+          "POST",
+          `/api/mocks/${enc(mockId)}/reset`,
+          {
+            body: session ? { session } : {},
+          },
+        );
+        out(`Reset mock ${mockId}${session ? ` session ${session}` : ""} (${result.cleared ?? 0} cleared)`);
       }),
     );
   mock
@@ -616,6 +624,163 @@ export function registerManagement(program: Command) {
         await ctx.confirm(`Delete mock ${mockId}?`);
         await ctx.api.request("DELETE", `/api/mocks/${enc(mockId)}`);
         out(`Deleted mock ${mockId}`);
+      }),
+    );
+
+  withWorkspace(
+    mock
+      .command("launch <collectionId>")
+      .description(
+        "Serve a collection's saved examples as a mock; prints its URL and one-time key (use `postbox mock reset` between test runs)",
+      )
+      .option("--name <name>", "Mock name (default: Mock of <collection id>)")
+      .option("--public", "Allow calls without the mock key")
+      .option("--handlers <file>", "JSON array of handlers {id,name,match?,code}")
+      .option("--scenarios <file>", "JSON array of failure simulations"),
+  ).action(
+    act(async (ctx, [collectionId], command) => {
+      const options = command.opts<{
+        name?: string;
+        public?: boolean;
+        handlers?: string;
+        scenarios?: string;
+      }>();
+      const created = await ctx.api.request<Row>("POST", "/api/mocks", {
+        body: {
+          workspaceId: await ctx.workspace(),
+          folderId: collectionId,
+          name: options.name ?? `Mock of ${collectionId}`,
+          ...(options.public ? { public: true } : {}),
+          ...(options.handlers ? { handlers: jsonArray(await readJson(options.handlers), "Handlers") } : {}),
+          ...(options.scenarios
+            ? { scenarios: jsonArray(await readJson(options.scenarios), "Scenarios") }
+            : {}),
+        },
+      });
+      const base = `${ctx.api.base}/mock/${String(created.id)}`;
+      ctx.show({ id: created.id, name: created.name, url: base, key: created.key });
+      if (!options.public)
+        console.error("Send the key in the x-postbox-mock-key header. It is shown only once.");
+    }),
+  );
+  mock
+    .command("state <id>")
+    .description("Show per-session handler state and call counts")
+    .action(
+      act(async (ctx, [mockId]) => ctx.show(await ctx.api.request("GET", `/api/mocks/${enc(mockId)}/state`))),
+    );
+  mock
+    .command("refresh <id>")
+    .description("Capture the collection's latest saved examples")
+    .action(
+      act(async (ctx, [mockId]) =>
+        ctx.show(await ctx.api.request("POST", `/api/mocks/${enc(mockId)}/refresh`)),
+      ),
+    );
+  const handler = group(mock, "handler", "Sandboxed JavaScript handlers of a mock server");
+  handler
+    .command("set <mockId> <file>")
+    .description(
+      "Add or replace a handler from a JavaScript file (the body of function (req, state, example, ctx))",
+    )
+    .option("--id <id>", "Handler id (default: derived from the file name); an existing id is replaced")
+    .option("--name <name>", "Display name (default: the id)")
+    .option("--method <method>", "Only this HTTP method")
+    .option("--path <path>", "Only this path, e.g. /users/:id")
+    .option("--disabled", "Save it switched off")
+    .action(
+      act(async (ctx, [mockId, file], command) => {
+        const options = command.opts<{
+          id?: string;
+          name?: string;
+          method?: string;
+          path?: string;
+          disabled?: boolean;
+        }>();
+        let code: string;
+        try {
+          code = await readFile(file, "utf8");
+        } catch (error) {
+          throw new CliError(`Cannot read ${file}: ${(error as Error).message}`, EXIT.usage);
+        }
+        const handlerId =
+          options.id ?? (file.split(/[\\/]/).pop() ?? "handler").replace(/\.[^.]*$/, "").slice(0, 64);
+        const current = await ctx.api.request<{ handlers?: Row[] }>("GET", `/api/mocks/${enc(mockId)}`);
+        const next = {
+          id: handlerId,
+          name: options.name ?? handlerId,
+          enabled: !options.disabled,
+          match: {
+            ...(options.method ? { method: options.method.toUpperCase() } : {}),
+            ...(options.path ? { path: options.path } : {}),
+          },
+          code,
+        };
+        const others = (current.handlers ?? []).filter((h) => h.id !== handlerId);
+        ctx.show(
+          await ctx.api.request("PATCH", `/api/mocks/${enc(mockId)}`, {
+            body: { handlers: [...others, next] },
+          }),
+        );
+      }),
+    );
+  handler
+    .command("test <mockId> <file>")
+    .description("Run a handler file in the sandbox against a made-up request; nothing is saved")
+    .option("--method <method>", "Request method", "GET")
+    .option("--path <path>", "Request path", "/")
+    .option("--body <text>", "Request body")
+    .option("--state <json>", "Starting session state as JSON", "{}")
+    .option("--count <n>", "Call number to rehearse", count(1))
+    .action(
+      act(async (ctx, [mockId, file], command) => {
+        const options = command.opts<{
+          method: string;
+          path: string;
+          body?: string;
+          state: string;
+          count?: number;
+        }>();
+        let code: string;
+        let state: unknown;
+        try {
+          code = await readFile(file, "utf8");
+          state = JSON.parse(options.state);
+        } catch (error) {
+          throw new CliError(`Cannot read the handler or state: ${(error as Error).message}`, EXIT.usage);
+        }
+        const result = await ctx.api.request<{ ok: boolean; error?: string; logs: string[] }>(
+          "POST",
+          `/api/mocks/${enc(mockId)}/handlers/test`,
+          {
+            body: {
+              code,
+              request: {
+                method: options.method,
+                path: options.path,
+                ...(options.body ? { body: options.body } : {}),
+              },
+              state,
+              ...(options.count ? { count: options.count } : {}),
+            },
+          },
+        );
+        for (const line of result.logs ?? []) console.error(`log: ${line}`);
+        ctx.show(result);
+        if (!result.ok) throw new CliError(`Handler failed: ${result.error}`, EXIT.failure);
+      }),
+    );
+  handler
+    .command("delete <mockId> <handlerId>")
+    .description("Remove a handler")
+    .action(
+      act(async (ctx, [mockId, handlerId]) => {
+        const current = await ctx.api.request<{ handlers?: Row[] }>("GET", `/api/mocks/${enc(mockId)}`);
+        const rest = (current.handlers ?? []).filter((h) => h.id !== handlerId);
+        if (rest.length === (current.handlers ?? []).length)
+          throw new CliError(`No handler "${handlerId}" on this mock.`, EXIT.notFound);
+        await ctx.api.request("PATCH", `/api/mocks/${enc(mockId)}`, { body: { handlers: rest } });
+        out(`Removed handler ${handlerId}`);
       }),
     );
 
