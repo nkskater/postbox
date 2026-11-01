@@ -2,12 +2,18 @@
 /**
  * Profile: first-run administrator setup, password change and personal API tokens.
  */
-import { formatDate } from "@/lib/format";
-import { copyText } from "@/lib/clipboard";
+import {
+  EXPIRY_OPTIONS,
+  KeyDetails,
+  ScopeSelect,
+  SecretBox,
+  type KeyInfo,
+} from "@/components/settings/key-ui";
+import type { KeyScope } from "@/core/scopes";
 import { useApp } from "@/stores/app";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Check, Copy, KeyRound, Loader2, Mailbox, Trash2, UserRound } from "lucide-react";
+import { ArrowLeft, KeyRound, Loader2, Mailbox, RefreshCw, Trash2, UserRound } from "lucide-react";
 import { Toaster, toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,14 +29,7 @@ interface Status {
   };
 }
 
-interface Token {
-  id: string;
-  name: string;
-  prefix: string;
-  createdAt: number;
-  lastUsedAt: number | null;
-  expiresAt: number | null;
-}
+type Token = KeyInfo;
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -41,8 +40,6 @@ async function call<T>(url: string, init?: RequestInit): Promise<T> {
   if (!res.ok) throw new Error((data as { error?: string }).error ?? `Request failed (${res.status})`);
   return data as T;
 }
-
-const date = (ms: number | null) => (ms ? formatDate(ms) : "never");
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -165,8 +162,9 @@ function Tokens() {
   const [tokens, setTokens] = useState<Token[]>([]);
   const [name, setName] = useState("");
   const [days, setDays] = useState("90");
+  const [scope, setScope] = useState<KeyScope>("full");
+  const [limit, setLimit] = useState("");
   const [created, setCreated] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   const load = useCallback(() => {
     call<Token[]>("/api/me/tokens")
       .then(setTokens)
@@ -179,10 +177,14 @@ function Tokens() {
     try {
       const res = await call<Token & { token: string }>("/api/me/tokens", {
         method: "POST",
-        body: JSON.stringify({ name, expiresInDays: days ? Number(days) : null }),
+        body: JSON.stringify({
+          name,
+          scope,
+          expiresInDays: days ? Number(days) : null,
+          rateLimitPerMinute: limit ? Number(limit) : null,
+        }),
       });
       setCreated(res.token);
-      setCopied(false);
       setName("");
       load();
     } catch (err) {
@@ -198,45 +200,39 @@ function Tokens() {
       toast.error((err as Error).message);
     }
   };
+  const rotate = async (t: Token) => {
+    if (
+      !window.confirm(`Rotate "${t.name}"? The old key keeps working for 15 minutes so clients can switch.`)
+    )
+      return;
+    try {
+      const res = await call<{ token: string }>(`/api/me/tokens/${t.id}/rotate`, {
+        method: "POST",
+        body: JSON.stringify({ graceMinutes: 15 }),
+      });
+      setCreated(res.token);
+      load();
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  };
 
   return (
-    <Section title="API tokens">
+    <Section title="API keys">
       <p className="text-sm text-muted-foreground">
-        Use a token for the CLI, scripts and MCP clients: <code>Authorization: Bearer &lt;token&gt;</code>. It
-        acts as you.
+        Use a key for the CLI, scripts and MCP clients: <code>Authorization: Bearer &lt;key&gt;</code>. It
+        acts as you, limited by its scope. For automation that should not depend on a person, an administrator
+        can create a service account under Settings → Users.
       </p>
-      {created && (
-        <div className="space-y-2 rounded-md border border-primary/40 bg-primary/5 p-3 text-sm">
-          <p className="font-medium">Copy your new token now. It will not be shown again.</p>
-          <div className="flex gap-2">
-            <Input
-              readOnly
-              value={created}
-              className="font-mono text-xs"
-              onFocus={(e) => e.target.select()}
-            />
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              title="Copy token"
-              onClick={() => {
-                void copyText(created).then((ok) => {
-                  setCopied(ok);
-                  if (ok) toast.success("Token copied");
-                  else toast.error("Could not copy. Select the token and copy it manually.");
-                });
-              }}
-            >
-              {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-            </Button>
-          </div>
-        </div>
-      )}
+      {created && <SecretBox secret={created} />}
       <form onSubmit={create} className="flex flex-wrap items-end gap-2">
-        <Label className="grid flex-1 gap-1.5">
+        <Label className="grid min-w-48 flex-1 gap-1.5">
           Name
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Claude Code MCP" />
+        </Label>
+        <Label className="grid gap-1.5">
+          Scope
+          <ScopeSelect value={scope} onChange={setScope} />
         </Label>
         <Label className="grid gap-1.5">
           Expires
@@ -245,14 +241,25 @@ function Tokens() {
             onChange={(e) => setDays(e.target.value)}
             className="h-9 rounded-md border bg-background px-2 text-sm"
           >
-            <option value="30">30 days</option>
-            <option value="90">90 days</option>
-            <option value="365">1 year</option>
-            <option value="">Never</option>
+            {EXPIRY_OPTIONS.map(([v, l]) => (
+              <option key={l} value={v}>
+                {l}
+              </option>
+            ))}
           </select>
         </Label>
+        <Label className="grid w-28 gap-1.5">
+          Requests/min
+          <Input
+            type="number"
+            min={1}
+            value={limit}
+            onChange={(e) => setLimit(e.target.value)}
+            placeholder="Unlimited"
+          />
+        </Label>
         <Button type="submit" disabled={!name.trim()}>
-          <KeyRound className="size-4" /> Create token
+          <KeyRound className="size-4" /> Create key
         </Button>
       </form>
       {tokens.length > 0 && (
@@ -261,12 +268,12 @@ function Tokens() {
             <li key={t.id} className="flex items-center gap-3 px-3 py-2">
               <div className="min-w-0 flex-1">
                 <div className="truncate font-medium">{t.name}</div>
-                <div className="text-xs text-muted-foreground">
-                  <code>{t.prefix}…</code> · created {date(t.createdAt)} · last used {date(t.lastUsedAt)} ·
-                  expires {date(t.expiresAt)}
-                </div>
+                <KeyDetails k={t} />
               </div>
-              <Button variant="ghost" size="icon" title="Revoke token" onClick={() => void revoke(t)}>
+              <Button variant="ghost" size="icon" title="Rotate key" onClick={() => void rotate(t)}>
+                <RefreshCw className="size-4" />
+              </Button>
+              <Button variant="ghost" size="icon" title="Revoke key" onClick={() => void revoke(t)}>
                 <Trash2 className="size-4" />
               </Button>
             </li>

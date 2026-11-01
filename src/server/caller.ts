@@ -2,6 +2,7 @@
  * Who is making a request. Used by the proxy gate, auth routes and (later)
  * workspace authorization, so every entry point resolves identity the same way.
  */
+import type { KeyScope } from "@/core/scopes";
 import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import {
@@ -15,16 +16,23 @@ import {
   type AuthConfig,
 } from "./auth";
 import type { UserRow } from "./db/schema";
+import { callerScope } from "./access-context";
 import { HttpError } from "./errors";
 import { sessionEpoch, sessionTtl } from "./session-settings";
-import { countUsers, getUser, resolveToken, storedSecret, toPublicUser, type PublicUser } from "./users";
+import { countUsers, getUser, resolveTokenInfo, storedSecret, toPublicUser, type PublicUser } from "./users";
 
 export type Caller =
   /** Authentication is off (no credentials, no accounts). */
   | { kind: "open" }
   /** POSTBOX_PASSWORD / POSTBOX_TOKEN: the bootstrap and recovery administrator. */
   | { kind: "env" }
-  | { kind: "user"; user: UserRow; via: "session" | "token" };
+  | {
+      kind: "user";
+      user: UserRow;
+      via: "session" | "token";
+      /** Set when the caller authenticated with an API key: the key's own scope and limit. */
+      token?: { id: string; scope: KeyScope; rateLimitPerMinute: number | null };
+    };
 
 export const isAdmin = (c: Caller) => c.kind !== "user" || c.user.isAdmin;
 
@@ -63,8 +71,8 @@ export function getCaller(
   const bearer = bearerToken(headers.get("authorization"));
   if (bearer) {
     if (state.cfg?.token && safeEqual(bearer, state.cfg.token)) return { kind: "env" };
-    const user = resolveToken(bearer);
-    return user ? { kind: "user", user, via: "token" } : null;
+    const resolved = resolveTokenInfo(bearer);
+    return resolved ? { kind: "user", user: resolved.user, via: "token", token: resolved.token } : null;
   }
   if (!cookie) return null;
   const session = parseUserSession(sessionSecret(), cookie);
@@ -101,9 +109,15 @@ export function describeCaller(c: Caller | null): {
   kind: Caller["kind"] | "anonymous";
   user: PublicUser | null;
   isAdmin: boolean;
+  scope: KeyScope;
 } {
-  if (!c) return { kind: "anonymous", user: null, isAdmin: false };
-  return { kind: c.kind, user: c.kind === "user" ? toPublicUser(c.user) : null, isAdmin: isAdmin(c) };
+  if (!c) return { kind: "anonymous", user: null, isAdmin: false, scope: "read" };
+  return {
+    kind: c.kind,
+    user: c.kind === "user" ? toPublicUser(c.user) : null,
+    isAdmin: isAdmin(c),
+    scope: callerScope(c),
+  };
 }
 
 const isSecure = (req: Request) =>

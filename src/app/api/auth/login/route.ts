@@ -41,8 +41,8 @@ export async function POST(req: Request) {
     if (!loginAllowed(ipKey) || !loginAllowed(userKey)) return tooMany();
     const user = username ? getUserByUsername(username) : undefined;
     let ok = false;
-    if (user && password) ok = await verifyPassword(password, user.passwordHash);
-    else await burnPasswordCheck(password);
+    if (user && !user.isService && password) ok = await verifyPassword(password, user.passwordHash);
+    else await burnPasswordCheck(password); // also for service accounts, which have no password
     if (!ok || !user || user.disabled) {
       recordLoginFailure(ipKey);
       recordLoginFailure(userKey);
