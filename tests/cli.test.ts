@@ -1,10 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import * as XLSX from "xlsx";
+import { buildCliBundle } from "./helpers/cli-bundle";
 import { startTestServer, type TestServer } from "./helpers/server";
 
 import { conformanceCollection } from "./helpers/sandbox-conformance";
@@ -17,9 +18,7 @@ let cli: string;
 beforeAll(async () => {
   directory = await mkdtemp(path.join(os.tmpdir(), "postbox-cli-"));
   server = await startTestServer();
-  await exec(process.execPath, ["scripts/build-cli.mjs"]);
-  await cp(path.resolve("dist"), path.join(directory, "bundle"), { recursive: true });
-  cli = path.join(directory, "bundle/cli.mjs");
+  cli = await buildCliBundle(directory);
 }, 30000);
 
 afterAll(async () => {
