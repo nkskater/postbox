@@ -1,3 +1,4 @@
+import type { DocumentationSnapshot } from "@/core/documentation/model";
 import type { RequestContract } from "@/core/contracts/model";
 import type { MockRoute } from "@/core/mocks/model";
 import type { Scenario } from "@/core/mocks/scenarios";
@@ -605,4 +606,28 @@ export const scriptPackageVersions = sqliteTable(
     createdAt: integer("created_at").notNull(),
   },
   (t) => [primaryKey({ columns: [t.packageId, t.version] })],
+);
+
+export const documentationPublications = sqliteTable(
+  "documentation_publications",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    folderId: text("folder_id")
+      .notNull()
+      .references(() => folders.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    visibility: text("visibility").$type<"private" | "public">().notNull(),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    revision: integer("revision").notNull(),
+    customOrigin: text("custom_origin").notNull().default(""),
+    snapshot: text("snapshot", { mode: "json" }).$type<DocumentationSnapshot>().notNull(),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("documentation_folder_unique").on(t.folderId),
+    index("documentation_workspace_idx").on(t.workspaceId),
+  ],
 );

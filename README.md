@@ -200,6 +200,8 @@ Dynamic variables produce a new value on each use: `{{$guid}}`, `{{$timestamp}}`
 
 Request contracts can declare typed parameters, required fields, enums, bounds and JSON body schemas. The **Contract** tab validates drafts and saved examples without sending requests; HTTP execution adds contract checks to test results. See [request contracts](docs/request-contracts.md).
 
+Collections also have a **Documentation** tab for searchable previews and owner-managed private/public read-only snapshots. See [collection documentation](docs/collection-documentation.md) for sharing, revocation, imports and custom hostnames.
+
 ### 4. Scripts and tests
 
 **Pre-request Script** runs before the request is sent and can change it or set variables. **Post-response Script** runs

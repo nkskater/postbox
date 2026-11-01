@@ -23,6 +23,11 @@ export const REST_POLICIES: Record<string, Policy> = {
   "POST /api/auth/logout": p("public"),
   "POST /api/auth/setup": p("public"),
   "GET /api/auth/status": p("public"),
+  "GET /api/documentation/[id]": p("public"),
+  "POST /api/documentation/[id]/import": p("body", "write"),
+  "GET /api/folders/[id]/documentation": p("resource", "read", "folder"),
+  "PUT /api/folders/[id]/documentation": p("resource", "manage", "folder"),
+  "DELETE /api/folders/[id]/documentation": p("resource", "manage", "folder"),
   "GET /api/health": p("public"),
   "POST /api/auth/invite": p("public"),
   "GET /api/admin/users": p("admin"),
@@ -242,6 +247,10 @@ export async function authorizeRest(
 }
 
 export const MCP_POLICIES: Record<string, WorkspaceAction | "list" | "create" | "identity"> = {
+  get_collection_documentation: "read",
+  publish_collection_documentation: "manage",
+  revoke_collection_documentation: "manage",
+  import_documentation_collection: "write",
   whoami: "identity",
   list_datasets: "read",
   list_script_packages: "read",

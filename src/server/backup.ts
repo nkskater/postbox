@@ -26,6 +26,7 @@ import { schema, type DB } from "./db";
 export const BACKUP_FORMAT = 1;
 
 const TABLES = {
+  documentationPublications: schema.documentationPublications,
   workspaces: schema.workspaces,
   grpcDefinitions: schema.grpcDefinitions,
   folders: schema.folders,
@@ -50,6 +51,7 @@ const ORDER: TableName[] = [
   "environments",
   "variables",
   "requests",
+  "documentationPublications",
   "datasets",
   "datasetVersions",
   "schedules",
@@ -119,6 +121,10 @@ export function createBackup(db: DB, opts: { includeSecrets: boolean }): Backup 
         requestId: route.requestId,
         response: sanitizeExample(route.response, mockSecrets),
       })),
+    }));
+    tables.documentationPublications = tables.documentationPublications.map((publication) => ({
+      ...publication,
+      snapshot: redactStoredValue(publication.snapshot, mockSecrets),
     }));
     tables.scriptPackageVersions = tables.scriptPackageVersions.map((version) => {
       const source = redactStoredValue(String(version.source), mockSecrets);
@@ -211,6 +217,7 @@ export function restoreBackup(db: DB, sqlite: Database.Database, input: unknown)
 
   const rows: Record<TableName, Record<string, unknown>[]> = {
     ...tables,
+    documentationPublications: tables.documentationPublications.map((row) => ({ ...row, enabled: false })),
     grpcDefinitions: withCreator(tables.grpcDefinitions),
     datasets: withCreator(tables.datasets),
     datasetVersions: withCreator(tables.datasetVersions),

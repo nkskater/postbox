@@ -1,3 +1,5 @@
+import type { getDocumentation, publishDocumentation } from "@/server/documentation";
+import type { PublicationInput } from "@/core/documentation/model";
 /**
  * Typed browser-side client for the Postbox REST API.
  */
@@ -85,6 +87,12 @@ const q = (params: Record<string, string | null | undefined>) =>
   new URLSearchParams(Object.entries(params).filter(([, v]) => v != null) as [string, string][]).toString();
 
 export const api = {
+  documentation: {
+    get: (id: string) => call<ReturnType<typeof getDocumentation>>("GET", `/api/folders/${id}/documentation`),
+    publish: (id: string, body: PublicationInput) =>
+      call<ReturnType<typeof publishDocumentation>>("PUT", `/api/folders/${id}/documentation`, body),
+    revoke: (id: string) => call<{ ok: boolean }>("DELETE", `/api/folders/${id}/documentation`),
+  },
   datasets: {
     list: (workspaceId: string, signal?: AbortSignal) =>
       call<DatasetSummary[]>("GET", `/api/datasets?${q({ workspaceId })}`, undefined, signal),
