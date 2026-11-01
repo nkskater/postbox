@@ -71,6 +71,11 @@ beforeAll(async () => {
       updatedAt: Date.now(),
     })
     .run();
+  const { createScriptPackage } = await import("@/server/script-packages");
+  ids.scriptPackage = createScriptPackage(workspaceId, {
+    name: "access-package",
+    source: "exports.value=1;",
+  }).id;
   ids.environment = repo.createEnvironment(workspaceId, "Environment").id;
   ids.history = withCaller(caller(owner), () =>
     repo.addHistory({

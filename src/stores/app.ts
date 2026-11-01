@@ -180,9 +180,11 @@ interface AppState {
   /** variable name -> value for highlighting in the active context */
   variables: Record<string, KnownVariable>;
   theme: "dark" | "light";
-  sidebarView: "collections" | "environments" | "history" | "datasets" | "mocks";
+  sidebarView: "collections" | "environments" | "history" | "datasets" | "mocks" | "packages";
   historyVersion: number;
   datasetVersion: number;
+  packageVersion: number;
+  packagesChanged(): void;
   datasetsChanged(): void;
 
   init(): Promise<void>;
@@ -233,6 +235,8 @@ export const useApp = create<AppState>()(
       sidebarView: "collections",
       historyVersion: 0,
       datasetVersion: 0,
+      packageVersion: 0,
+      packagesChanged: () => set((s) => ({ packageVersion: s.packageVersion + 1 })),
       datasetsChanged: () => set((s) => ({ datasetVersion: s.datasetVersion + 1 })),
 
       async init() {

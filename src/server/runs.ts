@@ -1,3 +1,4 @@
+import { moduleSnapshot } from "./script-packages";
 /**
  * Server-side collection runs: loads the tree and scopes from SQLite, runs the
  * core runner, persists results incrementally and applies variable changes.
@@ -216,6 +217,7 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
         .run();
 
     const { summary, scopes } = await runCollection({
+      scriptModules: moduleSnapshot(input.workspaceId),
       root,
       resolveRequest: savedRequestResolver(
         input.workspaceId,

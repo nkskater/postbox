@@ -5,11 +5,13 @@ import { useSetting } from "@/stores/settings";
 import { cn } from "@/lib/utils";
 import { CollectionTree } from "./CollectionTree";
 import { EnvironmentList } from "./EnvironmentList";
+import { PackageList } from "./PackageList";
 import { MockList } from "./MockList";
 import { DatasetList } from "./DatasetList";
 import { HistoryList } from "./HistoryList";
 
 const VIEWS = [
+  { id: "packages", label: "Packages", icon: Library },
   { id: "mocks", label: "Mocks", icon: Server },
   { id: "datasets", label: "Datasets", icon: Database },
   { id: "collections", label: "Collections", icon: Library },
@@ -54,6 +56,7 @@ export function Sidebar() {
         {view === "history" && <HistoryList />}
         {view === "datasets" && <DatasetList />}
         {view === "mocks" && <MockList />}
+        {view === "packages" && <PackageList />}
       </div>
     </div>
   );

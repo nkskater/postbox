@@ -1,3 +1,4 @@
+import type { ModuleSnapshot } from "./packages/model";
 import { redactStoredValue } from "./variables/resolver";
 import { credentialRedactionValues, redactSensitiveFields } from "./retention";
 import { renderVisualization } from "./visualizer/render";
@@ -50,6 +51,7 @@ export interface SavedRequest {
 export type SavedRequestResolver = (requestId: string) => SavedRequest | Promise<SavedRequest>;
 
 export interface ExecuteOptions {
+  scriptModules?: ModuleSnapshot;
   request: RequestDef;
   resolveRequest?: SavedRequestResolver;
   /** Ancestor folders, collection first. */
@@ -440,6 +442,7 @@ async function executeInternal(
         {
           scopes,
           visualization,
+          scriptModules: opts.scriptModules,
           request: toSandboxRequest(request),
           response,
           info: { ...info(phase), locationCurrent: step.name },

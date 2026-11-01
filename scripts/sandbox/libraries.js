@@ -33,4 +33,4 @@ chai.Assertion.addMethod("jsonSchema", function (schema, options = {}) {
     "expected data not to satisfy schema",
   );
 });
-globalThis.__sandboxLibraries = { chai, sdk, Buffer };
+globalThis.__sandboxLibraries = { chai, sdk, Buffer, lodash, Ajv };

@@ -1,3 +1,5 @@
+import * as scriptPackages from "./script-packages";
+import { packageCreateSchema, packageRevisionSchema, packagePatchSchema } from "@/core/packages/model";
 import * as mocks from "./mocks";
 import { mockCreateSchema, mockPatchSchema } from "@/core/mocks/model";
 /**
@@ -1606,6 +1608,109 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
     async ({ mockId }) => {
       try {
         return okJson(mocks.clearMockLogs(mockId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "list_script_packages",
+    {
+      description: "List workspace script packages and pinned approved bundled libraries",
+      inputSchema: { workspaceId: z.string() },
+    },
+    async ({ workspaceId }) => {
+      try {
+        return okJson({
+          packages: scriptPackages.listScriptPackages(workspaceId),
+          libraries: scriptPackages.approvedLibraries(),
+        });
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "get_script_package",
+    {
+      description: "Read immutable package source, versions, approval and saved-script references",
+      inputSchema: { packageId: z.string(), version: z.number().int().positive().optional() },
+    },
+    async ({ packageId, version }) => {
+      try {
+        return okJson(scriptPackages.getScriptPackage(packageId, version));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "create_script_package",
+    {
+      description:
+        "Create a workspace CommonJS package; unapproved by default. Approval requires workspace ownership.",
+      inputSchema: { workspaceId: z.string(), ...packageCreateSchema.shape },
+    },
+    async ({ workspaceId, ...input }) => {
+      try {
+        return okJson(scriptPackages.createScriptPackage(workspaceId, input));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "create_script_package_version",
+    {
+      description:
+        "Append immutable source with an optimistic latest-version check; new code is unapproved by default",
+      inputSchema: { packageId: z.string(), ...packageRevisionSchema.shape },
+    },
+    async ({ packageId, ...input }) => {
+      try {
+        return okJson(scriptPackages.reviseScriptPackage(packageId, input));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "update_script_package",
+    {
+      description: "Update package description without changing its immutable name/source",
+      inputSchema: { packageId: z.string(), ...packagePatchSchema.shape },
+    },
+    async ({ packageId, ...input }) => {
+      try {
+        return okJson(scriptPackages.updateScriptPackage(packageId, input));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "approve_script_package",
+    {
+      description: "Owner-only approval or revocation of a specific immutable source version",
+      inputSchema: { packageId: z.string(), version: z.number().int().positive(), approved: z.boolean() },
+    },
+    async ({ packageId, version, approved }) => {
+      try {
+        return okJson(scriptPackages.approveScriptPackage(packageId, version, approved));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "delete_script_package",
+    {
+      description: "Delete an unreferenced package; saved imports block deletion",
+      inputSchema: { packageId: z.string() },
+    },
+    async ({ packageId }) => {
+      try {
+        return okJson(scriptPackages.deleteScriptPackage(packageId));
       } catch (error) {
         return errResult(error);
       }

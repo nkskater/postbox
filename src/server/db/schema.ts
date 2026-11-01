@@ -573,3 +573,34 @@ export const usageAlerts = sqliteTable(
     index("usage_alert_at_idx").on(t.at),
   ],
 );
+
+export const scriptPackages = sqliteTable(
+  "script_packages",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    latestVersion: integer("latest_version").notNull(),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("script_packages_name_idx").on(t.workspaceId, t.name)],
+);
+export const scriptPackageVersions = sqliteTable(
+  "script_package_versions",
+  {
+    packageId: text("package_id")
+      .notNull()
+      .references(() => scriptPackages.id, { onDelete: "cascade" }),
+    version: integer("version").notNull(),
+    source: text("source").notNull(),
+    hash: text("hash").notNull(),
+    approved: integer("approved", { mode: "boolean" }).notNull().default(false),
+    createdBy: text("created_by").references(() => users.id),
+    approvedBy: text("approved_by").references(() => users.id),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.packageId, t.version] })],
+);

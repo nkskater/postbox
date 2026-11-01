@@ -1,3 +1,4 @@
+import type { ModuleSnapshot } from "../packages/model";
 import type { Visualization } from "../visualizer/model";
 /**
  * Script sandbox: runs pre-request / test scripts inside a fresh QuickJS (WASM)
@@ -60,6 +61,7 @@ export interface ScriptInfo {
 }
 
 export interface ScriptContext {
+  scriptModules?: ModuleSnapshot;
   visualization?: Visualization | null;
   scopes: VariableScopes;
   request: SandboxRequest;
@@ -192,10 +194,14 @@ export async function runScript(
   let runRequestCalls = 0;
   let timerCalls = 0;
   const deferreds = new Set<QuickJSDeferredPromise>();
+  let jobError: string | undefined;
   const pump = () => {
     if (disposed) return;
     const r = runtime.executePendingJobs();
-    if (r.error) r.error.dispose();
+    if (r.error) {
+      jobError = describeError(vm, r.error);
+      r.error.dispose();
+    }
   };
 
   const define = (name: string, fn: (...args: QuickJSHandle[]) => QuickJSHandle | void) => {
@@ -348,6 +354,7 @@ export async function runScript(
     const ctxStr = vm.newString(
       JSON.stringify({
         visualization: ctx.visualization,
+        scriptModules: ctx.scriptModules,
         scopes: ctx.scopes,
         request: ctx.request,
         response: ctx.response,
@@ -385,6 +392,10 @@ export async function runScript(
     let error: string | undefined;
     // Poll the guest promise rather than allocating host callbacks that can survive a timeout.
     while (true) {
+      if (jobError) {
+        error = jobError;
+        break;
+      }
       const outcome = vm.getPromiseState(evaluation);
       if (outcome.type === "fulfilled") {
         if (vm.typeof(outcome.value) === "string") error = vm.getString(outcome.value);

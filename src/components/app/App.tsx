@@ -23,6 +23,7 @@ import { SaveRequestDialog } from "@/components/dialogs/SaveRequestDialog";
 import { ShortcutsDialog } from "@/components/dialogs/ShortcutsDialog";
 import { CommandPalette } from "@/components/dialogs/CommandPalette";
 import { ImportDialog } from "@/components/dialogs/ImportDialog";
+import { ScriptPackageDialog } from "@/components/dialogs/ScriptPackageDialog";
 import { DatasetEditorDialog } from "@/components/dialogs/DatasetEditorDialog";
 import { ExamplesDialog } from "@/components/dialogs/ExamplesDialog";
 import { CodeSnippetDialog } from "@/components/dialogs/CodeSnippetDialog";
@@ -275,6 +276,7 @@ export function App({ authEnabled }: { authEnabled: boolean }) {
       <ImportDialog />
       <ExamplesDialog />
       <DatasetEditorDialog />
+      <ScriptPackageDialog />
       <CodeSnippetDialog />
       <Toaster
         theme={theme}
