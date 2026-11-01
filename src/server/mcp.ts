@@ -1,3 +1,5 @@
+import * as documentation from "./documentation";
+import { publicationInputSchema } from "@/core/documentation/model";
 import { contractReport } from "@/core/contracts/report";
 import { requestInputSchema } from "@/core/schemas";
 import * as scriptPackages from "./script-packages";
@@ -398,6 +400,73 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
         });
       } catch (err) {
         return errResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "get_collection_documentation",
+    {
+      title: "Get Collection Documentation",
+      description:
+        "Get sanitized saved collection documentation preview and active publication metadata. Does not publish.",
+      inputSchema: { folderId: z.string().min(1) },
+    },
+    async ({ folderId }) => {
+      try {
+        return okJson({
+          ...documentation.getDocumentation(folderId),
+          snapshot: documentation.previewDocumentation(folderId),
+        });
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "publish_collection_documentation",
+    {
+      title: "Publish Collection Documentation",
+      description:
+        "Owner-only explicit publish/republish of a sanitized immutable collection snapshot. Public visibility permits anonymous reads; private requires workspace membership. expectedRevision is 0 for new publications.",
+      inputSchema: { folderId: z.string().min(1), publication: publicationInputSchema },
+    },
+    async ({ folderId, publication }) => {
+      try {
+        return okJson(documentation.publishDocumentation(folderId, publication));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "revoke_collection_documentation",
+    {
+      title: "Revoke Collection Documentation",
+      description: "Owner-only revocation; the current documentation URL stops working immediately.",
+      inputSchema: { folderId: z.string().min(1) },
+    },
+    async ({ folderId }) => {
+      try {
+        return okJson(documentation.revokeDocumentation(folderId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "import_documentation_collection",
+    {
+      title: "Import Documentation Collection",
+      description:
+        "Explicitly import a published sanitized collection as a new collection. Requires destination write access and source membership for private publications.",
+      inputSchema: { publicationId: z.string().min(1), workspaceId: z.string().min(1) },
+    },
+    async ({ publicationId, workspaceId }) => {
+      try {
+        return okJson(documentation.importDocumentation(publicationId, workspaceId));
+      } catch (error) {
+        return errResult(error);
       }
     },
   );

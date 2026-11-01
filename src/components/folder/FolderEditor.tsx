@@ -15,6 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { AuthEditor } from "@/components/request/AuthEditor";
 import { KeyValueEditor } from "@/components/request/KeyValueEditor";
 import { ScriptEditor } from "@/components/request/ScriptEditor";
+import { DocumentationEditor } from "./DocumentationEditor";
 import { VariablesEditor } from "@/components/env/VariablesEditor";
 
 type Editable = FolderDef & { parentId: string | null; variables: Variable[] };
@@ -105,12 +106,22 @@ export function FolderEditor({ folderId }: { folderId: string }) {
             Post-response Script
           </TabsTrigger>
           {isCollection && (
+            <TabsTrigger value="documentation" className="text-xs">
+              Documentation
+            </TabsTrigger>
+          )}
+          {isCollection && (
             <TabsTrigger value="variables" className="text-xs">
               Variables
             </TabsTrigger>
           )}
         </TabsList>
         <div className="min-h-0 flex-1 overflow-auto px-4 py-3">
+          {isCollection && (
+            <TabsContent value="documentation" className="mt-0">
+              <DocumentationEditor key={folderId} folderId={folderId} />
+            </TabsContent>
+          )}
           <TabsContent value="overview" className="mt-0 max-w-3xl">
             <Textarea
               className="min-h-40"

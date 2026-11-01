@@ -258,6 +258,7 @@ export function assertHeadroom(workspaceId: string, metric: UsageMetric, userId?
 // ----------------------------------------------------------------------------------------------- storage
 
 const STORAGE_SQL = [
+  "SELECT COALESCE(SUM(LENGTH(CAST(snapshot AS BLOB))), 0) AS n FROM documentation_publications WHERE workspace_id = ?",
   "SELECT COALESCE(SUM(LENGTH(CAST(request AS BLOB)) + LENGTH(CAST(COALESCE(response, '') AS BLOB))), 0) AS n FROM history WHERE workspace_id = ?",
   `SELECT COALESCE(SUM(LENGTH(CAST(COALESCE(rr.response_body, '') AS BLOB)) + LENGTH(CAST(COALESCE(rr.response_headers, '') AS BLOB)) + LENGTH(CAST(COALESCE(rr.execution_details, '') AS BLOB))), 0) AS n
    FROM run_results rr JOIN runs r ON r.id = rr.run_id WHERE r.workspace_id = ?`,
