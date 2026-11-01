@@ -74,7 +74,7 @@ execute on the machine running Postbox, so VPN-connected Windows users can reach
   Runs can also be scheduled with cron expressions.
 - **Response viewer**: status, timing breakdown (DNS/TCP/TLS/TTFB/download), size, headers, cookies; Pretty/Raw/Preview with folding and search;
   test results; save as example.
-- **Import/export**: Postman v2.0/v2.1 collections and environments, OpenAPI 3 and Swagger 2 (from a file, pasted text or a URL), and cURL
+- **Import/export**: Postman v2.0/v2.1/v3 collections and environments, OpenAPI 3 and Swagger 2 (from a file, pasted text or a URL), and cURL
   (paste one into the URL bar). Code snippets for cURL, fetch, Python and PowerShell.
 - **Settings**: a searchable Settings page for theme, accent color, fonts, density, layout, editor behaviour and
   defaults for new requests, responses, tabs, the console and the runner. Administrators also set instance-wide
@@ -262,7 +262,7 @@ assertion fails:
 
 ### 6. Import, export and code snippets
 
-**Import** (top bar or sidebar) accepts Postman v2.0/v2.1 collections and environments, OpenAPI 3 / Swagger 2 (JSON or
+**Import** (top bar or sidebar) accepts Postman v2.0/v2.1/v3 collections and environments, OpenAPI 3 / Swagger 2 (JSON or
 YAML) from a file, pasted text or a URL. It also accepts **cURL** commands. You can also paste a cURL command straight into a request's URL bar.
 
 Migrations from other clients are also detected: HAR recordings, Hoppscotch, Thunder Client and **Insomnia** (v4 JSON/YAML
@@ -273,7 +273,7 @@ item is listed in the import warnings. These exports contain credentials, so **I
 
 ![Import dialog with a pasted cURL command](docs/screenshots/import.png)
 
-Export a collection from its **⋯** menu (Postman v2.1) and an environment from the Environments list. Secret values are
+Export a collection from its **⋯** menu (Postman v2.1 or v3, see [docs/postman-v3.md](docs/postman-v3.md)) and an environment from the Environments list. Secret values are
 left out of exports. **Code** next to **Save** generates the request as cURL, JavaScript `fetch`, Python `requests` or
 PowerShell, with variables resolved or left as `{{placeholders}}`.
 

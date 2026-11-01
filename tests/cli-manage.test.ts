@@ -56,7 +56,14 @@ function handler(req: http.IncomingMessage, res: http.ServerResponse) {
       case "POST /api/folders":
         return reply(201, { id: "c2", ...JSON.parse(body) });
       case "GET /api/export/collection/c1":
-        return reply(200, '{"info":{"name":"Pets"}}');
+        return url.searchParams.get("format") === "v3"
+          ? reply(200, {
+              collection: { $kind: "collection", name: "Pets" },
+              diagnostics: [
+                { level: "lossy", path: "Pets", message: "Secret variable is exported without a value" },
+              ],
+            })
+          : reply(200, '{"info":{"name":"Pets"}}');
       case "GET /api/environments":
         return reply(200, [{ id: "e1", name: "Staging", workspaceId: url.searchParams.get("workspaceId") }]);
       case "PATCH /api/environments/e1":
@@ -267,6 +274,13 @@ describe("postbox management commands", () => {
     expect(exported.code).toBe(0);
     expect(JSON.parse(await readFile(target, "utf8"))).toEqual({ info: { name: "Pets" } });
     expect((await invoke(["collection", "export", "c1"], authed())).stdout).toContain('"Pets"');
+
+    const v3Target = path.join(directory, "pets.v3.json");
+    const v3 = await invoke(["collection", "export", "c1", "--format", "v3", "--out", v3Target], authed());
+    expect(v3.code).toBe(0);
+    expect(v3.stderr).toContain("note: Pets: Secret variable is exported without a value");
+    expect(JSON.parse(await readFile(v3Target, "utf8"))).toEqual({ $kind: "collection", name: "Pets" });
+    expect((await invoke(["collection", "export", "c1", "--format", "v9"], authed())).code).toBe(2);
 
     const source = path.join(directory, "in.json");
     await writeFile(source, '{"info":{"name":"X"}}');

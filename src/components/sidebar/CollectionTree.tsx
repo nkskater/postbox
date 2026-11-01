@@ -191,18 +191,19 @@ export function CollectionTree() {
       onEntityDeleted(kind, id);
     }, "Deleted");
 
-  const exportCollection = async (id: string, name: string) => {
+  const exportCollection = async (id: string, name: string, format: "v2.1" | "v3" = "v2.1") => {
     const includeCredentials = window.confirm(
       "Include authentication credentials in this collection export? Choose Cancel to export without credentials.",
     );
-    const res = await fetch(
-      `/api/export/collection/${id}${includeCredentials ? "?includeCredentials=1" : ""}`,
+    const query = [includeCredentials && "includeCredentials=1", format === "v3" && "format=v3"].filter(
+      Boolean,
     );
+    const res = await fetch(`/api/export/collection/${id}${query.length ? `?${query.join("&")}` : ""}`);
     if (!res.ok) return toast.error("Export failed");
     const blob = await res.blob();
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `${name.replace(/[^\w.-]+/g, "_")}.postman_collection.json`;
+    a.download = `${name.replace(/[^\w.-]+/g, "_")}.postman_collection${format === "v3" ? ".v3" : ""}.json`;
     a.click();
     URL.revokeObjectURL(a.href);
   };
@@ -366,6 +367,11 @@ export function CollectionTree() {
                     {isRoot && (
                       <DropdownMenuItem onClick={() => exportCollection(f.id, f.name)}>
                         <Download /> Export (Postman v2.1)
+                      </DropdownMenuItem>
+                    )}
+                    {isRoot && (
+                      <DropdownMenuItem onClick={() => exportCollection(f.id, f.name, "v3")}>
+                        <Download /> Export (Postman v3)
                       </DropdownMenuItem>
                     )}
                     <DropdownMenuSeparator />

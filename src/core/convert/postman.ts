@@ -714,7 +714,13 @@ function exportBody(b: BodyConfig): PmBody | undefined {
         mode: "formdata",
         formdata: b.formdata.map((f) =>
           f.type === "file"
-            ? { key: f.key, type: "file", src: f.fileName ?? "", disabled: !f.enabled }
+            ? {
+                key: f.key,
+                type: "file",
+                src: f.fileName ?? "",
+                disabled: !f.enabled,
+                ...(f.contentType ? { contentType: f.contentType } : {}),
+              }
             : { key: f.key, value: f.value, type: "text", disabled: !f.enabled },
         ),
       };

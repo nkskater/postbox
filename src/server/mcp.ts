@@ -2078,7 +2078,7 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
     {
       title: "Import API Collections and Specifications",
       description:
-        "Import a Postman Collection (v2.0/v2.1), Postman Environment, or OpenAPI 3.x / Swagger 2.0 specification (JSON or YAML), HAR 1.2 recordings, Hoppscotch, Thunder Client or Insomnia (v4/v5) exports, and SoapUI XML projects from raw text or a URL into a workspace. OpenAPI supports folder/file bundles with entrypoint, sourceUrl and explicit allowedRefOrigins; previews report reference diagnostics without writes. SoapUI supports a non-persisting preview and omits recognized credentials by default. Hoppscotch, Thunder Client and Insomnia require explicit includeCredentials consent.",
+        "Import a Postman Collection (v2.0/v2.1/v3), Postman Environment, or OpenAPI 3.x / Swagger 2.0 specification (JSON or YAML), HAR 1.2 recordings, Hoppscotch, Thunder Client or Insomnia (v4/v5) exports, and SoapUI XML projects from raw text or a URL into a workspace. OpenAPI supports folder/file bundles with entrypoint, sourceUrl and explicit allowedRefOrigins; previews report reference diagnostics without writes. SoapUI supports a non-persisting preview and omits recognized credentials by default. Hoppscotch, Thunder Client and Insomnia require explicit includeCredentials consent.",
       inputSchema: {
         workspaceId: z.string().optional().describe("Workspace ID (defaults to primary workspace)"),
         ...importSourceFields,

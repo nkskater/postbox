@@ -15,6 +15,8 @@ import {
   isPostmanCollection,
   isPostmanEnvironment,
 } from "@/core/convert/postman";
+import { isPostmanV3, postmanV3ToV21, type V3Diagnostic } from "@/core/convert/postman-v3";
+import type { FolderNode } from "@/core/types";
 import * as repo from "./repo";
 
 export interface SoapUiPreview {
@@ -29,15 +31,51 @@ export interface SoapUiPreview {
   warnings: string[];
   includeCredentials: boolean;
 }
+/** What a Postman v3 file would create and what it holds that Postbox cannot keep. */
+export interface PostmanV3Preview {
+  kind: "preview";
+  source: "postman-v3";
+  name: string;
+  folders: number;
+  requests: number;
+  variables: number;
+  diagnostics: V3Diagnostic[];
+  warnings: string[];
+}
+const v3Warnings = (diagnostics: V3Diagnostic[]) =>
+  diagnostics.map((entry) => `${entry.path}: ${entry.message}`);
+const countTree = (node: FolderNode): { folders: number; requests: number } =>
+  node.children.reduce(
+    (total, child) => {
+      if (child.kind === "request") total.requests++;
+      else {
+        const nested = countTree(child);
+        total.folders += nested.folders + 1;
+        total.requests += nested.requests;
+      }
+      return total;
+    },
+    { folders: 0, requests: 0 },
+  );
+
 export type ImportOutcome =
   | SoapUiPreview
+  | PostmanV3Preview
   | {
       kind: "collection";
       id: string;
       name: string;
       folders: number;
       requests: number;
-      source: "postman" | "openapi" | "har" | "hoppscotch" | "thunder-client" | "insomnia" | "soapui";
+      source:
+        | "postman"
+        | "postman-v3"
+        | "openapi"
+        | "har"
+        | "hoppscotch"
+        | "thunder-client"
+        | "insomnia"
+        | "soapui";
       sourceCounts?: SoapUiCounts;
       diagnostics?: SoapUiDiagnostic[];
       warnings?: string[];
@@ -80,14 +118,41 @@ export function importContent(
       ...metadata,
     };
   }
-  if (options.preview)
-    throw new Error("Preview currently supports SoapUI XML projects. No data was imported.");
   let data: unknown;
   try {
     data = parseSpec(content);
   } catch {
+    if (options.preview)
+      throw new Error(
+        "Preview currently supports SoapUI XML projects and Postman v3 collections. No data was imported.",
+      );
     throw new Error("Content is neither valid JSON nor YAML");
   }
+  if (isPostmanV3(data)) {
+    const { collection, diagnostics } = postmanV3ToV21(data);
+    const { root, variables } = importPostmanCollection(collection);
+    const warnings = v3Warnings(diagnostics);
+    if (options.preview)
+      return {
+        kind: "preview",
+        source: "postman-v3",
+        name: root.name,
+        ...countTree(root),
+        variables: variables.length,
+        diagnostics,
+        warnings,
+      };
+    return {
+      kind: "collection",
+      source: "postman-v3",
+      ...repo.importTree(workspaceId, root, variables),
+      warnings,
+    };
+  }
+  if (options.preview)
+    throw new Error(
+      "Preview currently supports SoapUI XML projects and Postman v3 collections. No data was imported.",
+    );
   if (isHar(data)) {
     const { root, variables, warnings } = importHar(data);
     return { kind: "collection", source: "har", ...repo.importTree(workspaceId, root, variables), warnings };
@@ -168,6 +233,6 @@ export function importContent(
     return { kind: "environment", id: created.id, name: created.name, variables: env.variables.length };
   }
   throw new Error(
-    "Unrecognised format. Supported: Postman collection v2.0/v2.1, Postman environment, OpenAPI 3.x, Swagger 2.0, HAR 1.2, Hoppscotch, Thunder Client, Insomnia v4/v5, SoapUI XML projects",
+    "Unrecognised format. Supported: Postman collection v2.0/v2.1/v3, Postman environment, OpenAPI 3.x, Swagger 2.0, HAR 1.2, Hoppscotch, Thunder Client, Insomnia v4/v5, SoapUI XML projects",
   );
 }

@@ -394,7 +394,8 @@ export function registerManagement(program: Command) {
   }
   collection
     .command("export <id>")
-    .description("Export a collection as Postman v2.1 JSON")
+    .description("Export a collection as Postman JSON (v2.1 by default, or v3)")
+    .option("--format <format>", "Postman collection format: v2.1 or v3", "v2.1")
     .option("--out <file>", "Write to a file instead of standard output")
     .option("--include-secrets", "Include secret variable values")
     .option("--include-credentials", "Include request credentials")
@@ -402,9 +403,29 @@ export function registerManagement(program: Command) {
       act(async (ctx, [folderId], command) => {
         const options = command.opts<{
           out?: string;
+          format?: string;
           includeSecrets?: boolean;
           includeCredentials?: boolean;
         }>();
+        if (options.format !== "v2.1" && options.format !== "v3")
+          throw new CliError("Use --format v2.1 or --format v3", EXIT.usage);
+        if (options.format === "v3") {
+          const report = await ctx.api.request<{
+            collection: unknown;
+            diagnostics: { level: string; path: string; message: string }[];
+          }>("GET", `/api/export/collection/${enc(folderId)}`, {
+            query: {
+              format: "v3",
+              report: "1",
+              includeSecrets: options.includeSecrets ? "1" : undefined,
+              includeCredentials: options.includeCredentials ? "1" : undefined,
+            },
+          });
+          for (const note of report.diagnostics)
+            process.stderr.write(`note: ${note.path}: ${note.message}\n`);
+          await writeOutput(JSON.stringify(report.collection, null, 2) + "\n", options.out);
+          return;
+        }
         const text = await ctx.api.request<string>("GET", `/api/export/collection/${enc(folderId)}`, {
           raw: true,
           query: {
