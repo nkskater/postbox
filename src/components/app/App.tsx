@@ -14,6 +14,7 @@ import { useApp } from "@/stores/app";
 import { useDialogs } from "@/stores/dialogs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Sidebar } from "@/components/sidebar/Sidebar";
+import { CatalogBrowser } from "@/components/catalog/CatalogBrowser";
 import { RequestEditor } from "@/components/request/RequestEditor";
 import { FolderEditor } from "@/components/folder/FolderEditor";
 import { EnvironmentEditor } from "@/components/env/EnvironmentEditor";
@@ -67,6 +68,8 @@ function MainArea() {
       return <RunnerView key={tab.folderId} folderId={tab.folderId} />;
     case "cookies":
       return <CookiesView />;
+    case "catalog":
+      return <CatalogBrowser />;
     case "settings":
       return <SettingsView />;
   }

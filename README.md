@@ -202,6 +202,8 @@ Request contracts can declare typed parameters, required fields, enums, bounds a
 
 Collections also have a **Documentation** tab for searchable previews and owner-managed private/public read-only snapshots. See [collection documentation](docs/collection-documentation.md) for sharing, revocation, imports and custom hostnames.
 
+The **Catalog** rail discovers permitted versioned APIs across workspaces. Owners publish sanitized collections with tags, owner labels and private/team/public visibility; consumers browse versions and import independent forks. See [API catalog](docs/api-catalog.md).
+
 ### 4. Scripts and tests
 
 **Pre-request Script** runs before the request is sent and can change it or set variables. **Post-response Script** runs

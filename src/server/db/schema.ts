@@ -700,3 +700,47 @@ export const webhookAttempts = sqliteTable(
 );
 export type WebhookRow = typeof webhooks.$inferSelect;
 export type WebhookDeliveryRow = typeof webhookDeliveries.$inferSelect;
+
+export const catalogEntries = sqliteTable(
+  "catalog_entries",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    folderId: text("folder_id")
+      .notNull()
+      .references(() => folders.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    description: text("description").notNull(),
+    tags: text("tags", { mode: "json" }).$type<string[]>().notNull(),
+    owners: text("owners", { mode: "json" }).$type<string[]>().notNull(),
+    visibility: text("visibility").$type<"private" | "team" | "public">().notNull(),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    revision: integer("revision").notNull(),
+    latestVersion: integer("latest_version").notNull(),
+    latestLabel: text("latest_label").notNull(),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("catalog_folder_unique").on(t.folderId),
+    index("catalog_visibility_updated_idx").on(t.visibility, t.updatedAt),
+    index("catalog_workspace_idx").on(t.workspaceId),
+  ],
+);
+export const catalogVersions = sqliteTable(
+  "catalog_versions",
+  {
+    entryId: text("entry_id")
+      .notNull()
+      .references(() => catalogEntries.id, { onDelete: "cascade" }),
+    version: integer("version").notNull(),
+    label: text("label").notNull(),
+    snapshot: text("snapshot", { mode: "json" }).$type<DocumentationSnapshot>().notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.entryId, t.version] }),
+    uniqueIndex("catalog_version_label_unique").on(t.entryId, t.label),
+  ],
+);

@@ -1,3 +1,5 @@
+import type { getFolderCatalog, searchCatalog, getCatalogEntry, publishCatalog } from "@/server/catalog";
+import type { CatalogPublishInput, CatalogMetadataInput, CatalogSearchInput } from "@/core/catalog/model";
 import type { getDocumentation, publishDocumentation } from "@/server/documentation";
 import type { PublicationInput } from "@/core/documentation/model";
 /**
@@ -87,6 +89,32 @@ const q = (params: Record<string, string | null | undefined>) =>
   new URLSearchParams(Object.entries(params).filter(([, v]) => v != null) as [string, string][]).toString();
 
 export const api = {
+  catalog: {
+    managed: (id: string) => call<ReturnType<typeof getFolderCatalog>>("GET", `/api/folders/${id}/catalog`),
+    publish: (id: string, body: CatalogPublishInput) =>
+      call<ReturnType<typeof publishCatalog>>("PUT", `/api/folders/${id}/catalog`, body),
+    update: (id: string, body: CatalogMetadataInput) =>
+      call<ReturnType<typeof publishCatalog>>("PATCH", `/api/folders/${id}/catalog`, body),
+    revoke: (id: string) => call<{ ok: boolean }>("DELETE", `/api/folders/${id}/catalog`),
+    search: (input: CatalogSearchInput = {}, signal?: AbortSignal) =>
+      call<ReturnType<typeof searchCatalog>>(
+        "GET",
+        `/api/catalog?${new URLSearchParams(
+          Object.fromEntries(
+            Object.entries(input)
+              .filter(([, v]) => v !== undefined)
+              .map(([k, v]) => [k, String(v)]),
+          ),
+        )}`,
+        undefined,
+        signal,
+      ),
+    get: (id: string, version?: number) =>
+      call<ReturnType<typeof getCatalogEntry>>(
+        "GET",
+        `/api/catalog/${id}${version ? `?version=${version}` : ""}`,
+      ),
+  },
   documentation: {
     get: (id: string) => call<ReturnType<typeof getDocumentation>>("GET", `/api/folders/${id}/documentation`),
     publish: (id: string, body: PublicationInput) =>

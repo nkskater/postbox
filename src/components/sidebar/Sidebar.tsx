@@ -11,6 +11,7 @@ import { DatasetList } from "./DatasetList";
 import { HistoryList } from "./HistoryList";
 
 const VIEWS = [
+  { id: "catalog", label: "Catalog", icon: Library },
   { id: "packages", label: "Packages", icon: Library },
   { id: "mocks", label: "Mocks", icon: Server },
   { id: "datasets", label: "Datasets", icon: Database },
@@ -38,7 +39,11 @@ export function Sidebar() {
           <button
             key={v.id}
             title={v.label}
-            onClick={() => setView(v.id)}
+            onClick={() => {
+              setView(v.id);
+              if (v.id === "catalog")
+                useApp.getState().openTab({ id: "api-catalog", type: "catalog", name: "API catalog" });
+            }}
             className={cn(
               labels ? "flex w-[68px] flex-col" : "flex w-9 flex-col justify-center",
               " items-center gap-0.5 rounded-md py-1.5 text-[10px]",
@@ -51,6 +56,22 @@ export function Sidebar() {
         ))}
       </nav>
       <div className="min-w-0 flex-1">
+        {view === "catalog" && (
+          <div className="space-y-3 p-3 text-xs">
+            <h2 className="font-medium">API catalog</h2>
+            <p>
+              Browse versioned APIs across workspaces. Publish from a collection’s Catalog publishing tab.
+            </p>
+            <button
+              className="text-primary underline"
+              onClick={() =>
+                useApp.getState().openTab({ id: "api-catalog", type: "catalog", name: "API catalog" })
+              }
+            >
+              Browse catalog
+            </button>
+          </div>
+        )}
         {view === "collections" && <CollectionTree />}
         {view === "environments" && <EnvironmentList />}
         {view === "history" && <HistoryList />}
