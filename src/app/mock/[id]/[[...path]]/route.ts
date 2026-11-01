@@ -1,0 +1,10 @@
+import { serveMock } from "@/server/mocks";
+type Context = { params: Promise<{ id: string; path?: string[] }> };
+const handle = async (request: Request, context: Context) => serveMock(request, (await context.params).id);
+export const GET = handle;
+export const POST = handle;
+export const PUT = handle;
+export const PATCH = handle;
+export const DELETE = handle;
+export const HEAD = handle;
+export const OPTIONS = handle;

@@ -1,3 +1,8 @@
+import { randomBytes } from "node:crypto";
+import { sanitizeExample } from "@/core/examples";
+import { credentialRedactionValues, sensitiveFieldValues } from "@/core/retention";
+import { redactStoredValue } from "@/core/variables/resolver";
+import type { MockRoute } from "@/core/mocks/model";
 /**
  * Full backup and restore of workspace data, plus database maintenance.
  *
@@ -29,6 +34,7 @@ const TABLES = {
   datasets: schema.datasets,
   datasetVersions: schema.datasetVersions,
   schedules: schema.schedules,
+  mockServers: schema.mockServers,
   workspaceMembers: schema.workspaceMembers,
   appSettings: schema.appSettings,
 } as const;
@@ -43,6 +49,7 @@ const ORDER: TableName[] = [
   "datasets",
   "datasetVersions",
   "schedules",
+  "mockServers",
   "workspaceMembers",
   "appSettings",
 ];
@@ -87,6 +94,26 @@ export function createBackup(db: DB, opts: { includeSecrets: boolean }): Backup 
     tables[name] = db.select().from(TABLES[name]).all() as Record<string, unknown>[];
   }
   if (!opts.includeSecrets) {
+    const mockSecrets = credentialRedactionValues([
+      ...tables.variables.filter((v) => v.type === "secret").map((v) => String(v.value ?? "")),
+      ...sensitiveFieldValues(tables.requests),
+      ...sensitiveFieldValues(tables.folders),
+    ]);
+    tables.mockServers = tables.mockServers.map((mock) => ({
+      ...redactStoredValue(mock, mockSecrets),
+      id: mock.id,
+      workspaceId: mock.workspaceId,
+      folderId: mock.folderId,
+      keyHash: randomBytes(32).toString("hex"),
+      enabled: false,
+      public: false,
+      routes: (mock.routes as MockRoute[]).map((route) => ({
+        ...redactStoredValue(route, mockSecrets),
+        id: route.id,
+        requestId: route.requestId,
+        response: sanitizeExample(route.response, mockSecrets),
+      })),
+    }));
     tables.variables = tables.variables.map((v) => (v.type === "secret" ? { ...v, value: "" } : v));
     const scrub = (r: Record<string, unknown>) => ({
       ...r,

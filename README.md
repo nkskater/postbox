@@ -242,6 +242,8 @@ apply the same checks. Before running, you can clean the data in the grid:
 ![Runner with the demo CSV loaded into the data grid](docs/screenshots/runner-data.png)
 
 Results stream in live. Filter by **passed** or **failed** and expand a row to see each assertion and the response body.
+Use **Mocks** in the sidebar to serve saved collection examples through private or explicitly public mock endpoints. See the [mock server guide](docs/mock-servers.md) for matching, keys, logs and automation.
+
 Save iteration data in the **Datasets** sidebar to reuse it across runs and schedules,
 with immutable versions, variable previews and explicit secret columns. See the
 [saved datasets guide](docs/saved-datasets.md) for UI, REST and MCP usage.

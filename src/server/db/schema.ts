@@ -1,3 +1,4 @@
+import type { MockRoute } from "@/core/mocks/model";
 import type { ExecutionDetails } from "@/core/runner/details";
 /**
  * Drizzle schema for the Postbox SQLite database.
@@ -396,4 +397,44 @@ export const invites = sqliteTable(
     uniqueIndex("invites_token_unique").on(t.tokenHash),
     index("invites_workspace_idx").on(t.workspaceId),
   ],
+);
+
+export const mockServers = sqliteTable(
+  "mock_servers",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    folderId: text("folder_id").notNull(),
+    name: text("name").notNull(),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    public: integer("public", { mode: "boolean" }).notNull().default(false),
+    matchQuery: integer("match_query", { mode: "boolean" }).notNull().default(true),
+    matchBody: integer("match_body", { mode: "boolean" }).notNull().default(true),
+    delayMs: integer("delay_ms").notNull().default(0),
+    status: integer("status"),
+    headers: text("headers", { mode: "json" }).$type<KeyValue[]>().notNull(),
+    routes: text("routes", { mode: "json" }).$type<MockRoute[]>().notNull(),
+    revision: integer("revision").notNull().default(1),
+    keyHash: text("key_hash").notNull(),
+    ...timestamps,
+  },
+  (t) => [index("mock_workspace_idx").on(t.workspaceId)],
+);
+export const mockLogs = sqliteTable(
+  "mock_logs",
+  {
+    id: text("id").primaryKey(),
+    mockId: text("mock_id")
+      .notNull()
+      .references(() => mockServers.id, { onDelete: "cascade" }),
+    method: text("method").notNull(),
+    path: text("path").notNull(),
+    status: integer("status").notNull(),
+    exampleId: text("example_id"),
+    durationMs: integer("duration_ms").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("mock_logs_time_idx").on(t.mockId, t.createdAt)],
 );

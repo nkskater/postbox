@@ -1,14 +1,16 @@
 "use client";
-import { Database, History, Layers, Library } from "lucide-react";
+import { Database, History, Layers, Library, Server } from "lucide-react";
 import { useApp } from "@/stores/app";
 import { useSetting } from "@/stores/settings";
 import { cn } from "@/lib/utils";
 import { CollectionTree } from "./CollectionTree";
 import { EnvironmentList } from "./EnvironmentList";
+import { MockList } from "./MockList";
 import { DatasetList } from "./DatasetList";
 import { HistoryList } from "./HistoryList";
 
 const VIEWS = [
+  { id: "mocks", label: "Mocks", icon: Server },
   { id: "datasets", label: "Datasets", icon: Database },
   { id: "collections", label: "Collections", icon: Library },
   { id: "environments", label: "Environments", icon: Layers },
@@ -51,6 +53,7 @@ export function Sidebar() {
         {view === "environments" && <EnvironmentList />}
         {view === "history" && <HistoryList />}
         {view === "datasets" && <DatasetList />}
+        {view === "mocks" && <MockList />}
       </div>
     </div>
   );
