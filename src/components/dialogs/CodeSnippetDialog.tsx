@@ -2,6 +2,7 @@
 /**
  * Code snippet generator for the active request.
  */
+import { copyText } from "@/lib/clipboard";
 import { useEffect, useState } from "react";
 import { Copy } from "lucide-react";
 import { toast } from "sonner";
@@ -115,9 +116,8 @@ export function CodeSnippetDialog() {
             className="ml-auto h-7 text-xs"
             disabled={loading || !!error || !code}
             onClick={() => {
-              void navigator.clipboard.writeText(code).then(
-                () => toast.success("Copied"),
-                () => toast.error("Could not copy snippet"),
+              void copyText(code).then((ok) =>
+                ok ? toast.success("Copied") : toast.error("Could not copy snippet"),
               );
             }}
           >
