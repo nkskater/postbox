@@ -44,11 +44,11 @@ export const EXPIRY_OPTIONS = [
 ] as const;
 
 /** One-time display of a freshly issued key, with a Copy button that also works over plain HTTP. */
-export function SecretBox({ secret, note }: { secret: string; note?: string }) {
+export function SecretBox({ secret, note, what = "key" }: { secret: string; note?: string; what?: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <div className="space-y-2 rounded-md border border-primary/40 bg-primary/5 p-3 text-sm">
-      <p className="font-medium">Copy your new key now. It will not be shown again.</p>
+      <p className="font-medium">Copy your new {what} now. It will not be shown again.</p>
       {note && <p className="text-xs text-muted-foreground">{note}</p>}
       <div className="flex gap-2">
         <Input readOnly value={secret} className="font-mono text-xs" onFocus={(e) => e.target.select()} />
@@ -56,12 +56,12 @@ export function SecretBox({ secret, note }: { secret: string; note?: string }) {
           type="button"
           variant="outline"
           size="icon"
-          title="Copy key"
+          title={`Copy ${what}`}
           onClick={() => {
             void copyText(secret).then((ok) => {
               setCopied(ok);
-              if (ok) toast.success("Key copied");
-              else toast.error("Could not copy. Select the key and copy it manually.");
+              if (ok) toast.success(`${what[0].toUpperCase()}${what.slice(1)} copied`);
+              else toast.error("Could not copy. Select the text and copy it manually.");
             });
           }}
         >

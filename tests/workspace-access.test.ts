@@ -76,6 +76,12 @@ beforeAll(async () => {
     name: "access-package",
     source: "exports.value=1;",
   }).id;
+  const { createWebhook } = await import("@/server/webhooks");
+  ids.webhook = createWebhook(workspaceId, {
+    name: "Access webhook",
+    url: "https://example.test/hook",
+    events: ["run.passed"],
+  }).id;
   ids.environment = repo.createEnvironment(workspaceId, "Environment").id;
   ids.history = withCaller(caller(owner), () =>
     repo.addHistory({

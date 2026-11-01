@@ -631,3 +631,72 @@ export const documentationPublications = sqliteTable(
     index("documentation_workspace_idx").on(t.workspaceId),
   ],
 );
+
+/** An outbound webhook endpoint a workspace owner configured. Nothing is sent without one. */
+export const webhooks = sqliteTable(
+  "webhooks",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    url: text("url").notNull(),
+    /** Signing key. Returned once on creation or rotation, never listed afterwards. */
+    secret: text("secret").notNull(),
+    /** JSON array of event types. */
+    events: text("events").notNull(),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    createdBy: text("created_by"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [index("webhooks_workspace_idx").on(t.workspaceId)],
+);
+
+/** One event queued for one webhook. The id is the same on every retry. */
+export const webhookDeliveries = sqliteTable(
+  "webhook_deliveries",
+  {
+    id: text("id").primaryKey(),
+    webhookId: text("webhook_id")
+      .notNull()
+      .references(() => webhooks.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id").notNull(),
+    eventId: text("event_id").notNull(),
+    eventType: text("event_type").notNull(),
+    payload: text("payload").notNull(),
+    /** pending | delivered | failed */
+    status: text("status").notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: integer("next_attempt_at"),
+    /** A worker holds the delivery until then; a crashed worker's claim simply expires. */
+    lockedUntil: integer("locked_until"),
+    lastStatus: integer("last_status"),
+    lastError: text("last_error"),
+    replayOf: text("replay_of"),
+    createdAt: integer("created_at").notNull(),
+    finishedAt: integer("finished_at"),
+  },
+  (t) => [
+    index("webhook_delivery_hook_idx").on(t.webhookId, t.createdAt),
+    index("webhook_delivery_due_idx").on(t.status, t.nextAttemptAt),
+  ],
+);
+
+export const webhookAttempts = sqliteTable(
+  "webhook_attempts",
+  {
+    id: text("id").primaryKey(),
+    deliveryId: text("delivery_id")
+      .notNull()
+      .references(() => webhookDeliveries.id, { onDelete: "cascade" }),
+    at: integer("at").notNull(),
+    status: integer("status"),
+    error: text("error"),
+    durationMs: integer("duration_ms").notNull(),
+  },
+  (t) => [index("webhook_attempt_delivery_idx").on(t.deliveryId, t.at)],
+);
+export type WebhookRow = typeof webhooks.$inferSelect;
+export type WebhookDeliveryRow = typeof webhookDeliveries.$inferSelect;
