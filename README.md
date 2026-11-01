@@ -198,6 +198,8 @@ redacted from logs, history and the **Request** tab. The 👁 button in the top 
 Dynamic variables produce a new value on each use: `{{$guid}}`, `{{$timestamp}}`, `{{$isoTimestamp}}`,
 `{{$randomInt}}`, `{{$randomEmail}}`, `{{$randomFirstName}}` and more.
 
+Request contracts can declare typed parameters, required fields, enums, bounds and JSON body schemas. The **Contract** tab validates drafts and saved examples without sending requests; HTTP execution adds contract checks to test results. See [request contracts](docs/request-contracts.md).
+
 ### 4. Scripts and tests
 
 **Pre-request Script** runs before the request is sent and can change it or set variables. **Post-response Script** runs

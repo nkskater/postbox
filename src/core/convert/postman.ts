@@ -1,3 +1,5 @@
+import { parseContract } from "../contracts/validate";
+import type { RequestContract } from "../contracts/model";
 /**
  * Postman Collection v2.0/v2.1 and environment import/export.
  */
@@ -70,6 +72,7 @@ interface PmRequest {
   description?: PmDescription;
 }
 interface PmItem {
+  _postbox?: { contract?: RequestContract | null };
   name?: string;
   item?: PmItem[];
   request?: PmRequest | string;
@@ -406,6 +409,7 @@ function importRequest(item: PmItem): RequestNode {
     settings: { ...DEFAULT_SETTINGS },
     description: desc(r.description ?? item.description),
     examples,
+    ...(item._postbox?.contract ? { contract: parseContract(item._postbox.contract) } : {}),
   };
 }
 
@@ -790,6 +794,7 @@ function exportNode(
   );
   return {
     name: n.name,
+    ...(n.contract ? { _postbox: { contract: redactStoredValue(n.contract, secrets) } } : {}),
     event: events(n.preRequestScript, n.testScript),
     request: {
       method: n.method,

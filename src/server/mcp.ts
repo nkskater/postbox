@@ -1,3 +1,5 @@
+import { contractReport } from "@/core/contracts/report";
+import { requestInputSchema } from "@/core/schemas";
 import * as scriptPackages from "./script-packages";
 import { packageCreateSchema, packageRevisionSchema, packagePatchSchema } from "@/core/packages/model";
 import * as mocks from "./mocks";
@@ -548,6 +550,25 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
     },
   );
 
+  server.registerTool(
+    "validate_request_contract",
+    {
+      title: "Validate Request Contract",
+      description:
+        "Validate the saved request draft and response examples without network access or running scripts. Unresolved templates and incomplete bodies are deferred.",
+      inputSchema: { requestId: z.string().min(1) },
+    },
+    async ({ requestId }) => {
+      try {
+        const request = repo.getRequest(requestId);
+        if (!request) throw new Error("Request not found");
+        return okJson(contractReport(request));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+
   // ================================================================ REQUESTS
 
   server.registerTool(
@@ -596,6 +617,7 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
         auth: authSchema.optional().describe("Authentication configuration"),
         preRequestScript: z.string().optional().describe("JavaScript pre-request script (pm.* API)"),
         testScript: z.string().optional().describe("JavaScript post-response test script (pm.* API)"),
+        contract: requestInputSchema.shape.contract,
         settings: settingsPatchSchema.optional().describe("Per-request HTTP engine settings"),
         description: z.string().optional(),
       },
@@ -614,12 +636,14 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
       testScript,
       settings,
       description,
+      contract,
     }) => {
       try {
         const folder = repo.getFolder(folderId);
         if (!folder) throw new Error(`Folder not found: ${folderId}`);
 
         const partial: Partial<RequestDef> = {};
+        if (contract !== undefined) partial.contract = contract;
         if (curl) {
           const parsed = parseCurl(curl);
           partial.method = parsed.method;
@@ -673,6 +697,7 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
         auth: authSchema.optional(),
         preRequestScript: z.string().optional(),
         testScript: z.string().optional(),
+        contract: requestInputSchema.shape.contract,
         settings: settingsPatchSchema.optional(),
         description: z.string().optional(),
       },
@@ -801,6 +826,7 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
         auth: authSchema.optional(),
         preRequestScript: z.string().optional(),
         testScript: z.string().optional(),
+        contract: requestInputSchema.shape.contract,
         settings: settingsPatchSchema.optional(),
         saveHistory: z.boolean().default(true).describe("Record this execution in workspace history"),
         maxBodyChars: z
@@ -872,6 +898,7 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
           ...(input.auth !== undefined ? { auth: input.auth } : {}),
           ...(input.preRequestScript !== undefined ? { preRequestScript: input.preRequestScript } : {}),
           ...(input.testScript !== undefined ? { testScript: input.testScript } : {}),
+          ...(input.contract !== undefined ? { contract: input.contract } : {}),
           settings: mergedSettings,
         };
 
@@ -916,6 +943,7 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
                 bodyText,
               }
             : null,
+          contractDiagnostics: result.contractDiagnostics,
           tests: result.tests,
           scriptErrors: result.scriptErrors,
           logs: result.logs,

@@ -33,6 +33,7 @@ import { KeyValueEditor } from "./KeyValueEditor";
 import { BodyEditor } from "./BodyEditor";
 import { AuthEditor } from "./AuthEditor";
 import { ScriptEditor } from "./ScriptEditor";
+import { ContractEditor } from "./ContractEditor";
 import { SettingsEditor } from "./SettingsEditor";
 import { cn } from "@/lib/utils";
 import {
@@ -302,6 +303,9 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
               <TabsTrigger value="test" className="text-xs">
                 <TabLabel label="Post-response Script" dot={!!d.testScript.trim()} />
               </TabsTrigger>
+              <TabsTrigger value="contract" className="text-xs">
+                <TabLabel label="Contract" dot={!!d.contract} />
+              </TabsTrigger>
               <TabsTrigger value="settings" className="text-xs">
                 Settings
               </TabsTrigger>
@@ -349,6 +353,14 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
                   kind="test"
                   value={d.testScript}
                   onChange={(testScript) => set({ testScript })}
+                />
+              </TabsContent>
+              <TabsContent value="contract" className="mt-0">
+                <ContractEditor
+                  key={tab.id}
+                  request={d}
+                  onChange={(contract) => set({ contract })}
+                  actual={tab.result?.contractDiagnostics}
                 />
               </TabsContent>
               <TabsContent value="settings" className="mt-0">
