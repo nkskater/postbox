@@ -44,6 +44,21 @@ beforeAll(async () => {
     table: { columns: ["id"], rows: [{ id: "1" }] },
     secretColumns: [],
   }).id;
+  ids.mock = "access-mock";
+  getDb()
+    .insert(schema.mockServers)
+    .values({
+      id: ids.mock,
+      workspaceId,
+      folderId: ids.folder,
+      name: "Access mock",
+      headers: [],
+      routes: [],
+      keyHash: "0".repeat(64),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    })
+    .run();
   ids.environment = repo.createEnvironment(workspaceId, "Environment").id;
   ids.history = withCaller(caller(owner), () =>
     repo.addHistory({

@@ -4,7 +4,16 @@ import type { Caller } from "./caller";
 import { HttpError } from "./errors";
 
 export type ResourceKind =
-  "workspace" | "folder" | "request" | "environment" | "run" | "history" | "cookie" | "schedule" | "dataset";
+  | "workspace"
+  | "folder"
+  | "request"
+  | "environment"
+  | "run"
+  | "history"
+  | "cookie"
+  | "schedule"
+  | "dataset"
+  | "mock";
 const TABLES: Record<ResourceKind, string> = {
   workspace: "workspaces",
   folder: "folders",
@@ -15,6 +24,7 @@ const TABLES: Record<ResourceKind, string> = {
   cookie: "cookies",
   schedule: "schedules",
   dataset: "datasets",
+  mock: "mock_servers",
 };
 export function resourceWorkspace(kind: ResourceKind, id: string): string {
   const row = getSqlite()
@@ -130,6 +140,16 @@ export const REST_POLICIES: Record<string, Policy> = {
   "GET /api/oauth2/callback": p("account"),
   "GET /api/codegen": p("account"),
   "POST /api/codegen": p("body", "read"),
+  "GET /api/mocks": p("query", "read"),
+  "POST /api/mocks": p("body", "write"),
+  "GET /api/mocks/[id]": p("resource", "read", "mock"),
+  "PATCH /api/mocks/[id]": p("resource", "write", "mock"),
+  "DELETE /api/mocks/[id]": p("resource", "write", "mock"),
+  "GET /api/mocks/[id]/logs": p("resource", "read", "mock"),
+  "DELETE /api/mocks/[id]/logs": p("resource", "write", "mock"),
+  "POST /api/mocks/[id]/key": p("resource", "write", "mock"),
+  "POST /api/mocks/[id]/refresh": p("resource", "write", "mock"),
+  "GET /api/mocks/[id]/export": p("resource", "read", "mock"),
   "GET /api/datasets": p("query", "read"),
   "POST /api/datasets": p("body", "write"),
   "POST /api/datasets/import": p("body", "write"),
@@ -209,6 +229,17 @@ export async function authorizeRest(
 export const MCP_POLICIES: Record<string, WorkspaceAction | "list" | "create" | "identity"> = {
   whoami: "identity",
   list_datasets: "read",
+  list_mocks: "read",
+  get_mock: "read",
+  create_mock: "write",
+  update_mock: "write",
+  refresh_mock: "write",
+  rotate_mock_key: "write",
+  delete_mock: "write",
+  export_mock: "read",
+  list_mock_logs: "read",
+  clear_mock_logs: "write",
+
   get_dataset: "read",
   create_dataset: "write",
   update_dataset: "write",
@@ -265,6 +296,7 @@ export function authorizeTool(caller: Caller, name: string, input: Record<string
   if (input.workspaceId) ids.add(stringId(input.workspaceId));
   for (const [field, kind] of [
     ["datasetId", "dataset"],
+    ["mockId", "mock"],
     ["folderId", "folder"],
     ["requestId", "request"],
     ["environmentId", "environment"],

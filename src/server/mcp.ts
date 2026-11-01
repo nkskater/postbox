@@ -1,3 +1,5 @@
+import * as mocks from "./mocks";
+import { mockCreateSchema, mockPatchSchema } from "@/core/mocks/model";
 /**
  * Model Context Protocol (MCP) server for Postbox.
  *
@@ -1447,6 +1449,139 @@ export function createPostboxMcpServer(): McpServer {
     },
   );
 
+  server.registerTool(
+    "list_mocks",
+    {
+      description: "List workspace mock endpoints without credentials",
+      inputSchema: { workspaceId: z.string() },
+    },
+    async ({ workspaceId }) => {
+      try {
+        return okJson(mocks.listMocks(workspaceId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "get_mock",
+    { description: "Read a sanitized mock snapshot", inputSchema: { mockId: z.string() } },
+    async ({ mockId }) => {
+      try {
+        return okJson(mocks.getMock(mockId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "create_mock",
+    {
+      description:
+        "Create an example snapshot; private by default. Copy the one-time key from this response.",
+      inputSchema: mockCreateSchema.shape,
+    },
+    async (input) => {
+      try {
+        return okJson(mocks.createMock(input));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "update_mock",
+    {
+      description: "Update mock response settings. Public sharing requires explicit public:true.",
+      inputSchema: { mockId: z.string(), ...mockPatchSchema.shape },
+    },
+    async ({ mockId, ...input }) => {
+      try {
+        return okJson(mocks.updateMock(mockId, input));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "refresh_mock",
+    {
+      description: "Explicitly replace the snapshot with the current collection examples",
+      inputSchema: { mockId: z.string() },
+    },
+    async ({ mockId }) => {
+      try {
+        return okJson(mocks.refreshMock(mockId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "rotate_mock_key",
+    {
+      description: "Rotate the private mock key and revoke the previous key; returns a one-time credential",
+      inputSchema: { mockId: z.string() },
+    },
+    async ({ mockId }) => {
+      try {
+        return okJson(mocks.rotateMockKey(mockId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "delete_mock",
+    { description: "Delete an endpoint and all its logs", inputSchema: { mockId: z.string() } },
+    async ({ mockId }) => {
+      try {
+        return okJson(mocks.deleteMock(mockId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "export_mock",
+    {
+      description: "Export a sanitized snapshot without credentials or request logs",
+      inputSchema: { mockId: z.string() },
+    },
+    async ({ mockId }) => {
+      try {
+        return okJson(mocks.exportMock(mockId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "list_mock_logs",
+    {
+      description:
+        "List the last 100 request metadata records; incoming credentials and bodies are never retained",
+      inputSchema: { mockId: z.string() },
+    },
+    async ({ mockId }) => {
+      try {
+        return okJson(mocks.listMockLogs(mockId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "clear_mock_logs",
+    { description: "Clear retained mock request metadata", inputSchema: { mockId: z.string() } },
+    async ({ mockId }) => {
+      try {
+        return okJson(mocks.clearMockLogs(mockId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
   server.registerTool(
     "list_datasets",
     {
