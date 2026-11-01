@@ -4,6 +4,7 @@
  * (Pretty / Raw / Preview with folding and Ctrl+F search), headers, cookies,
  * test results and the request that was actually sent.
  */
+import { copyText } from "@/lib/clipboard";
 import { useMemo, useState } from "react";
 import { AlertTriangle, Check, Copy, Download, Save, Send, X, WrapText } from "lucide-react";
 import { toast } from "sonner";
@@ -143,8 +144,9 @@ export function ResponseViewer({
   const failed = result.tests.filter((t) => !t.passed).length;
 
   const copyBody = () => {
-    void navigator.clipboard.writeText(view === "pretty" && !tooLarge ? pretty : (res?.bodyText ?? ""));
-    toast.success("Copied to clipboard");
+    void copyText(view === "pretty" && !tooLarge ? pretty : (res?.bodyText ?? "")).then((ok) =>
+      ok ? toast.success("Copied to clipboard") : toast.error("Could not copy the response"),
+    );
   };
   const download = () => {
     if (!res) return;

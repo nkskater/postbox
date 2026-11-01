@@ -2,10 +2,12 @@
 /**
  * Profile: first-run administrator setup, password change and personal API tokens.
  */
+import { copyText } from "@/lib/clipboard";
+import { useApp } from "@/stores/app";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Check, Copy, KeyRound, Loader2, Mailbox, Trash2, UserRound } from "lucide-react";
-import { toast } from "sonner";
+import { Toaster, toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -218,7 +220,11 @@ function Tokens() {
               size="icon"
               title="Copy token"
               onClick={() => {
-                void navigator.clipboard.writeText(created).then(() => setCopied(true));
+                void copyText(created).then((ok) => {
+                  setCopied(ok);
+                  if (ok) toast.success("Token copied");
+                  else toast.error("Could not copy. Select the token and copy it manually.");
+                });
               }}
             >
               {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
@@ -271,6 +277,7 @@ function Tokens() {
 }
 
 export function Profile() {
+  const theme = useApp((s) => s.theme);
   const [status, setStatus] = useState<Status | null>(null);
   useEffect(() => {
     call<Status>("/api/auth/status")
@@ -280,44 +287,49 @@ export function Profile() {
 
   const user = status?.caller.user;
   return (
-    <main className="mx-auto w-full max-w-xl space-y-4 p-4 sm:p-8">
-      <div className="flex items-center gap-2">
-        <Button asChild variant="ghost" size="icon" title="Back">
-          <Link href="/">
-            <ArrowLeft className="size-4" />
-          </Link>
-        </Button>
-        <Mailbox className="size-5 text-primary" />
-        <h1 className="text-lg font-semibold">Profile</h1>
-      </div>
-      {!status && <Loader2 className="size-5 animate-spin text-muted-foreground" />}
-      {status && !status.hasUsers && <SetupForm />}
-      {status?.hasUsers && status.caller.kind === "env" && (
-        <Section title="Recovery login">
-          <p className="text-sm text-muted-foreground">
-            You are signed in with POSTBOX_TOKEN, which has no account. Sign in with a username to manage a
-            profile.
-          </p>
-        </Section>
-      )}
-      {user && (
-        <>
-          <Section title="Account">
-            <div className="flex items-center gap-3 text-sm">
-              <UserRound className="size-8 rounded-full border p-1.5 text-muted-foreground" />
-              <div>
-                <div className="font-medium">{user.displayName}</div>
-                <div className="text-muted-foreground">
-                  {user.username}
-                  {user.isAdmin && " · administrator"}
+    // The app shell disables page scrolling, so this page scrolls itself.
+    <div className="h-full overflow-y-auto">
+      {/* The toaster otherwise only exists in the main app shell, so toasts here were never shown. */}
+      <Toaster theme={theme} position="bottom-right" richColors closeButton />
+      <main className="mx-auto w-full max-w-xl space-y-4 p-4 sm:p-8">
+        <div className="flex items-center gap-2">
+          <Button asChild variant="ghost" size="icon" title="Back">
+            <Link href="/">
+              <ArrowLeft className="size-4" />
+            </Link>
+          </Button>
+          <Mailbox className="size-5 text-primary" />
+          <h1 className="text-lg font-semibold">Profile</h1>
+        </div>
+        {!status && <Loader2 className="size-5 animate-spin text-muted-foreground" />}
+        {status && !status.hasUsers && <SetupForm />}
+        {status?.hasUsers && status.caller.kind === "env" && (
+          <Section title="Recovery login">
+            <p className="text-sm text-muted-foreground">
+              You are signed in with POSTBOX_TOKEN, which has no account. Sign in with a username to manage a
+              profile.
+            </p>
+          </Section>
+        )}
+        {user && (
+          <>
+            <Section title="Account">
+              <div className="flex items-center gap-3 text-sm">
+                <UserRound className="size-8 rounded-full border p-1.5 text-muted-foreground" />
+                <div>
+                  <div className="font-medium">{user.displayName}</div>
+                  <div className="text-muted-foreground">
+                    {user.username}
+                    {user.isAdmin && " · administrator"}
+                  </div>
                 </div>
               </div>
-            </div>
-          </Section>
-          <PasswordForm />
-          <Tokens />
-        </>
-      )}
-    </main>
+            </Section>
+            <PasswordForm />
+            <Tokens />
+          </>
+        )}
+      </main>
+    </div>
   );
 }
