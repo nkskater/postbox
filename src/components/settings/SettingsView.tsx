@@ -35,6 +35,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ConfirmDialog } from "@/components/dialogs/ConfirmDialog";
 import { DataManagement } from "./DataManagement";
+import { ShortcutsSettings } from "./ShortcutsSettings";
 import { IntegrationsPanel } from "./IntegrationsPanel";
 import { SecurityPanel } from "./SecurityPanel";
 import { cn } from "@/lib/utils";
@@ -251,7 +252,8 @@ export function SettingsView() {
                 </Button>
               </header>
               {section === "appearance" && <AppearancePreview />}
-              {renderSettings(sectionDefs)}
+              {renderSettings(sectionDefs.filter((d) => !d.hidden))}
+              {section === "keyboard" && <ShortcutsSettings />}
               {section === "data" && <DataManagement isAdmin={!!identity?.isAdmin} />}
               {section === "integrations" && <IntegrationsPanel isAdmin={!!identity?.isAdmin} />}
               {section === "security" && <SecurityPanel isAdmin={!!identity?.isAdmin} />}

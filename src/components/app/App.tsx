@@ -3,6 +3,7 @@
  * Application shell: header, resizable sidebar / main area / console layout,
  * global dialogs and keyboard shortcuts.
  */
+import { ShortcutHint } from "./ShortcutHint";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { onAuthenticationRequired } from "@/lib/api";
@@ -45,7 +46,10 @@ function MainArea() {
         <button className="text-primary hover:underline" onClick={() => openDraft()}>
           Create a new request
         </button>
-        <p className="text-xs">Alt+T new request · Ctrl+K command palette · ? shortcuts</p>
+        <p className="text-xs">
+          <ShortcutHint id="newRequest" /> new request · <ShortcutHint id="palette" /> command palette ·{" "}
+          <ShortcutHint id="help" /> shortcuts
+        </p>
       </div>
     );
   }
@@ -251,7 +255,9 @@ export function App({ authEnabled }: { authEnabled: boolean }) {
           >
             <Terminal className="size-3" /> Console {entriesCount > 0 && `(${entriesCount})`}
           </button>
-          <span className="ml-auto">Ctrl+K commands · ? shortcuts</span>
+          <span className="ml-auto">
+            <ShortcutHint id="palette" /> commands · <ShortcutHint id="help" /> shortcuts
+          </span>
         </footer>
       </div>
       <SaveRequestDialog

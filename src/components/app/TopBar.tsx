@@ -1,4 +1,5 @@
 "use client";
+import { useShortcutLabel } from "@/lib/use-shortcuts";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -36,6 +37,7 @@ import { Input } from "@/components/ui/input";
 
 /** Header: workspace switcher, environment selector with quick look, global actions. */
 export function TopBar({ authEnabled }: { authEnabled: boolean }) {
+  const settingsKey = useShortcutLabel("settings");
   const router = useRouter();
   const identity = useIdentity();
   const {
@@ -200,7 +202,7 @@ export function TopBar({ authEnabled }: { authEnabled: boolean }) {
         variant="ghost"
         size="icon"
         className="size-7"
-        title="Settings (Ctrl+,)"
+        title={`Settings (${settingsKey})`}
         onClick={() => openTab({ id: "settings", type: "settings", name: "Settings" })}
       >
         <Settings className="size-4" />

@@ -1,4 +1,5 @@
 "use client";
+import { useShortcutLabel } from "@/lib/use-shortcuts";
 import { Settings, Cookie, Globe, Layers, Library, Play, Plus, X } from "lucide-react";
 import { useApp, snapshot, type Tab } from "@/stores/app";
 import { useDialogs } from "@/stores/dialogs";
@@ -69,6 +70,7 @@ function TabTitle({ tab }: { tab: Tab }) {
 }
 
 export function TabBar() {
+  const newRequestKey = useShortcutLabel("newRequest");
   const { tabs, activeTabId, setActiveTab, closeTab, requestCloseTab, closeOtherTabs, openDraft } = useApp();
   const confirmCloseTabId = useDialogs((s) => s.confirmCloseTabId);
   const setConfirmCloseTabId = useDialogs((s) => s.setConfirmCloseTabId);
@@ -125,7 +127,7 @@ export function TabBar() {
         <button
           className="flex w-9 shrink-0 items-center justify-center text-muted-foreground hover:bg-accent"
           onClick={() => openDraft()}
-          title="New request (Ctrl+T)"
+          title={`New request (${newRequestKey})`}
         >
           <Plus className="size-4" />
         </button>

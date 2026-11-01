@@ -125,7 +125,7 @@ describe("conflict detection", () => {
   it("names the action that already uses a combination", () => {
     const r = validateCombo("send", "Mod+s", b);
     expect(r).toMatchObject({ ok: false, conflictWith: "save" });
-    expect((r as { reason: string }).reason).toContain("Save request");
+    expect((r as { reason: string }).reason).toBe('Ctrl/⌘+S is already used for "Save request".');
     // Spelling does not matter.
     expect(validateCombo("send", "CTRL+S", b)).toMatchObject({ ok: false, conflictWith: "save" });
   });

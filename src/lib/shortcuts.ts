@@ -207,6 +207,9 @@ export function actionForEvent(e: KeyEventLike, bindings: Bindings, typing: bool
 export type ComboCheck = { ok: true } | { ok: false; reason: string; conflictWith?: ShortcutId };
 
 /** Whether `combo` may be bound to `id`, given everything else that is bound. */
+/** Platform-neutral text for messages: Ctrl/⌘+S. */
+const readable = (combo: string) => formatCombo(combo, false).replace("Ctrl", "Ctrl/⌘");
+
 export function validateCombo(id: ShortcutId, input: string, bindings: Bindings): ComboCheck {
   const combo = normalizeCombo(input);
   if (!combo) return { ok: false, reason: "That is not a valid key combination." };
@@ -217,12 +220,16 @@ export function validateCombo(id: ShortcutId, input: string, bindings: Bindings)
       ok: false,
       reason: "Use Ctrl/⌘ or Alt with a key (only the help shortcut can be a single key).",
     };
-  if (RESERVED.has(combo)) return { ok: false, reason: `${combo} is reserved by the browser.` };
+  if (RESERVED.has(combo)) return { ok: false, reason: `${readable(combo)} is reserved by the browser.` };
   const fixed = FIXED_SHORTCUTS.find((f) => f.matches(combo));
-  if (fixed) return { ok: false, reason: `${combo} is already used for "${fixed.label}".` };
+  if (fixed) return { ok: false, reason: `${readable(combo)} is already used for "${fixed.label}".` };
   for (const other of SHORTCUT_ACTIONS) {
     if (other.id !== id && bindings[other.id] === combo)
-      return { ok: false, reason: `${combo} is already used for "${other.label}".`, conflictWith: other.id };
+      return {
+        ok: false,
+        reason: `${readable(combo)} is already used for "${other.label}".`,
+        conflictWith: other.id,
+      };
   }
   return { ok: true };
 }
