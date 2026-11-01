@@ -5,6 +5,7 @@
  * Host policy applies; events stream back as NDJSON. The target is checked before anything
  * is sent, so setup problems return HTTP 400.
  */
+import { z } from "zod";
 import { startGrpcCall } from "@/core/grpc/client";
 import { loadProtoRoot, ProtoError, resolveMethod } from "@/core/grpc/proto";
 import { reflectRoot } from "@/core/grpc/reflection";
@@ -13,6 +14,14 @@ import { createEventStream } from "@/server/event-stream";
 import { getPolicy } from "@/server/context";
 import { grpcRequestSchema, loadGrpcRequest } from "@/server/grpc-request";
 import { HttpError, parseBody, route } from "@/server/http";
+import { oauth2Owner } from "@/server/oauth2-owner";
+import {
+  MAX_SESSIONS,
+  registerSession,
+  removeSession,
+  sessionCount,
+  touchSession,
+} from "@/server/ws-sessions";
 
 export const dynamic = "force-dynamic";
 
@@ -31,9 +40,17 @@ function parseMessages(raw: string, clientStreaming: boolean): unknown[] {
   return [value];
 }
 
+const schema = grpcRequestSchema.extend({
+  /** Keep the request stream open; send, end and cancel through /api/grpc/{id}/... */
+  interactive: z.boolean().optional(),
+});
+
 export const POST = route(async (req: Request) => {
-  const input = await parseBody(req, grpcRequestSchema);
+  const input = await parseBody(req, schema);
+  if (input.interactive && sessionCount() >= MAX_SESSIONS)
+    throw new HttpError(429, "Too many open connections");
   const events = createEventStream();
+  let sessionId = "";
   let secrets: string[] = [];
   try {
     const { settings, prepared, resolvedBody, secrets: all } = await loadGrpcRequest(input, req.signal);
@@ -57,7 +74,7 @@ export const POST = route(async (req: Request) => {
     const { info } = resolveMethod(root, grpcSettings.service, grpcSettings.method);
     const messages = parseMessages(resolvedBody.mode === "raw" ? resolvedBody.raw : "", info.clientStreaming);
 
-    await startGrpcCall(
+    const { connection } = await startGrpcCall(
       {
         url: prepared.url,
         root,
@@ -67,13 +84,23 @@ export const POST = route(async (req: Request) => {
         metadata: prepared.headers,
         verifySsl: settings.verifySsl,
         timeoutMs: settings.timeoutMs,
+        interactive: input.interactive,
       },
       (e) => {
         events.send(redactStoredValue(e, secrets));
-        if (e.type === "done") events.close();
+        if (e.type === "done") {
+          if (sessionId) removeSession(sessionId);
+          events.close();
+        }
       },
       { policy: getPolicy(), signal: req.signal },
     );
+    if (input.interactive) {
+      const session = registerSession(oauth2Owner(), input.workspaceId, { kind: "grpc", connection });
+      sessionId = session.id;
+      touchSession(session);
+      events.send({ type: "session", id: session.id });
+    }
   } catch (err) {
     events.close();
     if (err instanceof HttpError) throw err;

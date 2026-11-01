@@ -8,13 +8,19 @@ import { nanoid } from "nanoid";
 import type { WsConnection } from "@/core/ws/client";
 import type { SocketIoConnection } from "@/core/socketio/client";
 import type { MqttConnection } from "@/core/mqtt/client";
+import type { GrpcConnection } from "@/core/grpc/client";
 
 type Connection =
   | { kind: "ws"; connection: WsConnection }
   | { kind: "socketio"; connection: SocketIoConnection }
-  | { kind: "mqtt"; connection: MqttConnection };
+  | { kind: "mqtt"; connection: MqttConnection }
+  | { kind: "grpc"; connection: GrpcConnection };
 const closeIdle = (c: Connection) =>
-  c.kind === "ws" ? c.connection.close(1001, "Idle timeout") : c.connection.close();
+  c.kind === "ws"
+    ? c.connection.close(1001, "Idle timeout")
+    : c.kind === "grpc"
+      ? c.connection.cancel()
+      : c.connection.close();
 
 export const MAX_SESSIONS = 50;
 export const IDLE_MS = 30 * 60 * 1000;
