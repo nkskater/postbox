@@ -1,3 +1,4 @@
+import type { Visualization } from "../visualizer/model";
 /**
  * Script sandbox: runs pre-request / test scripts inside a fresh QuickJS (WASM)
  * runtime with memory, stack and wall-clock limits. The guest has no access to
@@ -59,6 +60,7 @@ export interface ScriptInfo {
 }
 
 export interface ScriptContext {
+  visualization?: Visualization | null;
   scopes: VariableScopes;
   request: SandboxRequest;
   response?: SandboxResponse;
@@ -113,6 +115,8 @@ export const DEFAULT_LIMITS: ScriptLimits = {
 };
 
 export interface ScriptResult {
+  visualization?: Visualization | null;
+  visualizationSet?: boolean;
   scopes: VariableScopes;
   request: SandboxRequest;
   tests: TestResult[];
@@ -343,6 +347,7 @@ export async function runScript(
 
     const ctxStr = vm.newString(
       JSON.stringify({
+        visualization: ctx.visualization,
         scopes: ctx.scopes,
         request: ctx.request,
         response: ctx.response,
@@ -428,6 +433,8 @@ export async function runScript(
       return { ...base, error: `Script produced an invalid result: ${describeIssues(parsed.error)}` };
     const state = parsed.data;
     return {
+      visualization: state.visualization,
+      visualizationSet: state.visualizationSet,
       scopes: state.scopes,
       request: { ...ctx.request, ...state.request },
       tests: state.tests,

@@ -279,7 +279,7 @@ describe("script sandbox", () => {
   it("reports clear errors for documented APIs that Postbox does not support", async () => {
     const r = await runScript(
       `pm.test("vault", () => pm.expect(() => pm.vault.get("key")).to.throw(/pm.vault is not supported/));
-       pm.test("visualizer", () => pm.expect(() => pm.visualizer.set("view", "<p>hi</p>")).to.throw(/pm.visualizer is not supported/));
+       pm.test("visualizer", () => { pm.visualizer.set("<p>{{value}}</p>", {value: "hi"}); pm.expect(pm.visualizer.get().data.value).to.equal("hi"); });
        pm.test("packages", () => pm.expect(() => pm.require("package")).to.throw(/pm.require is not supported/));
        pm.test("datasets", () => pm.expect(() => pm.datasets("select 1")).to.throw(/pm.datasets is not supported/));
        pm.test("state", () => pm.expect(() => pm.state.get("key")).to.throw(/pm.state is not supported/));

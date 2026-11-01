@@ -41,3 +41,5 @@ CLAUDE.md
 
 # sandbox browser bundle, rebuilt by npm scripts
 src/core/scripts/libraries.generated.ts
+
+src/core/visualizer/runtime.generated.ts

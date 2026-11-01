@@ -1,3 +1,7 @@
+import { redactStoredValue } from "./variables/resolver";
+import { credentialRedactionValues, redactSensitiveFields } from "./retention";
+import { renderVisualization } from "./visualizer/render";
+import type { Visualization, VisualizerResult } from "./visualizer/model";
 /**
  * The single-request execution pipeline shared by /api/proxy, the collection
  * runner, the CLI and the MCP server:
@@ -82,6 +86,8 @@ export interface ScriptError {
 }
 
 export interface ExecuteResult {
+  visualization?: Visualization | null;
+  visualizationResult?: VisualizerResult;
   response?: HttpResponse;
   /** Network / preparation error (no response received). */
   error?: string;
@@ -251,6 +257,8 @@ async function executeInternal(
   const logs: ConsoleEntry[] = [];
   const tests: TestResult[] = [];
   const scriptErrors: ScriptError[] = [];
+  let visualization: Visualization | null | undefined;
+  let visualizationResult: VisualizerResult | undefined;
   let scopes: VariableScopes = structuredClone(opts.scopes);
   let request: RequestDef = structuredClone(opts.request);
   const effectiveScopes = () => ({ ...scopes, local: { ...scopes.local, ...context.variables } });
@@ -308,8 +316,7 @@ async function executeInternal(
           if (!context.collections.has(targetId))
             context.collections.set(targetId, { ...saved.collectionVariables });
           const childScopes = structuredClone(before);
-          if (!sameCollection)
-            childScopes.collection = { ...context.collections.get(targetId) };
+          if (!sameCollection) childScopes.collection = { ...context.collections.get(targetId) };
           const overrides = Object.fromEntries(
             Object.entries(options.variables ?? {}).map(([key, value]) => [
               key,
@@ -432,6 +439,7 @@ async function executeInternal(
         code,
         {
           scopes,
+          visualization,
           request: toSandboxRequest(request),
           response,
           info: { ...info(phase), locationCurrent: step.name },
@@ -441,6 +449,12 @@ async function executeInternal(
         { host, limits: opts.scriptLimits, secrets, source, signal: opts.signal },
       );
       scopes = result.scopes;
+      if (result.visualizationSet) {
+        visualization = result.visualization;
+        visualizationResult = visualization
+          ? await renderVisualization(visualization, secrets, opts.signal)
+          : undefined;
+      }
       logs.push(...result.logs);
       tests.push(...result.tests);
       if (phase === "prerequest") request = applySandboxRequest(request, result.request);
@@ -457,6 +471,15 @@ async function executeInternal(
   const base = (): ExecuteResult => {
     syncCollection(scopes);
     return {
+      ...(visualization !== undefined
+        ? {
+            visualization: redactStoredValue(
+              redactSensitiveFields(visualization),
+              credentialRedactionValues(secrets),
+            ),
+            visualizationResult,
+          }
+        : {}),
       tests: tests.map((test) => ({
         ...test,
         error: test.error ? redactSecrets(test.error, secrets) : test.error,

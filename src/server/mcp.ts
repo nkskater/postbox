@@ -920,6 +920,8 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
           unresolvedVariables: result.unresolved,
           warnings: result.warnings,
           historyId: result.historyId,
+          visualization: result.visualization,
+          visualizationResult: result.visualizationResult,
         });
       } catch (err) {
         return errResult(err);

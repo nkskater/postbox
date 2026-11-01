@@ -55,3 +55,5 @@ const bundledSource =
 const output = new URL("../src/core/scripts/libraries.generated.ts", import.meta.url);
 const source = `// Rebuild with npm run build:sandbox.\nexport const LIBRARIES_SOURCE = ${JSON.stringify(bundledSource)};\n`;
 if ((await readFile(output, "utf8").catch(() => "")) !== source) await writeFile(output, source);
+
+await import("./build-visualizer.mjs");
