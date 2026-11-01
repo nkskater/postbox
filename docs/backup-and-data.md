@@ -14,7 +14,7 @@ Open **Settings → History & data** (administrators only; in a single-user inst
 
 **Download backup** (`GET /api/backup`) saves one JSON file with every workspace, collection,
 request, environment, variable, dataset (with versions), schedule, workspace membership and
-instance setting. It does not include accounts, sessions, API tokens, run results, history or cookies.
+instance setting, plus the outbound proxy and TLS profiles (see [outbound-network.md](outbound-network.md)). It does not include accounts, sessions, API tokens, run results, history or cookies.
 
 Secret values and request credentials are stored in the database in plain text, so a full backup
 contains them in plain text too: keep the file like a credentials file. Clear **Include secret

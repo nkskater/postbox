@@ -39,6 +39,7 @@ import { ShortcutsSettings } from "./ShortcutsSettings";
 import { NotificationsPanel } from "./NotificationsPanel";
 import { ColorSettings } from "./ColorSettings";
 import { IntegrationsPanel } from "./IntegrationsPanel";
+import { OutboundPanel } from "./OutboundPanel";
 import { SecurityPanel } from "./SecurityPanel";
 import { cn } from "@/lib/utils";
 import { SettingControl } from "./SettingControl";
@@ -266,6 +267,7 @@ export function SettingsView() {
               {section === "keyboard" && <ShortcutsSettings />}
               {section === "notifications" && <NotificationsPanel />}
               {section === "appearance" && <ColorSettings />}
+              {section === "execution" && <OutboundPanel isAdmin={!!identity?.isAdmin} />}
               {section === "data" && <DataManagement isAdmin={!!identity?.isAdmin} />}
               {section === "integrations" && <IntegrationsPanel isAdmin={!!identity?.isAdmin} />}
               {section === "security" && <SecurityPanel isAdmin={!!identity?.isAdmin} />}

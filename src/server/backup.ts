@@ -7,7 +7,8 @@ import type { MockRoute } from "@/core/mocks/model";
  * Full backup and restore of workspace data, plus database maintenance.
  *
  * A backup holds workspaces, collections, requests, environments, variables, datasets,
- * schedules, workspace memberships and instance settings as one JSON document. It does not
+ * schedules, workspace memberships, instance settings, the outbound proxy and TLS profiles as one
+ * JSON document. It does not
  * hold accounts, sessions, API tokens, run results, history or cookies. Secret values are
  * stored in the database in plain text, so a backup that includes them must be handled like
  * a credentials file; `includeSecrets: false` produces a best-effort scrubbed copy.
@@ -19,6 +20,7 @@ import { inArray, sql } from "drizzle-orm";
 import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import type Database from "better-sqlite3";
 import { z } from "zod";
+import { OutboundNetwork } from "@/core/http/outbound";
 import { withoutAuthCredentials } from "@/core/retention";
 import { sanitizeSettings } from "@/lib/settings/registry";
 import { schema, type DB } from "./db";
@@ -43,6 +45,8 @@ const TABLES = {
   scriptPackageVersions: schema.scriptPackageVersions,
   workspaceMembers: schema.workspaceMembers,
   appSettings: schema.appSettings,
+  outboundProxy: schema.outboundProxy,
+  tlsProfiles: schema.tlsProfiles,
 } as const;
 type TableName = keyof typeof TABLES;
 /** Insert order: parents before children. */
@@ -64,6 +68,8 @@ const ORDER: TableName[] = [
   "scriptPackageVersions",
   "workspaceMembers",
   "appSettings",
+  "outboundProxy",
+  "tlsProfiles",
 ];
 
 export interface Backup {
@@ -174,6 +180,9 @@ export function createBackup(db: DB, opts: { includeSecrets: boolean }): Backup 
         },
       };
     });
+    // Proxy password, private keys and their passphrases are credentials.
+    tables.outboundProxy = tables.outboundProxy.map((p) => ({ ...p, password: "" }));
+    tables.tlsProfiles = tables.tlsProfiles.map((p) => ({ ...p, keyPem: "", passphrase: "" }));
     tables.appSettings = tables.appSettings.map((s) =>
       s.key === "execution.defaultHeaders" ? { ...s, value: maskHeaders(s.value) } : s,
     );
@@ -184,6 +193,16 @@ export function createBackup(db: DB, opts: { includeSecrets: boolean }): Backup 
     secretsIncluded: opts.includeSecrets,
     tables,
   };
+}
+
+/** A restored proxy must still parse, or every outbound request would fail. */
+function validProxyRow(row: Record<string, unknown>): boolean {
+  try {
+    new OutboundNetwork({ proxy: { url: String(row.url ?? ""), bypass: (row.bypass as string[]) ?? [] } });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export type RestoreSummary = Record<TableName, number> & { skippedSettings: string[] };
@@ -245,6 +264,11 @@ export function restoreBackup(db: DB, sqlite: Database.Database, input: unknown)
     })),
     workspaceMembers: tables.workspaceMembers.filter((m) => known(m.userId)),
     appSettings: settings,
+    outboundProxy: tables.outboundProxy.filter((p) => validProxyRow(p)),
+    // A client certificate without its key (scrubbed backup) cannot be used; keep the CA part only.
+    tlsProfiles: tables.tlsProfiles
+      .map((p) => (p.certPem && !p.keyPem ? { ...p, certPem: "", passphrase: "" } : p))
+      .filter((p) => p.caPem || p.certPem),
   };
 
   try {
@@ -253,6 +277,8 @@ export function restoreBackup(db: DB, sqlite: Database.Database, input: unknown)
       sqlite.pragma("defer_foreign_keys = ON");
       db.delete(schema.workspaces).run(); // cascades to everything workspace-scoped
       db.delete(schema.appSettings).run();
+      db.delete(schema.outboundProxy).run();
+      db.delete(schema.tlsProfiles).run();
       for (const name of ORDER) insertAll(db, name, rows[name]);
     })();
   } catch (err) {

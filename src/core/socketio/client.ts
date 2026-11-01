@@ -4,12 +4,11 @@
  * policy via a custom agent, and every event in either direction is reported.
  */
 import dns from "node:dns";
-import http from "node:http";
-import https from "node:https";
 import type net from "node:net";
 import { io, type Socket } from "socket.io-client";
 import type { PreparedRequest, SocketIoSettings } from "../types";
 import { HostPolicyError, OPEN_POLICY, type HostPolicy } from "../http/policy";
+import { createOutboundAgent } from "../http/outbound";
 
 export type SocketIoEvent =
   | { type: "open"; id: string; namespace: string; at: number }
@@ -51,7 +50,7 @@ export function connectSocketIo(
   const url = new URL(prepared.url);
   if (url.protocol !== "http:" && url.protocol !== "https:")
     throw new Error("Socket.IO URLs must start with http:// or https://");
-  policy.assert(url.hostname);
+  policy.assertTarget(url.hostname, !!policy.network?.proxyFor(url));
   const lookup: net.LookupFunction = (hostname, options, cb) => {
     dns.lookup(hostname, options, (err, address, family) => {
       if (err) return cb(err, address as string, family);
@@ -63,10 +62,13 @@ export function connectSocketIo(
       cb(null, address as string, family);
     });
   };
-  const agent =
-    url.protocol === "https:"
-      ? new https.Agent({ lookup, rejectUnauthorized: prepared.settings.verifySsl } as https.AgentOptions)
-      : new http.Agent({ lookup } as http.AgentOptions);
+  const agent = createOutboundAgent(url, {
+    policy,
+    lookup,
+    verifySsl: prepared.settings.verifySsl,
+    timeoutMs: prepared.settings.timeoutMs,
+    signal: opts.signal,
+  });
   const headers: Record<string, string> = {};
   for (const [k, v] of prepared.headers)
     if (!/^(host|connection|upgrade|content-length)$/i.test(k)) headers[k] = v;

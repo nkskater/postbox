@@ -206,7 +206,7 @@ export async function reflectRoot(
   opts: { policy?: HostPolicy; signal?: AbortSignal } = {},
 ): Promise<protobuf.Root> {
   const target = await resolveGrpcTarget(input.url, opts.policy ?? OPEN_POLICY);
-  const credentials = grpcCredentials(target, input.verifySsl);
+  const credentials = grpcCredentials(target, input.verifySsl, opts.policy ?? OPEN_POLICY);
   const channelOptions = grpcChannelOptions(target);
   let lastError: Error | undefined;
   for (const address of target.targets) {

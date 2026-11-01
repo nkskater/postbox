@@ -8,6 +8,7 @@ import net from "node:net";
 import mqtt, { type MqttClient } from "mqtt";
 import type { MqttSettings, PreparedRequest } from "../types";
 import { type HostPolicy, OPEN_POLICY } from "../http/policy";
+import { tlsOptions } from "../http/outbound";
 
 export const MAX_MQTT_PAYLOAD_BYTES = 1024 * 1024;
 export type Qos = 0 | 1 | 2;
@@ -67,7 +68,7 @@ export async function connectMqtt(
   if (url.protocol !== "mqtt:" && url.protocol !== "mqtts:")
     throw new Error("MQTT URLs must start with mqtt:// or mqtts://");
   const hostname = url.hostname.replace(/^\[|\]$/g, "");
-  policy.assert(hostname);
+  policy.assertDirect(hostname, Number(url.port) || (url.protocol === "mqtts:" ? 8883 : 1883), "MQTT");
   const address = net.isIP(hostname) ? hostname : (await dns.lookup(hostname)).address;
   policy.assert(hostname, address);
   const tls = url.protocol === "mqtts:";
@@ -82,6 +83,7 @@ export async function connectMqtt(
       ? {
           servername: net.isIP(hostname) ? undefined : hostname,
           rejectUnauthorized: prepared.settings.verifySsl,
+          ...tlsOptions(policy.network?.tlsFor(hostname, Number(url.port) || 8883)),
         }
       : {}),
     protocolVersion: cfg.protocolVersion ?? 4,
