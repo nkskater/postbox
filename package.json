@@ -27,6 +27,7 @@
     "db:generate": "drizzle-kit generate",
     "screenshots": "node scripts/screenshots.mjs",
     "build:sandbox": "node scripts/build-sandbox.mjs",
+    "openapi:generate": "tsx scripts/generate-openapi.ts",
     "predev": "npm run build:sandbox",
     "pretest": "npm run build:sandbox",
     "pretypecheck": "npm run build:sandbox",

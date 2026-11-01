@@ -36,6 +36,7 @@ export const REST_POLICIES: Record<string, Policy> = {
   "PATCH /api/folders/[id]/catalog": p("resource", "manage", "folder"),
   "DELETE /api/folders/[id]/catalog": p("resource", "manage", "folder"),
   "GET /api/health": p("public"),
+  "GET /api/openapi.json": p("public"),
   "POST /api/auth/invite": p("public"),
   "GET /api/admin/users": p("admin"),
   "POST /api/admin/users": p("admin"),

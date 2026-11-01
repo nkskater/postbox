@@ -3,6 +3,7 @@
  */
 import { NextResponse } from "next/server";
 import { ZodError, type ZodType } from "zod";
+import { API_VERSION, API_VERSION_HEADER } from "@/core/management-api/openapi";
 import { HttpError, isHttpError } from "./errors";
 import { callerOf } from "./caller";
 import { withCaller } from "./access-context";
@@ -15,9 +16,19 @@ export { HttpError, notFound } from "./errors";
 export const json = (data: unknown, init?: number | ResponseInit) =>
   NextResponse.json(data, typeof init === "number" ? { status: init } : init);
 
+/** Tell clients which management API version answered (see docs/management-api.md). */
+export function withApiVersion<T extends Response>(response: T): T {
+  try {
+    response.headers.set(API_VERSION_HEADER, String(API_VERSION));
+  } catch {
+    // Immutable headers (a passed-through fetch response) cannot be annotated.
+  }
+  return response;
+}
+
 /** Wrap a handler: converts thrown errors into JSON error responses. */
 export function route<A extends unknown[]>(fn: (...args: A) => Promise<Response> | Response) {
-  return async (...args: A): Promise<Response> => {
+  const handle = async (...args: A): Promise<Response> => {
     try {
       const req = args[0];
       if (!(req instanceof Request)) return await fn(...args);
@@ -57,6 +68,7 @@ export function route<A extends unknown[]>(fn: (...args: A) => Promise<Response>
       return json({ error: "Internal error" }, 500);
     }
   };
+  return async (...args: A): Promise<Response> => withApiVersion(await handle(...args));
 }
 
 /** Largest JSON body the API accepts (API_BODY_LIMIT_MB, default 25 MB; uploads travel inline as base64). */
