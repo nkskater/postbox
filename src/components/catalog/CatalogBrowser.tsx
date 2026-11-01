@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { SdkDownload } from "./SdkDownload";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -171,6 +172,12 @@ export function CatalogBrowser() {
                   Open version
                 </a>
               </div>
+              <SdkDownload
+                key={`${selected.id}:${selected.version}:sdk`}
+                entryId={selected.id}
+                version={selected.version}
+                label={selected.label}
+              />
               <iframe
                 key={`${selected.id}:${selected.version}`}
                 title="Catalog documentation"
