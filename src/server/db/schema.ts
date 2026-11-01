@@ -508,3 +508,68 @@ export const auditEvents = sqliteTable(
     index("audit_entity_idx").on(t.entityKind, t.entityId),
   ],
 );
+
+/**
+ * Usage ledger: one row per counted amount. `idemKey` makes retries count once: the same key in the
+ * same workspace is recorded only the first time. Rows outlive deleted workspaces (no foreign keys).
+ */
+export const usageEvents = sqliteTable(
+  "usage_events",
+  {
+    id: text("id").primaryKey(),
+    at: integer("at").notNull(),
+    workspaceId: text("workspace_id").notNull(),
+    /** The user or service account that caused it, when there is one. */
+    actorId: text("actor_id"),
+    /** requests | runs | run_ms | ai_tokens (src/core/usage.ts) */
+    metric: text("metric").notNull(),
+    amount: integer("amount").notNull(),
+    idemKey: text("idem_key"),
+  },
+  (t) => [
+    index("usage_workspace_idx").on(t.workspaceId, t.metric, t.at),
+    index("usage_actor_idx").on(t.actorId, t.metric, t.at),
+    uniqueIndex("usage_idem_unique").on(t.workspaceId, t.idemKey),
+  ],
+);
+
+/**
+ * A quota. With neither workspace nor user it is the default for every workspace; with a workspace it
+ * overrides that default; with a user (a person or service account) it caps that identity across all
+ * workspaces. Null limits mean none. Soft limits raise an alert, hard limits refuse.
+ */
+export const usageLimits = sqliteTable("usage_limits", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id"),
+  userId: text("user_id"),
+  metric: text("metric").notNull(),
+  /** day | month (UTC); ignored for stock metrics such as storage. */
+  period: text("period").notNull().default("month"),
+  softLimit: integer("soft_limit"),
+  hardLimit: integer("hard_limit"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+/** Soft-limit crossings and hard-limit refusals, once per limit, workspace and period. */
+export const usageAlerts = sqliteTable(
+  "usage_alerts",
+  {
+    id: text("id").primaryKey(),
+    at: integer("at").notNull(),
+    limitId: text("limit_id").notNull(),
+    /** Empty for identity limits, which span workspaces. */
+    workspaceId: text("workspace_id").notNull().default(""),
+    userId: text("user_id"),
+    metric: text("metric").notNull(),
+    /** soft | hard */
+    kind: text("kind").notNull(),
+    periodStart: integer("period_start").notNull(),
+    used: integer("used").notNull(),
+    limitValue: integer("limit_value").notNull(),
+  },
+  (t) => [
+    uniqueIndex("usage_alert_unique").on(t.limitId, t.workspaceId, t.kind, t.periodStart),
+    index("usage_alert_at_idx").on(t.at),
+  ],
+);

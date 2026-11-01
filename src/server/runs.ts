@@ -26,6 +26,7 @@ import { executionSettings, runQueueLimits } from "./execution-settings";
 import { requireDatasetRef, resolveDataset } from "./datasets";
 import { maskDataset } from "@/core/runner/datasets";
 import { RunQueue, type RunTicket } from "./run-queue";
+import { assertHeadroom, assertStorage, reserveUsage } from "./usage";
 
 const { runs, runResults } = schema;
 
@@ -83,11 +84,16 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
       : null;
     ticket ??= reserveRun();
     const admission = ticket;
+    const runId = newId();
+    // Quotas: refuse before anything is stored. A run counts once, under its own id.
+    assertStorage(input.workspaceId);
+    assertHeadroom(input.workspaceId, "requests");
+    assertHeadroom(input.workspaceId, "run_ms");
+    reserveUsage({ workspaceId: input.workspaceId, metric: "runs", key: `run:${runId}`, enforce: true });
     const options: RunOptions = { ...DEFAULT_RUN_OPTIONS, ...input.options };
     if (selectedDataset && !input.options?.iterations) options.iterations = selectedDataset.rows;
     const db = getDb();
     database = db;
-    const runId = newId();
     persistedRunId = runId;
     const queued = admission.position > 0;
 
@@ -280,6 +286,7 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
       })
       .where(eq(runs.id, runId))
       .run();
+    recordRunUsage(input.workspaceId, runId, summary.durationMs, summary.totalRequests);
     const enriched = dataset
       ? { ...summary, dataset: { id: dataset.id, version: dataset.version, name: dataset.name } }
       : summary;
@@ -309,6 +316,18 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
     if (onAbort) input.signal?.removeEventListener("abort", onAbort);
     if (persistedRunId) active.delete(persistedRunId);
     ticket?.release();
+  }
+}
+
+/** Account a finished run's time and requests. Failing to record never fails the run. */
+function recordRunUsage(workspaceId: string, runId: string, durationMs: number, totalRequests: number) {
+  try {
+    if (durationMs > 0)
+      reserveUsage({ workspaceId, metric: "run_ms", amount: Math.round(durationMs), key: `run_ms:${runId}` });
+    if (totalRequests > 0)
+      reserveUsage({ workspaceId, metric: "requests", amount: totalRequests, key: `run_requests:${runId}` });
+  } catch (error) {
+    console.error("[postbox] could not record run usage:", error);
   }
 }
 

@@ -1,4 +1,5 @@
 import { renderVisualization } from "@/core/visualizer/render";
+import { assertStorage, reserveUsage } from "./usage";
 import { redactSensitiveFields } from "@/core/retention";
 /**
  * Bridges the core executor with persistence: loads variable scopes, cookie jar
@@ -235,6 +236,8 @@ export interface RunSingleInput {
   requestId?: string | null;
   saveHistory?: boolean;
   signal?: AbortSignal;
+  /** A retry with the same key counts as one API call in the usage ledger. */
+  idempotencyKey?: string;
 }
 
 export interface RunSingleResult extends ExecuteResult {
@@ -254,6 +257,14 @@ function usesSecrets(secrets: string[], sentText: string, auth?: AuthConfig): bo
 
 /** Execute one request with full persistence (used by /api/proxy and MCP). */
 export async function runSingleRequest(input: RunSingleInput): Promise<RunSingleResult> {
+  // Quotas: one API call, counted once per idempotency key, refused past a hard limit.
+  assertStorage(input.workspaceId);
+  reserveUsage({
+    workspaceId: input.workspaceId,
+    metric: "requests",
+    key: input.idempotencyKey ? `req:${input.idempotencyKey}` : undefined,
+    enforce: true,
+  });
   // Inherited auth, headers and scripts must come from the caller's workspace.
   if (input.folderId) repo.requireFolderIn(input.workspaceId, input.folderId);
   if (input.requestId) repo.requireRequestIn(input.workspaceId, input.requestId);

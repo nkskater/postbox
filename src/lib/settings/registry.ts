@@ -879,6 +879,20 @@ export const SETTINGS: SettingDef[] = [
     keywords: ["audit", "log", "retention", "changes", "compliance"],
   },
   {
+    key: "usage.retentionDays",
+    category: "data",
+    label: "Keep usage records for",
+    description:
+      "Remove usage ledger entries older than this many days. 0 keeps them forever. Quotas only look at the current day or month.",
+    type: "number",
+    scope: "server",
+    default: 400,
+    min: 0,
+    max: 3650,
+    unit: "days",
+    keywords: ["usage", "quota", "retention", "ledger"],
+  },
+  {
     key: "history.skipSecrets",
     category: "data",
     label: "Skip history for requests that use secrets",
