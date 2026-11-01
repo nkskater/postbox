@@ -41,14 +41,15 @@ function parseMessages(raw: string, clientStreaming: boolean): unknown[] {
 }
 
 const schema = grpcRequestSchema.extend({
-  /** Keep the request stream open; send, end and cancel through /api/grpc/{id}/... */
-  interactive: z.boolean().optional(),
+  /**
+   * Keep the request stream open; send, end and cancel through /api/grpc/{id}/... "auto" does
+   * so only for methods that stream from the client.
+   */
+  interactive: z.union([z.boolean(), z.literal("auto")]).optional(),
 });
 
 export const POST = route(async (req: Request) => {
   const input = await parseBody(req, schema);
-  if (input.interactive && sessionCount() >= MAX_SESSIONS)
-    throw new HttpError(429, "Too many open connections");
   const events = createEventStream();
   let sessionId = "";
   let secrets: string[] = [];
@@ -73,6 +74,8 @@ export const POST = route(async (req: Request) => {
       : loadProtoRoot(grpcSettings.protos);
     const { info } = resolveMethod(root, grpcSettings.service, grpcSettings.method);
     const messages = parseMessages(resolvedBody.mode === "raw" ? resolvedBody.raw : "", info.clientStreaming);
+    const interactive = input.interactive === "auto" ? info.clientStreaming : !!input.interactive;
+    if (interactive && sessionCount() >= MAX_SESSIONS) throw new HttpError(429, "Too many open connections");
 
     const { connection } = await startGrpcCall(
       {
@@ -84,7 +87,7 @@ export const POST = route(async (req: Request) => {
         metadata: prepared.headers,
         verifySsl: settings.verifySsl,
         timeoutMs: settings.timeoutMs,
-        interactive: input.interactive,
+        interactive,
       },
       (e) => {
         events.send(redactStoredValue(e, secrets));
@@ -95,7 +98,7 @@ export const POST = route(async (req: Request) => {
       },
       { policy: getPolicy(), signal: req.signal },
     );
-    if (input.interactive) {
+    if (interactive) {
       const session = registerSession(oauth2Owner(), input.workspaceId, { kind: "grpc", connection });
       sessionId = session.id;
       touchSession(session);
