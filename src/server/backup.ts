@@ -27,6 +27,7 @@ export const BACKUP_FORMAT = 1;
 
 const TABLES = {
   workspaces: schema.workspaces,
+  grpcDefinitions: schema.grpcDefinitions,
   folders: schema.folders,
   environments: schema.environments,
   variables: schema.variables,
@@ -42,6 +43,7 @@ type TableName = keyof typeof TABLES;
 /** Insert order: parents before children. */
 const ORDER: TableName[] = [
   "workspaces",
+  "grpcDefinitions",
   "folders",
   "environments",
   "variables",
@@ -195,6 +197,7 @@ export function restoreBackup(db: DB, sqlite: Database.Database, input: unknown)
 
   const rows: Record<TableName, Record<string, unknown>[]> = {
     ...tables,
+    grpcDefinitions: withCreator(tables.grpcDefinitions),
     datasets: withCreator(tables.datasets),
     datasetVersions: withCreator(tables.datasetVersions),
     schedules: withCreator(tables.schedules),

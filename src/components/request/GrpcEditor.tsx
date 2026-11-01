@@ -1,13 +1,12 @@
 "use client";
-/** gRPC request tab: proto files or reflection, method discovery and selection. */
+/** gRPC request tab: proto files, a shared definition or reflection; method discovery and selection. */
 import { useState } from "react";
-import { toast } from "sonner";
-import { FileUp, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { useApp } from "@/stores/app";
 import type { GrpcSettings, RequestDef } from "@/core/types";
-import { emptyGrpc, methodOptions, nextProtoName, renameProto, type GrpcServiceSummary } from "@/lib/grpc";
+import { emptyGrpc, methodOptions, type GrpcServiceSummary } from "@/lib/grpc";
+import { ProtoFilesEditor } from "./ProtoFilesEditor";
+import { SaveAsShared, SharedDefinitionPanel } from "./SharedDefinitions";
 
 const field = "h-7 rounded-md border bg-transparent px-2 text-xs";
 
@@ -22,6 +21,9 @@ export function GrpcEditor({
   const grpc = draft.settings.grpc ?? emptyGrpc();
   const files = Object.entries(grpc.protos);
   const [services, setServices] = useState<GrpcServiceSummary[] | null>(null);
+  const [mode, setMode] = useState<"files" | "shared" | "reflection">(
+    grpc.reflection ? "reflection" : grpc.definitionId ? "shared" : "files",
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const update = (patch: Partial<GrpcSettings>) => onSettings({ ...grpc, ...patch });
@@ -45,7 +47,11 @@ export function GrpcEditor({
         : await fetch("/api/grpc/describe", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ workspaceId, protos: grpc.protos }),
+            body: JSON.stringify(
+              grpc.definitionId
+                ? { workspaceId, definitionId: grpc.definitionId }
+                : { workspaceId, protos: grpc.protos },
+            ),
           });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error ?? res.statusText);
@@ -65,113 +71,66 @@ export function GrpcEditor({
     }
   };
 
-  const upload = async (list: FileList | null) => {
-    if (!list?.length) return;
-    let protos = { ...grpc.protos };
-    for (const file of Array.from(list)) {
-      if (file.size > 1_048_576) {
-        toast.error(`${file.name} is larger than 1 MiB`);
-        continue;
-      }
-      protos = { ...protos, [file.name]: await file.text() };
-    }
-    update({ protos });
-  };
-
   return (
     <div className="max-w-3xl space-y-3 text-xs">
-      <div className="flex items-center gap-4">
-        <label className="flex items-center gap-1">
-          <input
-            type="radio"
-            name="grpc-source"
-            checked={!grpc.reflection}
-            onChange={() => update({ reflection: undefined })}
-          />
-          Proto files
-        </label>
-        <label className="flex items-center gap-1">
-          <input
-            type="radio"
-            name="grpc-source"
-            checked={!!grpc.reflection}
-            onChange={() => update({ reflection: true })}
-          />
-          Server reflection
-        </label>
+      <div className="flex flex-wrap items-center gap-4">
+        {(
+          [
+            ["files", "Proto files"],
+            ["shared", "Shared definition"],
+            ["reflection", "Server reflection"],
+          ] as const
+        ).map(([value, label]) => (
+          <label key={value} className="flex items-center gap-1">
+            <input
+              type="radio"
+              name="grpc-source"
+              checked={mode === value}
+              onChange={() => {
+                setMode(value);
+                setServices(null);
+                update({
+                  reflection: value === "reflection" ? true : undefined,
+                  definitionId: value === "shared" ? grpc.definitionId : undefined,
+                });
+              }}
+            />
+            {label}
+          </label>
+        ))}
       </div>
 
-      {grpc.reflection ? (
+      {mode === "reflection" && (
         <p className="text-muted-foreground">
           Definitions are fetched from the server at the URL above using its reflection service. Headers and
           authorization are sent with the request.
         </p>
-      ) : (
+      )}
+      {mode === "shared" && workspaceId && (
+        <SharedDefinitionPanel
+          workspaceId={workspaceId}
+          definitionId={grpc.definitionId}
+          onSelect={(definitionId) => {
+            setServices(null);
+            update({ definitionId, protos: {}, reflection: undefined });
+          }}
+          onChanged={() => void load()}
+        />
+      )}
+      {mode === "files" && (
         <div className="space-y-2">
-          {files.map(([name, text]) => (
-            <div key={name} className="rounded-md border">
-              <div className="flex items-center gap-2 border-b px-2 py-1">
-                <input
-                  className={`${field} w-56 font-mono`}
-                  aria-label="Proto file name"
-                  defaultValue={name}
-                  onBlur={(e) => {
-                    if (e.target.value !== name) {
-                      const next = renameProto(grpc.protos, name, e.target.value);
-                      if (next === grpc.protos) e.target.value = name;
-                      else update({ protos: next });
-                    }
-                  }}
-                />
-                <span className="text-muted-foreground">{text.length.toLocaleString()} chars</span>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="ml-auto size-6"
-                  aria-label={`Remove ${name}`}
-                  onClick={() => {
-                    const { [name]: _removed, ...rest } = grpc.protos;
-                    update({ protos: rest });
-                  }}
-                >
-                  <Trash2 className="size-3.5" />
-                </Button>
-              </div>
-              <Textarea
-                className="min-h-28 rounded-none border-0 font-mono text-xs"
-                aria-label={`${name} contents`}
-                spellCheck={false}
-                value={text}
-                onChange={(e) => update({ protos: { ...grpc.protos, [name]: e.target.value } })}
-              />
-            </div>
-          ))}
-          <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7"
-              onClick={() => update({ protos: { ...grpc.protos, [nextProtoName(grpc.protos)]: "" } })}
-            >
-              <Plus className="size-3.5" /> Add file
-            </Button>
-            <label className="inline-flex h-7 cursor-pointer items-center gap-1 rounded-md border px-2 hover:bg-accent">
-              <FileUp className="size-3.5" /> Upload .proto
-              <input
-                type="file"
-                accept=".proto,text/plain"
-                multiple
-                className="sr-only"
-                onChange={(e) => {
-                  void upload(e.target.files);
-                  e.target.value = "";
-                }}
-              />
-            </label>
-            <span className="text-muted-foreground">
-              Imports resolve against these files and the built-in google/protobuf types.
-            </span>
-          </div>
+          <ProtoFilesEditor files={grpc.protos} onChange={(protos) => update({ protos })} />
+          {files.length > 0 && workspaceId && (
+            <SaveAsShared
+              workspaceId={workspaceId}
+              files={grpc.protos}
+              onSaved={(definitionId) => {
+                setMode("shared");
+                setServices(null);
+                update({ definitionId, protos: {}, reflection: undefined });
+              }}
+            />
+          )}
         </div>
       )}
 
@@ -179,10 +138,12 @@ export function GrpcEditor({
         <Button
           size="sm"
           className="h-7"
-          disabled={loading || (!grpc.reflection && files.length === 0)}
+          disabled={
+            loading || (mode === "files" && files.length === 0) || (mode === "shared" && !grpc.definitionId)
+          }
           onClick={() => void load()}
         >
-          {loading ? "Loading…" : grpc.reflection ? "Discover methods" : "Load methods"}
+          {loading ? "Loading…" : mode === "reflection" ? "Discover methods" : "Load methods"}
         </Button>
         <select
           className={`${field} min-w-64 font-mono`}

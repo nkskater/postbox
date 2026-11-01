@@ -13,7 +13,8 @@ export type ResourceKind =
   | "cookie"
   | "schedule"
   | "dataset"
-  | "mock";
+  | "mock"
+  | "grpcDefinition";
 const TABLES: Record<ResourceKind, string> = {
   workspace: "workspaces",
   folder: "folders",
@@ -25,6 +26,7 @@ const TABLES: Record<ResourceKind, string> = {
   schedule: "schedules",
   dataset: "datasets",
   mock: "mock_servers",
+  grpcDefinition: "grpc_definitions",
 };
 export function resourceWorkspace(kind: ResourceKind, id: string): string {
   const row = getSqlite()
@@ -116,6 +118,11 @@ export const REST_POLICIES: Record<string, Policy> = {
   "POST /api/grpc": p("body", "run"),
   "POST /api/grpc/describe": p("body", "run"),
   "POST /api/grpc/reflect": p("body", "run"),
+  "GET /api/grpc/definitions": p("query", "read"),
+  "POST /api/grpc/definitions": p("body", "write"),
+  "GET /api/grpc/definitions/[id]": p("resource", "read", "grpcDefinition"),
+  "PATCH /api/grpc/definitions/[id]": p("resource", "write", "grpcDefinition"),
+  "DELETE /api/grpc/definitions/[id]": p("resource", "write", "grpcDefinition"),
   // Bound to the opening user and workspace inside the handlers.
   "POST /api/grpc/[id]/send": p("account"),
   "POST /api/grpc/[id]/end": p("account"),

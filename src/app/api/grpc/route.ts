@@ -12,6 +12,7 @@ import { reflectRoot } from "@/core/grpc/reflection";
 import { redactStoredValue } from "@/core/variables/resolver";
 import { createEventStream } from "@/server/event-stream";
 import { getPolicy } from "@/server/context";
+import { definitionFiles } from "@/server/grpc-definitions";
 import { grpcRequestSchema, loadGrpcRequest } from "@/server/grpc-request";
 import { HttpError, parseBody, route } from "@/server/http";
 import { oauth2Owner } from "@/server/oauth2-owner";
@@ -71,7 +72,11 @@ export const POST = route(async (req: Request) => {
           },
           { policy: getPolicy(), signal: req.signal },
         )
-      : loadProtoRoot(grpcSettings.protos);
+      : loadProtoRoot(
+          grpcSettings.definitionId
+            ? definitionFiles(input.workspaceId, grpcSettings.definitionId)
+            : grpcSettings.protos,
+        );
     const { info } = resolveMethod(root, grpcSettings.service, grpcSettings.method);
     const messages = parseMessages(resolvedBody.mode === "raw" ? resolvedBody.raw : "", info.clientStreaming);
     const interactive = input.interactive === "auto" ? info.clientStreaming : !!input.interactive;

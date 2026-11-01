@@ -311,7 +311,9 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
                     label="gRPC"
                     dot={
                       !!d.settings.grpc?.method &&
-                      (!!d.settings.grpc.reflection || Object.keys(d.settings.grpc.protos).length > 0)
+                      (!!d.settings.grpc.reflection ||
+                        !!d.settings.grpc.definitionId ||
+                        Object.keys(d.settings.grpc.protos).length > 0)
                     }
                   />
                 </TabsTrigger>

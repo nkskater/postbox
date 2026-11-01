@@ -59,6 +59,18 @@ beforeAll(async () => {
       updatedAt: Date.now(),
     })
     .run();
+  ids.grpcDefinition = "access-grpc-definition";
+  getDb()
+    .insert(schema.grpcDefinitions)
+    .values({
+      id: ids.grpcDefinition,
+      workspaceId,
+      name: "Access definition",
+      files: { "a.proto": 'syntax = "proto3"; package a; message M {}' },
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    })
+    .run();
   ids.environment = repo.createEnvironment(workspaceId, "Environment").id;
   ids.history = withCaller(caller(owner), () =>
     repo.addHistory({
