@@ -8,7 +8,8 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { HttpError, readBodyText } from "@/server/http";
 import { callerOf } from "@/server/caller";
 import { withCaller } from "@/server/access-context";
-import { authorizeTool, resourceWorkspace } from "@/server/access-policy";
+import { authorizeTool, isReadOnlyTool, resourceWorkspace } from "@/server/access-policy";
+import { mcpSettings } from "@/server/integration-settings";
 import { authorize } from "@/server/authorize";
 import { createPostboxMcpServer } from "@/server/mcp";
 
@@ -18,9 +19,10 @@ export const dynamic = "force-dynamic";
  * Browsers attach an Origin header to cross-site POSTs. Rejecting foreign origins stops
  * web pages (and DNS-rebinding attacks) from driving MCP tools through the user's browser,
  * as required by the MCP Streamable HTTP spec. Non-browser clients send no Origin.
- * Extra trusted origins (e.g. a browser-based MCP client) go in MCP_ALLOWED_ORIGINS.
+ * Extra trusted origins (e.g. a browser-based MCP client) are set under Settings → MCP &
+ * integrations (or pinned with MCP_ALLOWED_ORIGINS).
  */
-export function isAllowedOrigin(req: Request): boolean {
+export function isAllowedOrigin(req: Request, extraOrigins = mcpSettings().allowedOrigins): boolean {
   const origin = req.headers.get("origin");
   if (!origin) return true;
   let originHost: string;
@@ -31,11 +33,7 @@ export function isAllowedOrigin(req: Request): boolean {
   }
   const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? new URL(req.url).host;
   if (originHost === host) return true;
-  const allowed = (process.env.MCP_ALLOWED_ORIGINS ?? "")
-    .split(",")
-    .map((o) => o.trim().replace(/\/$/, ""))
-    .filter(Boolean);
-  return allowed.includes(origin.replace(/\/$/, ""));
+  return extraOrigins.includes(origin.replace(/\/$/, ""));
 }
 
 function jsonRpcError(status: number, message: string): Response {
@@ -60,7 +58,10 @@ function normalizeAccept(req: Request, body: string): Request {
 }
 
 export async function POST(req: Request): Promise<Response> {
-  if (!isAllowedOrigin(req)) return jsonRpcError(403, "Forbidden: cross-origin MCP requests are not allowed");
+  const settings = mcpSettings();
+  if (!settings.enabled) return jsonRpcError(503, "MCP is disabled by an administrator");
+  if (!isAllowedOrigin(req, settings.allowedOrigins))
+    return jsonRpcError(403, "Forbidden: cross-origin MCP requests are not allowed");
   if (!(req.headers.get("content-type") ?? "").toLowerCase().includes("application/json")) {
     return jsonRpcError(415, "Unsupported Media Type: MCP requests must use Content-Type: application/json");
   }
@@ -78,6 +79,11 @@ export async function POST(req: Request): Promise<Response> {
     if (Array.isArray(message)) return jsonRpcError(400, "Batch requests are not supported");
     if (message.method === "tools/call") {
       try {
+        if (settings.readOnly && !isReadOnlyTool(String(message.params?.name)))
+          throw new HttpError(
+            403,
+            `MCP is read-only: "${message.params?.name}" would change data. An administrator can turn this off under Settings → MCP & integrations.`,
+          );
         authorizeTool(caller, message.params?.name, message.params?.arguments ?? {});
       } catch (error) {
         if (!(error instanceof HttpError)) throw error;
@@ -109,7 +115,7 @@ export async function POST(req: Request): Promise<Response> {
     return jsonRpcError(400, "Invalid MCP request");
   }
   return withCaller(caller, async () => {
-    const server = createPostboxMcpServer();
+    const server = createPostboxMcpServer({ readOnly: settings.readOnly });
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,

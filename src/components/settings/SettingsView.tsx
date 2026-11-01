@@ -35,6 +35,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ConfirmDialog } from "@/components/dialogs/ConfirmDialog";
 import { DataManagement } from "./DataManagement";
+import { IntegrationsPanel } from "./IntegrationsPanel";
+import { SecurityPanel } from "./SecurityPanel";
 import { cn } from "@/lib/utils";
 import { SettingControl } from "./SettingControl";
 import { UsersSettings } from "./UsersSettings";
@@ -251,6 +253,8 @@ export function SettingsView() {
               {section === "appearance" && <AppearancePreview />}
               {renderSettings(sectionDefs)}
               {section === "data" && <DataManagement isAdmin={!!identity?.isAdmin} />}
+              {section === "integrations" && <IntegrationsPanel isAdmin={!!identity?.isAdmin} />}
+              {section === "security" && <SecurityPanel isAdmin={!!identity?.isAdmin} />}
             </>
           ) : section === "users" && identity?.isAdmin ? (
             <UsersSettings />

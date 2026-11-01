@@ -15,6 +15,7 @@ import {
   verifySession,
 } from "@/server/auth";
 import { proxy } from "@/proxy";
+import { getAuthState } from "@/server/caller";
 import { POST as login } from "@/app/api/auth/login/route";
 import { POST as logout } from "@/app/api/auth/logout/route";
 
@@ -109,8 +110,9 @@ describe("proxy gate", () => {
 
   it("accepts a valid session cookie or bearer token", () => {
     Object.assign(process.env, env);
-    const cfg = getAuthConfig()!;
-    const { value } = createSession(cfg);
+    // Sessions are signed with the server's configuration (which includes the sign-out epoch),
+    // exactly as the login route does.
+    const { value } = createSession(getAuthState().cfg!);
     expect(passes(proxy(req("/api/mcp", { cookie: `${SESSION_COOKIE}=${value}` })))).toBe(true);
     expect(passes(proxy(req("/api/mcp", { headers: { authorization: "Bearer tok-123" } })))).toBe(true);
     expect(proxy(req("/api/mcp", { headers: { authorization: "Bearer bad" } })).status).toBe(401);

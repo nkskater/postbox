@@ -307,6 +307,9 @@ individually, per section, or all at once. You can also export your settings to 
   how many days to keep them, and whether to skip history for requests that use secrets. This section also shows the database
   file and size, compacts it, clears history, cookies or run results, and makes or restores a full backup. See
   [docs/backup-and-data.md](docs/backup-and-data.md).
+- **MCP & integrations** (administrators): turn the MCP endpoint on or off, make it read-only, allow extra browser origins, and
+  copy ready-made setup commands for Claude Code, Cursor and Open WebUI. See [docs/mcp-and-security.md](docs/mcp-and-security.md).
+- **Security & about** (administrators): sign-in status, session length, **Sign out all sessions**, version and build.
 - **Server (environment)** shows read-only settings that come from environment variables (see [Configuration](#configuration)).
 
 ![Settings: appearance and accent colors](docs/screenshots/settings.png)
@@ -370,7 +373,9 @@ Chromium binary (otherwise run `npx playwright-core install chromium` once).
 | `RUNS_MAX_QUEUED` | _(setting)_ | Pins how many runs may wait for a slot (0–500, default 20); further runs get HTTP 429 |
 | `RESPONSE_MAX_BYTES` | `52428800` | Encoded response bytes are truncated at this limit; decompression exceeding the limit at any stage is rejected |
 | `API_BODY_LIMIT_MB` | `25` | Largest JSON body the REST API and `/api/mcp` accept (file uploads travel inline as base64); larger bodies get `413` |
-| `MCP_ALLOWED_ORIGINS` | _(none)_ | Extra browser origins allowed to call `/api/mcp` (cross-origin browser requests are rejected otherwise) |
+| `MCP_ALLOWED_ORIGINS` | _(none)_ | Extra browser origins allowed to call `/api/mcp` (cross-origin browser requests are rejected otherwise). Also under Settings → MCP & integrations; the variable pins the setting |
+| `MCP_ENABLED` | `true` | Serve `/api/mcp`; `false` makes it refuse every request. Also a setting |
+| `MCP_READ_ONLY` | `false` | Hide and block MCP tools that change data. Also a setting |
 | `HISTORY_LIMIT` | `500` | History entries kept per workspace |
 
 ### Outbound host policy and redirects

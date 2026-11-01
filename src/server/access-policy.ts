@@ -47,6 +47,8 @@ export const REST_POLICIES: Record<string, Policy> = {
   "POST /api/auth/invite": p("public"),
   "GET /api/admin/users": p("admin"),
   "POST /api/admin/users": p("admin"),
+  "GET /api/admin/security": p("admin"),
+  "POST /api/admin/sessions/revoke": p("admin"),
   "GET /api/backup": p("admin"),
   "POST /api/backup": p("admin"),
   "GET /api/backup/info": p("admin"),
@@ -257,6 +259,16 @@ export const MCP_POLICIES: Record<string, WorkspaceAction | "list" | "create" | 
   list_cookies: "read",
   clear_cookies: "write",
 };
+/**
+ * Whether a tool is available in read-only MCP mode: it only reads, lists, identifies the caller
+ * or runs a request or collection. Anything that creates, changes or deletes content (and any tool
+ * without a policy) is not.
+ */
+export function isReadOnlyTool(name: string): boolean {
+  const action = MCP_POLICIES[name];
+  return action === "read" || action === "run" || action === "list" || action === "identity";
+}
+
 export function authorizeTool(caller: Caller, name: string, input: Record<string, unknown>) {
   const action = MCP_POLICIES[name];
   if (!action) throw new HttpError(403, "Tool has no access policy");

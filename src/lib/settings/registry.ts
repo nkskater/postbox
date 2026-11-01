@@ -18,7 +18,9 @@ export type SettingCategory =
   | "console"
   | "runner"
   | "execution"
-  | "data";
+  | "data"
+  | "integrations"
+  | "security";
 
 export const CATEGORIES: { id: SettingCategory; label: string; description: string }[] = [
   { id: "appearance", label: "Appearance", description: "Theme, colors, typography and density." },
@@ -47,6 +49,16 @@ export const CATEGORIES: { id: SettingCategory; label: string; description: stri
     id: "data",
     label: "History & data",
     description: "How long request history is kept, backups, and database maintenance. Administrators only.",
+  },
+  {
+    id: "integrations",
+    label: "MCP & integrations",
+    description: "Let AI clients and tools drive Postbox over MCP. Administrators only.",
+  },
+  {
+    id: "security",
+    label: "Security & about",
+    description: "Sign-in status, session length, signing everyone out, and version information.",
   },
 ];
 
@@ -841,6 +853,63 @@ export const SETTINGS: SettingDef[] = [
     scope: "server",
     default: false,
     keywords: ["history", "secret", "privacy"],
+  },
+
+  // ---------------------------------------------------------------- MCP & integrations
+  {
+    key: "mcp.enabled",
+    category: "integrations",
+    label: "Enable the MCP endpoint",
+    description:
+      "Serve /api/mcp for Claude Code, Cursor, Open WebUI and other MCP clients. When off, the endpoint refuses every request.",
+    type: "boolean",
+    scope: "server",
+    env: "MCP_ENABLED",
+    default: true,
+    keywords: ["mcp", "ai", "agent", "claude"],
+  },
+  {
+    key: "mcp.readOnly",
+    category: "integrations",
+    label: "Read-only MCP",
+    description:
+      "Hide and block every tool that creates, changes or deletes workspaces, collections, requests, environments, variables, datasets, history or cookies. Sending requests and running collections stay available.",
+    type: "boolean",
+    scope: "server",
+    env: "MCP_READ_ONLY",
+    default: false,
+    keywords: ["mcp", "readonly", "safe", "agent"],
+  },
+  {
+    key: "mcp.allowedOrigins",
+    category: "integrations",
+    label: "Extra allowed origins",
+    description:
+      "Comma-separated browser origins (for example https://webui.example) allowed to call /api/mcp. Postbox's own origin and clients that send no Origin header are always allowed.",
+    type: "text",
+    scope: "server",
+    env: "MCP_ALLOWED_ORIGINS",
+    default: "",
+    maxLength: 2000,
+    placeholder: "https://webui.example, https://tools.example",
+    keywords: ["mcp", "cors", "origin", "browser"],
+  },
+
+  // ---------------------------------------------------------------- security
+  {
+    key: "security.sessionDays",
+    category: "security",
+    label: "Sign-in session length",
+    description:
+      "How long a new sign-in stays valid. Existing sessions keep the length they were created with.",
+    type: "number",
+    scope: "server",
+    env: "POSTBOX_SESSION_DAYS",
+    default: 30,
+    min: 1,
+    max: 365,
+    unit: "days",
+    keywords: ["session", "login", "expire", "cookie"],
   },
 ];
 

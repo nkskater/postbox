@@ -40,6 +40,7 @@ import { describeCaller } from "./caller";
 import { workspaceRole } from "./authorize";
 import * as runs from "./runs";
 import { executionSettings } from "./execution-settings";
+import { isReadOnlyTool } from "./access-policy";
 
 const SECRET_MASK = "••••••••";
 
@@ -91,7 +92,7 @@ const variableInputSchema = variableSchema.extend({ key: z.string().min(1) });
 
 // ------------------------------------------------------------------ server factory
 
-export function createPostboxMcpServer(): McpServer {
+export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): McpServer {
   const server = new McpServer(
     {
       name: "postbox",
@@ -104,6 +105,17 @@ export function createPostboxMcpServer(): McpServer {
       },
     },
   );
+  // Remember each tool so read-only mode can hide the ones that change data.
+  const registered = new Map<string, { disable(): void }>();
+  const registerTool = server.registerTool.bind(server) as (
+    name: string,
+    ...rest: never[]
+  ) => { disable(): void };
+  server.registerTool = ((name: string, ...rest: never[]) => {
+    const tool = registerTool(name, ...rest);
+    registered.set(name, tool);
+    return tool;
+  }) as unknown as typeof server.registerTool;
 
   // ================================================================ RESOURCES
 
@@ -1766,5 +1778,6 @@ export function createPostboxMcpServer(): McpServer {
     },
   );
 
+  if (options.readOnly) for (const [name, tool] of registered) if (!isReadOnlyTool(name)) tool.disable();
   return server;
 }

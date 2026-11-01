@@ -23,17 +23,22 @@ export interface AuthConfig {
 export const sessionTtlMs = (env: NodeJS.ProcessEnv = process.env) =>
   (Number(env.POSTBOX_SESSION_DAYS) || 30) * 86_400_000;
 
-export function getAuthConfig(env: NodeJS.ProcessEnv = process.env): AuthConfig | null {
+export function getAuthConfig(
+  env: NodeJS.ProcessEnv = process.env,
+  opts: { epoch?: string; sessionTtlMs?: number } = {},
+): AuthConfig | null {
   const password = env.POSTBOX_PASSWORD || null;
   const token = env.POSTBOX_TOKEN || null;
   if (!password && !token) return null;
   // Deriving from the credentials means changing them invalidates existing sessions.
+  // The epoch is rotated by "sign out all sessions".
+  const epoch = opts.epoch ? `\0${opts.epoch}` : "";
   const secret = env.POSTBOX_SESSION_SECRET
-    ? createHash("sha256").update(env.POSTBOX_SESSION_SECRET).digest()
+    ? createHash("sha256").update(`${env.POSTBOX_SESSION_SECRET}${epoch}`).digest()
     : createHash("sha256")
-        .update(`postbox-session\0${password ?? ""}\0${token ?? ""}`)
+        .update(`postbox-session\0${password ?? ""}\0${token ?? ""}${epoch}`)
         .digest();
-  return { password, token, secret, sessionTtlMs: sessionTtlMs(env) };
+  return { password, token, secret, sessionTtlMs: opts.sessionTtlMs ?? sessionTtlMs(env) };
 }
 
 /** Constant-time string comparison (hashing first equalises lengths). */
