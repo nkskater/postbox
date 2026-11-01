@@ -12,6 +12,8 @@ import type { ApiTokenRow, UserRow } from "./db/schema";
 import { BROWSER_SETTING_KEYS } from "@/lib/settings/registry";
 import { inArray } from "drizzle-orm";
 import { newId } from "./defaults";
+import { audit } from "./audit";
+import { describeChange } from "@/core/audit";
 import { HttpError } from "./errors";
 
 const { users, apiTokens, serverSecrets } = schema;
@@ -183,8 +185,24 @@ export function insertPreparedUser(row: PreparedUser, opts: { firstOnly?: boolea
       .values({ workspaceId, userId: row.id, role: "owner", createdAt: now })
       .run();
   });
+  audit({
+    action: "user.create",
+    entityKind: "user",
+    entityId: row.id,
+    entityName: row.username,
+    changes: describeChange("user", null, userFields(row)),
+  });
   return row;
 }
+
+/** The user columns the audit log may show (never the password hash). */
+const userFields = (u: UserRow) => ({
+  username: u.username,
+  display_name: u.displayName,
+  is_admin: u.isAdmin,
+  disabled: u.disabled,
+  is_service: u.isService,
+});
 
 export async function createUser(input: Parameters<typeof prepareUser>[0]): Promise<UserRow> {
   return insertPreparedUser(await prepareUser(input));
@@ -222,7 +240,25 @@ export async function updateManagedUser(
       })
       .where(eq(users.id, id))
       .run();
-    return getUser(id)!;
+    const updated = getUser(id)!;
+    audit({
+      action:
+        patch.disabled !== undefined && patch.disabled !== existing.disabled
+          ? patch.disabled
+            ? "user.disable"
+            : "user.enable"
+          : patch.isAdmin !== undefined && patch.isAdmin !== existing.isAdmin
+            ? "user.role_change"
+            : "user.update",
+      entityKind: "user",
+      entityId: id,
+      entityName: existing.username,
+      changes: [
+        ...describeChange("user", userFields(existing), userFields(updated)),
+        ...(patch.password !== undefined ? [{ field: "password", redacted: true }] : []),
+      ],
+    });
+    return updated;
   });
 }
 
@@ -235,6 +271,12 @@ export function revokeUserAccess(id: string) {
       .where(eq(users.id, id))
       .run();
     revokeAllTokens(id);
+    audit({
+      action: "user.revoke_access",
+      entityKind: "user",
+      entityId: id,
+      entityName: getUser(id)?.username,
+    });
   });
 }
 
@@ -248,6 +290,13 @@ export async function setPassword(userId: string, password: string) {
     .set({ passwordHash, sessionVersion: sql`${users.sessionVersion} + 1`, updatedAt: Date.now() })
     .where(eq(users.id, userId))
     .run();
+  audit({
+    action: "user.password_change",
+    entityKind: "user",
+    entityId: userId,
+    entityName: getUser(userId)?.username,
+    changes: [{ field: "password", redacted: true }],
+  });
   return getUser(userId)!;
 }
 
@@ -296,6 +345,13 @@ export function createServiceAccount(input: { username: string; displayName?: st
     updatedAt: now,
   };
   getDb().insert(users).values(row).run();
+  audit({
+    action: "service_account.create",
+    entityKind: "user",
+    entityId: row.id,
+    entityName: row.username,
+    changes: describeChange("user", null, userFields(row)),
+  });
   return row;
 }
 
@@ -342,6 +398,24 @@ const toPublicToken = (t: ApiTokenRow): PublicToken => ({
 export interface TokenOptions {
   scope?: KeyScope;
   rateLimitPerMinute?: number | null;
+  /** Set false when the caller records its own audit event (rotation). */
+  audit?: boolean;
+}
+
+function auditKey(action: string, row: ApiTokenRow, meta: Record<string, unknown> = {}) {
+  audit({
+    action,
+    entityKind: "key",
+    entityId: row.id,
+    entityName: row.name,
+    changes: describeChange("key", null, {
+      name: row.name,
+      scope: row.scope,
+      rate_limit_per_minute: row.rateLimitPerMinute,
+      expires_at: row.expiresAt,
+    }).filter((c) => c.after !== null && c.after !== undefined),
+    meta: { owner: getUser(row.userId)?.username ?? row.userId, prefix: row.prefix, ...meta },
+  });
 }
 
 /** Returns the plaintext token once; only its hash is kept. */
@@ -367,6 +441,7 @@ export function createToken(
     createdAt: now,
   };
   getDb().insert(apiTokens).values(row).run();
+  if (options.audit !== false) auditKey("key.create", row);
   return { token, info: toPublicToken(row) };
 }
 
@@ -390,6 +465,10 @@ export function revokeToken(userId: string, tokenId: string): boolean {
     .set({ revokedAt: Date.now() })
     .where(and(eq(apiTokens.id, tokenId), eq(apiTokens.userId, userId), isNull(apiTokens.revokedAt)))
     .run();
+  if (res.changes > 0) {
+    const row = getTokenRow(tokenId);
+    if (row) auditKey("key.revoke", row);
+  }
   return res.changes > 0;
 }
 
@@ -416,12 +495,14 @@ export function rotateToken(tokenId: string, graceMinutes = 0, now = Date.now())
     const created = createToken(old.userId, old.name, lifetimeDays, {
       scope: old.scope,
       rateLimitPerMinute: old.rateLimitPerMinute,
+      audit: false,
     });
     const retireAt = now + Math.max(0, graceMinutes) * 60_000;
     if (graceMinutes > 0 && (!old.expiresAt || old.expiresAt > retireAt))
       tx.update(apiTokens).set({ expiresAt: retireAt }).where(eq(apiTokens.id, old.id)).run();
     else if (graceMinutes <= 0)
       tx.update(apiTokens).set({ revokedAt: now }).where(eq(apiTokens.id, old.id)).run();
+    auditKey("key.rotate", old, { replacedBy: created.info.id, graceMinutes: Math.max(0, graceMinutes) });
     return { ...created, retiredAt: graceMinutes > 0 ? retireAt : now };
   });
 }

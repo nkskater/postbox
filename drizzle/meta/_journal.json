@@ -99,6 +99,13 @@
       "when": 1793512499174,
       "tag": "0013_curvy_wolf_cub",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1793513710718,
+      "tag": "0014_careless_wilson_fisk",
+      "breakpoints": true
     }
   ]
 }

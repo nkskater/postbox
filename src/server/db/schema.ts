@@ -1,6 +1,7 @@
 import type { MockRoute } from "@/core/mocks/model";
 import type { Scenario } from "@/core/mocks/scenarios";
 import type { ExecutionDetails } from "@/core/runner/details";
+import type { AuditChange } from "@/core/audit";
 /**
  * Drizzle schema for the Postbox SQLite database.
  *
@@ -467,4 +468,43 @@ export const mockLogs = sqliteTable(
     createdAt: integer("created_at").notNull(),
   },
   (t) => [index("mock_logs_time_idx").on(t.mockId, t.createdAt)],
+);
+
+/**
+ * Who changed what, and when. Rows reference entities by id without foreign keys, so the trail
+ * outlives deleted workspaces and users. Values of secrets are never stored (see src/core/audit.ts).
+ */
+export const auditEvents = sqliteTable(
+  "audit_events",
+  {
+    id: text("id").primaryKey(),
+    at: integer("at").notNull(),
+    actorId: text("actor_id"),
+    /** Username at the time, so the trail stays readable after an account is removed. */
+    actorName: text("actor_name").notNull(),
+    /** user | service | env | open | system */
+    actorKind: text("actor_kind").notNull(),
+    /** session | token | mcp, when known. */
+    via: text("via"),
+    keyId: text("key_id"),
+    workspaceId: text("workspace_id"),
+    action: text("action").notNull(),
+    entityKind: text("entity_kind").notNull(),
+    entityId: text("entity_id"),
+    entityName: text("entity_name"),
+    /** 1 for the first recorded event of an entity, then counting up. */
+    revision: integer("revision").notNull().default(1),
+    /** ok | denied */
+    result: text("result").notNull().default("ok"),
+    method: text("method"),
+    path: text("path"),
+    changes: text("changes", { mode: "json" }).$type<AuditChange[]>().notNull(),
+    meta: text("meta", { mode: "json" }).$type<Record<string, unknown>>().notNull(),
+  },
+  (t) => [
+    index("audit_at_idx").on(t.at),
+    index("audit_workspace_idx").on(t.workspaceId, t.at),
+    index("audit_actor_idx").on(t.actorId, t.at),
+    index("audit_entity_idx").on(t.entityKind, t.entityId),
+  ],
 );

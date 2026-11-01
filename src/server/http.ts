@@ -7,6 +7,8 @@ import { HttpError, isHttpError } from "./errors";
 import { callerOf } from "./caller";
 import { withCaller } from "./access-context";
 import { authorizeRest, restPolicy } from "./access-policy";
+import { auditDenied, auditedCall, shouldAudit } from "./audit";
+import { pruneAuditIfDue } from "./audit-settings";
 
 export { HttpError, notFound } from "./errors";
 
@@ -19,24 +21,35 @@ export function route<A extends unknown[]>(fn: (...args: A) => Promise<Response>
     try {
       const req = args[0];
       if (!(req instanceof Request)) return await fn(...args);
-      if (restPolicy(req.method, new URL(req.url).pathname)?.source === "public") return await fn(...args);
+      const policy = restPolicy(req.method, new URL(req.url).pathname);
+      if (policy?.source === "public") return await fn(...args);
       const caller = callerOf(req);
       if (!caller) throw new HttpError(401, "Authentication required");
-      await authorizeRest(caller, req, async () => {
-        try {
-          const value = JSON.parse(await readBodyText(req.clone()));
-          if (!value || typeof value !== "object" || Array.isArray(value))
-            throw new HttpError(400, "Body must be a JSON object");
-          return value;
-        } catch (error) {
-          if (isHttpError(error)) {
-            void req.body?.cancel().catch(() => undefined);
-            throw error;
+      const audited = shouldAudit(req.method, policy, new URL(req.url).pathname);
+      if (audited) pruneAuditIfDue();
+      try {
+        await authorizeRest(caller, req, async () => {
+          try {
+            const value = JSON.parse(await readBodyText(req.clone()));
+            if (!value || typeof value !== "object" || Array.isArray(value))
+              throw new HttpError(400, "Body must be a JSON object");
+            return value;
+          } catch (error) {
+            if (isHttpError(error)) {
+              void req.body?.cancel().catch(() => undefined);
+              throw error;
+            }
+            throw new HttpError(400, "Body must be valid JSON");
           }
-          throw new HttpError(400, "Body must be valid JSON");
-        }
-      });
-      return await withCaller(caller, () => fn(...args));
+        });
+      } catch (err) {
+        if (audited && policy && isHttpError(err) && err.status === 403)
+          withCaller(caller, () => auditDenied(req, policy, err.message));
+        throw err;
+      }
+      return await withCaller(caller, () =>
+        audited && policy ? auditedCall(req, policy, () => fn(...args)) : fn(...args),
+      );
     } catch (err) {
       if (isHttpError(err)) return json({ error: err.message }, err.status);
       if (err instanceof ZodError) return json({ error: "Invalid input", issues: err.issues }, 400);

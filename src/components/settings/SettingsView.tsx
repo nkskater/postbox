@@ -43,11 +43,12 @@ import { SecurityPanel } from "./SecurityPanel";
 import { cn } from "@/lib/utils";
 import { SettingControl } from "./SettingControl";
 import { UsersSettings } from "./UsersSettings";
+import { AuditLog } from "./AuditLog";
 import { useIdentity } from "./useIdentity";
 import { WorkspaceSharing } from "./WorkspaceSharing";
 import { AppearancePreview } from "./AppearancePreview";
 
-type Section = SettingCategory | "environment" | "elsewhere" | "sharing" | "users";
+type Section = SettingCategory | "environment" | "elsewhere" | "sharing" | "users" | "audit";
 
 const EXTRA_SECTIONS: { id: Section; label: string; icon: typeof Server }[] = [
   { id: "sharing", label: "Workspace sharing", icon: Globe },
@@ -152,7 +153,12 @@ export function SettingsView() {
         <div className="my-2 border-t" />
         {[
           ...EXTRA_SECTIONS,
-          ...(identity?.isAdmin ? [{ id: "users" as Section, label: "Users", icon: Globe }] : []),
+          ...(identity?.isAdmin
+            ? [
+                { id: "users" as Section, label: "Users", icon: Globe },
+                { id: "audit" as Section, label: "Audit log", icon: Wrench },
+              ]
+            : []),
         ].map((s) => (
           <button
             key={s.id}
@@ -264,6 +270,8 @@ export function SettingsView() {
             </>
           ) : section === "users" && identity?.isAdmin ? (
             <UsersSettings />
+          ) : section === "audit" && identity?.isAdmin ? (
+            <AuditLog />
           ) : section === "sharing" ? (
             <WorkspaceSharing />
           ) : section === "environment" ? (

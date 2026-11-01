@@ -865,6 +865,20 @@ export const SETTINGS: SettingDef[] = [
     keywords: ["history", "retention", "expire", "delete"],
   },
   {
+    key: "audit.retentionDays",
+    category: "data",
+    label: "Keep the audit log for",
+    description:
+      "Remove audit log entries older than this many days. 0 keeps them forever. The audit log records who changed workspaces, members, users and keys.",
+    type: "number",
+    scope: "server",
+    default: 365,
+    min: 0,
+    max: 3650,
+    unit: "days",
+    keywords: ["audit", "log", "retention", "changes", "compliance"],
+  },
+  {
     key: "history.skipSecrets",
     category: "data",
     label: "Skip history for requests that use secrets",

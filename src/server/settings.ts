@@ -2,6 +2,8 @@
  * Persistence and resolution for app settings (see src/lib/settings/registry.ts).
  */
 import { and, eq, inArray } from "drizzle-orm";
+import type { AuditChange } from "@/core/audit";
+import { audit } from "./audit";
 import { currentCaller } from "./access-context";
 import { requireAdmin } from "./authorize";
 import { isAdmin } from "./caller";
@@ -9,6 +11,7 @@ import { getDb, schema } from "./db";
 import {
   BROWSER_SETTING_KEYS,
   SETTINGS,
+  SETTINGS_BY_KEY,
   defaultValues,
   resolveSettings,
   sanitizeSettings,
@@ -99,6 +102,30 @@ export function getSettings(env: NodeJS.ProcessEnv = process.env): SettingsPaylo
   };
 }
 
+/** Record changes to instance settings. Only plain numbers, switches and choices show their values. */
+function auditInstanceSettings(valid: Record<string, unknown>, before: Record<string, unknown>) {
+  const changes: AuditChange[] = [];
+  for (const [key, value] of Object.entries(valid)) {
+    const def = SETTINGS_BY_KEY.get(key);
+    if (!def || browserKey(key)) continue;
+    const was = before[key] ?? def.default;
+    const now = value === null ? def.default : value;
+    if (JSON.stringify(was) === JSON.stringify(now)) continue;
+    changes.push(
+      def.type === "number" || def.type === "boolean" || def.type === "select"
+        ? { field: key, before: was, after: now }
+        : { field: key, redacted: true },
+    );
+  }
+  if (changes.length)
+    audit({
+      action: "settings.update",
+      entityKind: "setting",
+      entityName: changes.map((c) => c.field).join(", "),
+      changes,
+    });
+}
+
 /** Apply a partial update; `null` resets a key to its default. Throws on invalid input. */
 export function patchSettings(patch: Record<string, unknown>): SettingsPayload {
   const { valid, errors } = sanitizeSettings(patch);
@@ -106,6 +133,7 @@ export function patchSettings(patch: Record<string, unknown>): SettingsPayload {
   checkInstanceKeys(Object.keys(valid));
   const db = getDb();
   const caller = currentCaller();
+  const savedBefore = readSavedSettings();
   db.transaction((tx) => {
     for (const [key, value] of Object.entries(valid)) {
       if (browserKey(key) && caller?.kind === "user") {
@@ -129,6 +157,7 @@ export function patchSettings(patch: Record<string, unknown>): SettingsPayload {
       }
     }
   });
+  auditInstanceSettings(valid, savedBefore);
   return getSettings();
 }
 

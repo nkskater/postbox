@@ -3,40 +3,8 @@ import { authorize, requireAdmin, requireScope, type WorkspaceAction } from "./a
 import type { Caller } from "./caller";
 import { HttpError } from "./errors";
 
-export type ResourceKind =
-  | "workspace"
-  | "folder"
-  | "request"
-  | "environment"
-  | "run"
-  | "history"
-  | "cookie"
-  | "schedule"
-  | "dataset"
-  | "mock"
-  | "grpcDefinition";
-const TABLES: Record<ResourceKind, string> = {
-  workspace: "workspaces",
-  folder: "folders",
-  request: "requests",
-  environment: "environments",
-  run: "runs",
-  history: "history",
-  cookie: "cookies",
-  schedule: "schedules",
-  dataset: "datasets",
-  mock: "mock_servers",
-  grpcDefinition: "grpc_definitions",
-};
-export function resourceWorkspace(kind: ResourceKind, id: string): string {
-  const row = getSqlite()
-    .prepare(
-      `SELECT ${kind === "workspace" ? "id" : "workspace_id"} AS workspaceId FROM ${TABLES[kind]} WHERE id = ?`,
-    )
-    .get(id) as { workspaceId: string } | undefined;
-  if (!row) throw new HttpError(404, "Resource not found");
-  return row.workspaceId;
-}
+export { RESOURCE_TABLES, resourceWorkspace, type ResourceKind } from "./resources";
+import { resourceWorkspace, type ResourceKind } from "./resources";
 type Source =
   "public" | "account" | "admin" | "list" | "create" | "body" | "query" | "resource" | "move" | "mcp";
 interface Policy {
@@ -68,6 +36,8 @@ export const REST_POLICIES: Record<string, Policy> = {
   "POST /api/backup/clear": p("admin"),
   "PATCH /api/admin/users/[id]": p("admin"),
   "GET /api/admin/service-accounts": p("admin"),
+  "GET /api/admin/audit": p("admin"),
+  "GET /api/workspaces/[id]/audit": p("resource", "manage", "workspace"),
   "POST /api/admin/service-accounts": p("admin"),
   "POST /api/admin/service-accounts/[id]/tokens": p("admin"),
   "DELETE /api/admin/tokens/[id]": p("admin"),
@@ -204,7 +174,7 @@ export function restPolicy(method: string, pathname: string) {
     const [verb, path] = key.split(" ");
     if (verb !== method) continue;
     const match = new RegExp(`^${path.replaceAll("[id]", "([^/]+)")}/?$`).exec(pathname);
-    if (match) return { ...policy, id: match[1] ? decodeURIComponent(match[1]) : undefined };
+    if (match) return { ...policy, pattern: path, id: match[1] ? decodeURIComponent(match[1]) : undefined };
   }
   return null;
 }

@@ -481,6 +481,8 @@ Accounts are disabled rather than deleted, preserving history and run attributio
 Administrators can also create **service accounts** for CI and scripts. Keys can be limited to a scope (`read`, `run`, `write`, `full`), a
 rate limit and an expiry, and can be rotated or revoked at any time. See [docs/service-accounts-and-keys.md](docs/service-accounts-and-keys.md).
 
+An **audit log** records who changed workspaces, members, users, keys and settings, with no secret values, for administrators and workspace owners, with CSV/JSON export and retention. See [docs/audit-log.md](docs/audit-log.md).
+
 ![User administration](docs/screenshots/users.png)
 
 Owners open **Settings → Workspace sharing** to add existing users and assign viewer, editor or owner roles.

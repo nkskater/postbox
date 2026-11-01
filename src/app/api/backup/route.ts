@@ -10,6 +10,7 @@ import { z } from "zod";
 import { BackupError, createBackup, restoreBackup } from "@/server/backup";
 import { getDb, getSqlite } from "@/server/db";
 import { requireAdmin } from "@/server/authorize";
+import { audit } from "@/server/audit";
 import { HttpError, json, parseBody, route } from "@/server/http";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +19,7 @@ export const GET = route((req: Request) => {
   requireAdmin();
   const omit = new URL(req.url).searchParams.get("secrets") === "omit";
   const backup = createBackup(getDb(), { includeSecrets: !omit });
+  audit({ action: "backup.export", entityKind: "backup", meta: { secretsIncluded: !omit } });
   const stamp = new Date().toISOString().slice(0, 10);
   return new Response(JSON.stringify(backup), {
     headers: {
@@ -37,7 +39,9 @@ export const POST = route(async (req: Request) => {
   requireAdmin();
   const input = await parseBody(req, restoreSchema);
   try {
-    return json({ ok: true, restored: restoreBackup(getDb(), getSqlite(), input.backup) });
+    const restored = restoreBackup(getDb(), getSqlite(), input.backup);
+    audit({ action: "backup.restore", entityKind: "backup", meta: { restored } });
+    return json({ ok: true, restored });
   } catch (err) {
     if (err instanceof BackupError) throw new HttpError(400, err.message);
     throw err;
