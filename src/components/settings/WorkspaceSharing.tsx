@@ -4,6 +4,7 @@ import { useApp } from "@/stores/app";
 import { Button } from "@/components/ui/button";
 import { InviteLinks } from "./InviteLinks";
 import { AuditLog } from "./AuditLog";
+import { UsagePanel } from "./UsagePanel";
 import { Input } from "@/components/ui/input";
 
 type Role = "owner" | "editor" | "viewer";
@@ -127,6 +128,7 @@ function Sharing({ workspaceId }: { workspaceId: string }) {
               </Button>
             </div>
           ))}
+          <UsagePanel workspaceId={workspaceId} />
           <AuditLog workspaceId={workspaceId} />
         </>
       )}

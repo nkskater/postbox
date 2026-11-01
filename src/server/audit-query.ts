@@ -5,7 +5,7 @@ import { audit, parseCursor, queryAudit, toAuditRow, type AuditEvent, type Audit
 
 const EXPORT_LIMIT = 50_000;
 
-const time = (value: string | null, name: string): number | undefined => {
+export const timeParam = (value: string | null, name: string): number | undefined => {
   if (!value) return undefined;
   const ms = /^\d+$/.test(value) ? Number(value) : Date.parse(value);
   if (!Number.isFinite(ms))
@@ -23,8 +23,8 @@ export function filterFrom(url: URL, workspaceId?: string): AuditFilter {
     entityKind: q.get("kind") || undefined,
     entityId: q.get("entityId") || undefined,
     result: q.get("result") || undefined,
-    from: time(q.get("from"), "from"),
-    to: time(q.get("to"), "to"),
+    from: timeParam(q.get("from"), "from"),
+    to: timeParam(q.get("to"), "to"),
     q: q.get("q") || undefined,
     limit: Number.isFinite(limit) ? limit : 50,
     cursor: parseCursor(q.get("cursor")),

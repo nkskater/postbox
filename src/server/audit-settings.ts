@@ -1,5 +1,6 @@
 import { resolveSettings } from "@/lib/settings/registry";
 import { pruneAudit } from "./audit";
+import { pruneUsage } from "./usage";
 import { readSavedSettings } from "./settings";
 
 /** Days to keep audit events; 0 keeps them forever. Read on use, so changes apply at once. */
@@ -12,5 +13,7 @@ let lastPrune = 0;
 export function pruneAuditIfDue(at = Date.now()): number {
   if (at - lastPrune < 3_600_000) return 0;
   lastPrune = at;
-  return pruneAudit(auditRetentionDays(), at);
+  const values = resolveSettings(readSavedSettings(), process.env).values;
+  pruneUsage(values["usage.retentionDays"] as number, at);
+  return pruneAudit(values["audit.retentionDays"] as number, at);
 }

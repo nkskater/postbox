@@ -44,11 +44,12 @@ import { cn } from "@/lib/utils";
 import { SettingControl } from "./SettingControl";
 import { UsersSettings } from "./UsersSettings";
 import { AuditLog } from "./AuditLog";
+import { QuotaEditor, UsagePanel } from "./UsagePanel";
 import { useIdentity } from "./useIdentity";
 import { WorkspaceSharing } from "./WorkspaceSharing";
 import { AppearancePreview } from "./AppearancePreview";
 
-type Section = SettingCategory | "environment" | "elsewhere" | "sharing" | "users" | "audit";
+type Section = SettingCategory | "environment" | "elsewhere" | "sharing" | "users" | "audit" | "usage";
 
 const EXTRA_SECTIONS: { id: Section; label: string; icon: typeof Server }[] = [
   { id: "sharing", label: "Workspace sharing", icon: Globe },
@@ -157,6 +158,7 @@ export function SettingsView() {
             ? [
                 { id: "users" as Section, label: "Users", icon: Globe },
                 { id: "audit" as Section, label: "Audit log", icon: Wrench },
+                { id: "usage" as Section, label: "Usage & quotas", icon: Server },
               ]
             : []),
         ].map((s) => (
@@ -272,6 +274,11 @@ export function SettingsView() {
             <UsersSettings />
           ) : section === "audit" && identity?.isAdmin ? (
             <AuditLog />
+          ) : section === "usage" && identity?.isAdmin ? (
+            <div className="space-y-8">
+              <UsagePanel />
+              <QuotaEditor />
+            </div>
           ) : section === "sharing" ? (
             <WorkspaceSharing />
           ) : section === "environment" ? (

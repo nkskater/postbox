@@ -30,6 +30,7 @@ export const POST = route(async (req: Request) => {
     requestId: input.requestId ?? null,
     request,
     signal: req.signal,
+    idempotencyKey: req.headers.get("idempotency-key")?.trim().slice(0, 200) || undefined,
   });
   return json(result);
 });

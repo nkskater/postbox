@@ -483,6 +483,8 @@ rate limit and an expiry, and can be rotated or revoked at any time. See [docs/s
 
 An **audit log** records who changed workspaces, members, users, keys and settings, with no secret values, for administrators and workspace owners, with CSV/JSON export and retention. See [docs/audit-log.md](docs/audit-log.md).
 
+Usage is metered per workspace (API calls, runs, run time, retained storage) with optional soft and hard quotas per workspace, default or account, CSV/JSON export and idempotent retries. See [docs/usage-and-quotas.md](docs/usage-and-quotas.md).
+
 ![User administration](docs/screenshots/users.png)
 
 Owners open **Settings → Workspace sharing** to add existing users and assign viewer, editor or owner roles.
