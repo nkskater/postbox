@@ -30,6 +30,8 @@ import { TabBar } from "./TabBar";
 import { CookiesView } from "./CookiesView";
 import { SettingsView } from "@/components/settings/SettingsView";
 import { useSettings, useSetting } from "@/stores/settings";
+import { actionForEvent, comboFromEvent } from "@/lib/shortcuts";
+import { currentBindings } from "@/lib/use-shortcuts";
 
 function MainArea() {
   const tabs = useApp((s) => s.tabs);
@@ -111,48 +113,47 @@ export function App({ authEnabled }: { authEnabled: boolean }) {
       .finally(() => setReady(true));
   }, [init]);
 
-  // Global keyboard shortcuts.
+  // Global keyboard shortcuts. The bindings are read on every key press, so a rebinding applies at once.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const s = useApp.getState();
       const d = useDialogs.getState();
-      const mod = e.ctrlKey || e.metaKey;
       const tab = s.tabs.find((t) => t.id === s.activeTabId);
-      const key = e.key.toLowerCase();
-      if (mod && key === "enter" && tab?.type === "request") {
+      const action = actionForEvent(e, currentBindings(), isTyping(e));
+      if (action === "send" && tab?.type === "request") {
         e.preventDefault();
         void s.sendTab(tab.id);
-      } else if (mod && key === "s" && tab?.type === "request") {
+      } else if (action === "save" && tab?.type === "request") {
         e.preventDefault();
         if (tab.requestId) void s.saveTab(tab.id);
         else d.openSave(tab.id);
-      } else if (mod && e.key === ",") {
+      } else if (action === "settings") {
         e.preventDefault();
         s.openTab({ id: "settings", type: "settings", name: "Settings" });
-      } else if (mod && key === "k") {
+      } else if (action === "palette") {
         e.preventDefault();
         d.setPaletteOpen(true);
-      } else if (mod && key === "`") {
+      } else if (action === "console") {
         e.preventDefault();
         s.setConsoleOpen(!s.consoleOpen);
-      } else if (mod && key === "b") {
+      } else if (action === "sidebar") {
         e.preventDefault();
         const p = sidebarRef.current;
         if (p?.isCollapsed()) p.expand();
         else p?.collapse();
-      } else if (e.altKey && key === "t") {
+      } else if (action === "newRequest") {
         e.preventDefault();
         s.openDraft();
-      } else if (e.altKey && key === "w" && s.activeTabId) {
+      } else if (action === "closeTab" && s.activeTabId) {
         e.preventDefault();
         s.requestCloseTab(s.activeTabId);
-      } else if (e.altKey && /^[1-9]$/.test(e.key)) {
-        const t = s.tabs[Number(e.key) - 1];
+      } else if (/^Alt\+[1-9]$/.test(comboFromEvent(e) ?? "")) {
+        const t = s.tabs[Number(comboFromEvent(e)!.slice(-1)) - 1];
         if (t) {
           e.preventDefault();
           s.setActiveTab(t.id);
         }
-      } else if (!mod && e.key === "?" && !isTyping(e)) {
+      } else if (action === "help") {
         d.setShortcutsOpen(true);
       }
     };
