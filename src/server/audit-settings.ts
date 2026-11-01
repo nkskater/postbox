@@ -1,6 +1,7 @@
 import { resolveSettings } from "@/lib/settings/registry";
 import { pruneAudit } from "./audit";
 import { pruneUsage } from "./usage";
+import { pruneWebhooks } from "./webhooks";
 import { readSavedSettings } from "./settings";
 
 /** Days to keep audit events; 0 keeps them forever. Read on use, so changes apply at once. */
@@ -15,5 +16,6 @@ export function pruneAuditIfDue(at = Date.now()): number {
   lastPrune = at;
   const values = resolveSettings(readSavedSettings(), process.env).values;
   pruneUsage(values["usage.retentionDays"] as number, at);
+  pruneWebhooks(values["webhooks.retentionDays"] as number, at);
   return pruneAudit(values["audit.retentionDays"] as number, at);
 }

@@ -491,6 +491,8 @@ An **audit log** records who changed workspaces, members, users, keys and settin
 
 Usage is metered per workspace (API calls, runs, run time, retained storage) with optional soft and hard quotas per workspace, default or account, CSV/JSON export and idempotent retries. See [docs/usage-and-quotas.md](docs/usage-and-quotas.md).
 
+Workspace owners can send signed webhooks for run events to their own endpoints, with a durable outbox, bounded retries, a delivery log and replay. Targets follow the outbound host policy. See [docs/outbound-webhooks.md](docs/outbound-webhooks.md).
+
 ![User administration](docs/screenshots/users.png)
 
 Owners open **Settings → Workspace sharing** to add existing users and assign viewer, editor or owner roles.

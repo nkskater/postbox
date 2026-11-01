@@ -893,6 +893,20 @@ export const SETTINGS: SettingDef[] = [
     keywords: ["usage", "quota", "retention", "ledger"],
   },
   {
+    key: "webhooks.retentionDays",
+    category: "data",
+    label: "Keep webhook delivery logs for",
+    description:
+      "Remove finished webhook deliveries and their attempt logs older than this many days. 0 keeps them forever. Deliveries still waiting to be sent are never removed.",
+    type: "number",
+    scope: "server",
+    default: 30,
+    min: 0,
+    max: 3650,
+    unit: "days",
+    keywords: ["webhook", "delivery", "retention", "log"],
+  },
+  {
     key: "history.skipSecrets",
     category: "data",
     label: "Skip history for requests that use secrets",

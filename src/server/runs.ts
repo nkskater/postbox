@@ -28,6 +28,7 @@ import { requireDatasetRef, resolveDataset } from "./datasets";
 import { maskDataset } from "@/core/runner/datasets";
 import { RunQueue, type RunTicket } from "./run-queue";
 import { assertHeadroom, assertStorage, reserveUsage } from "./usage";
+import { emitEvent } from "./webhooks";
 
 const { runs, runResults } = schema;
 
@@ -40,6 +41,40 @@ const active = (globalRuns.__postboxActiveRuns ??= new Map<string, AbortControll
 
 /** Process-wide admission queue shared by every run source. */
 export const runQueue = (globalRuns.__postboxRunQueue ??= new RunQueue(() => runQueueLimits()));
+
+const RUN_EVENTS = {
+  passed: "run.passed",
+  failed: "run.failed",
+  cancelled: "run.cancelled",
+  error: "run.error",
+} as const;
+
+/** Tell subscribed webhooks a run ended. Totals only: no request or response content. */
+function emitRunEvent(
+  workspaceId: string,
+  runId: string,
+  folderId: string,
+  status: string,
+  details: Partial<Omit<RunSummary, "results">>,
+) {
+  const type = RUN_EVENTS[status as keyof typeof RUN_EVENTS];
+  if (!type) return;
+  emitEvent(workspaceId, type, {
+    runId,
+    folderId,
+    name: details.name ?? null,
+    status,
+    iterations: details.iterations ?? null,
+    totalRequests: details.totalRequests ?? 0,
+    failedRequests: details.failedRequests ?? 0,
+    totalTests: details.totalTests ?? 0,
+    passedTests: details.passedTests ?? 0,
+    failedTests: details.failedTests ?? 0,
+    durationMs: details.durationMs ?? 0,
+    startedAt: details.startedAt ?? null,
+    finishedAt: details.finishedAt ?? Date.now(),
+  });
+}
 
 /** Reserve a run slot up front; throws RunQueueFullError (429) when the queue is full. */
 export function reserveRun(): RunTicket {
@@ -155,6 +190,7 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
         results: [],
       };
       const { results: _results, ...done } = summary;
+      emitRunEvent(input.workspaceId, runId, input.folderId, "cancelled", done);
       input.onEvent?.({ type: "done", summary: done, runId });
       return { runId, summary };
     }
@@ -293,6 +329,7 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
       ? { ...summary, dataset: { id: dataset.id, version: dataset.version, name: dataset.name } }
       : summary;
     const { results: _results, ...done } = enriched;
+    emitRunEvent(input.workspaceId, runId, input.folderId, summary.status, done);
     input.onEvent?.({ type: "done", summary: done, runId });
     return { runId, summary: enriched };
   } catch (err) {
@@ -307,6 +344,7 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
           })
           .where(eq(runs.id, persistedRunId))
           .run();
+        emitRunEvent(input.workspaceId, persistedRunId, input.folderId, "error", {});
       } catch {
         // Return the original failure even when its status cannot be persisted.
       }
