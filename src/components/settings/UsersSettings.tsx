@@ -3,12 +3,14 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { InviteLinks } from "./InviteLinks";
+import { ServiceAccounts } from "./ServiceAccounts";
 interface User {
   id: string;
   username: string;
   displayName: string;
   disabled: boolean;
   isAdmin: boolean;
+  isService?: boolean;
 }
 export function UsersSettings() {
   const [users, setUsers] = useState<User[]>([]);
@@ -25,7 +27,7 @@ export function UsersSettings() {
       .then(async (response) => {
         const data = await response.json();
         if (!response.ok) throw new Error(data.error);
-        setUsers(data);
+        setUsers(data.filter((u: User) => !u.isService));
       })
       .catch((err) => {
         if (!controller.signal.aborted) setError(err.message);
@@ -44,7 +46,7 @@ export function UsersSettings() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error);
       const refreshed = await fetch("/api/admin/users");
-      if (refreshed.ok) setUsers(await refreshed.json());
+      if (refreshed.ok) setUsers((await refreshed.json()).filter((u: User) => !u.isService));
       setPassword("");
       setResetPasswords({});
       return true;
@@ -198,6 +200,7 @@ export function UsersSettings() {
           </article>
         ))}
       </div>
+      <ServiceAccounts />
       <InviteLinks />
     </section>
   );

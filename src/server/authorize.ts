@@ -1,6 +1,7 @@
 import { and, asc, eq } from "drizzle-orm";
 import type { Caller } from "./caller";
-import { currentCaller } from "./access-context";
+import { scopeAllows, scopeAtLeast, type KeyScope } from "@/core/scopes";
+import { callerScope, currentCaller } from "./access-context";
 import { getDb, schema } from "./db";
 import { HttpError } from "./errors";
 
@@ -14,6 +15,16 @@ export const ROLE_ACTIONS: Record<WorkspaceRole, readonly WorkspaceAction[]> = {
 export function requireAdmin(caller = currentCaller()) {
   if (caller?.kind === "user" && (!caller.user.isAdmin || caller.user.disabled))
     throw new HttpError(403, "Administrator access required");
+  requireScope(caller, "full");
+}
+
+/** An API key narrower than `needed` may not do this, whatever its owner could. */
+export function requireScope(caller: Caller | null | undefined, needed: KeyScope) {
+  if (!scopeAtLeast(callerScope(caller), needed))
+    throw new HttpError(
+      403,
+      `This API key's scope (${callerScope(caller)}) does not allow that; it needs ${needed} access`,
+    );
 }
 export function workspaceRole(caller: Caller | undefined, workspaceId: string): WorkspaceRole | null {
   if (!caller || caller.kind !== "user") return "owner";
@@ -44,6 +55,9 @@ export function authorize(caller: Caller | undefined, workspaceId: string, actio
   const role = workspaceRole(caller, workspaceId);
   if (!role) throw new HttpError(404, "Workspace not found");
   if (!ROLE_ACTIONS[role].includes(action)) throw new HttpError(403, "Insufficient workspace role");
+  // The key can narrow what the member may do, never widen it.
+  if (!scopeAllows(callerScope(caller), action))
+    throw new HttpError(403, `This API key's scope (${callerScope(caller)}) does not allow ${action} access`);
 }
 export function actorId(): string | null {
   const caller = currentCaller();

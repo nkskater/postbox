@@ -302,6 +302,8 @@ export const users = sqliteTable(
     passwordHash: text("password_hash").notNull(),
     isAdmin: integer("is_admin", { mode: "boolean" }).notNull().default(false),
     disabled: integer("disabled", { mode: "boolean" }).notNull().default(false),
+    /** A service identity: no password or sessions, only API keys, with workspace roles like any user. */
+    isService: integer("is_service", { mode: "boolean" }).notNull().default(false),
     sessionVersion: integer("session_version").notNull().default(1),
     ...timestamps,
   },
@@ -323,6 +325,10 @@ export const apiTokens = sqliteTable(
     lastUsedAt: integer("last_used_at"),
     expiresAt: integer("expires_at"),
     revokedAt: integer("revoked_at"),
+    /** read | run | write | full (src/core/scopes.ts). Keys created before scopes existed are full. */
+    scope: text("scope").$type<"read" | "run" | "write" | "full">().notNull().default("full"),
+    /** Requests per minute allowed for this key; null means unlimited. */
+    rateLimitPerMinute: integer("rate_limit_per_minute"),
     createdAt: integer("created_at").notNull(),
   },
   (t) => [uniqueIndex("api_tokens_hash_unique").on(t.tokenHash), index("api_tokens_user_idx").on(t.userId)],

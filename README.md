@@ -478,6 +478,9 @@ promote or demote administrators, and revoke a user's sessions and API tokens. P
 management invalidate existing sessions. The last active administrator cannot be disabled or demoted.
 Accounts are disabled rather than deleted, preserving history and run attribution.
 
+Administrators can also create **service accounts** for CI and scripts. Keys can be limited to a scope (`read`, `run`, `write`, `full`), a
+rate limit and an expiry, and can be rotated or revoked at any time. See [docs/service-accounts-and-keys.md](docs/service-accounts-and-keys.md).
+
 ![User administration](docs/screenshots/users.png)
 
 Owners open **Settings → Workspace sharing** to add existing users and assign viewer, editor or owner roles.

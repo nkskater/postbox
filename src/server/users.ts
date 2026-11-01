@@ -4,6 +4,7 @@
  * Passwords are hashed with scrypt; API tokens are random, shown once and stored
  * as SHA-256 hashes. Bumping a user's session_version invalidates their sessions.
  */
+import type { KeyScope } from "@/core/scopes";
 import { createHash, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { getDb, schema } from "./db";
@@ -71,6 +72,8 @@ export interface PublicUser {
   displayName: string;
   isAdmin: boolean;
   disabled: boolean;
+  /** A service account: it has API keys and workspace roles but cannot sign in. */
+  isService: boolean;
   createdAt: number;
 }
 
@@ -80,6 +83,7 @@ export const toPublicUser = (u: UserRow): PublicUser => ({
   displayName: u.displayName,
   isAdmin: u.isAdmin,
   disabled: u.disabled,
+  isService: u.isService,
   createdAt: u.createdAt,
 });
 
@@ -131,6 +135,7 @@ export async function prepareUser(input: {
     passwordHash,
     isAdmin: input.isAdmin ?? false,
     disabled: false,
+    isService: false,
     sessionVersion: 1,
     createdAt: now,
     updatedAt: now,
@@ -235,6 +240,7 @@ export function revokeUserAccess(id: string) {
 
 /** Change the password and end every existing session of the user. */
 export async function setPassword(userId: string, password: string) {
+  if (getUser(userId)?.isService) throw new HttpError(400, "Service accounts do not use passwords");
   checkPasswordPolicy(password);
   const passwordHash = await hashPassword(password);
   getDb()
@@ -262,6 +268,47 @@ export function setDisabled(userId: string, disabled: boolean) {
     .run();
 }
 
+// ------------------------------------------------------------------ service accounts
+
+/** Not a valid password hash, so no password ever verifies against it. */
+const NO_PASSWORD = "!";
+
+/**
+ * A service account is a user without a password, sessions or private workspace. Give it
+ * workspace roles like any member and issue it API keys.
+ */
+export function createServiceAccount(input: { username: string; displayName?: string }): UserRow {
+  const username = normalizeUsername(input.username);
+  if (!USERNAME_RE.test(username))
+    throw new HttpError(400, "Name must be 2-64 characters: letters, digits, '.', '_' or '-'");
+  if (getUserByUsername(username)) throw new HttpError(409, "That name is taken");
+  const now = Date.now();
+  const row: UserRow = {
+    id: newId(),
+    username,
+    displayName: input.displayName?.trim() || username,
+    passwordHash: NO_PASSWORD,
+    isAdmin: false,
+    disabled: false,
+    isService: true,
+    sessionVersion: 1,
+    createdAt: now,
+    updatedAt: now,
+  };
+  getDb().insert(users).values(row).run();
+  return row;
+}
+
+export function listServiceAccounts(): (PublicUser & { tokens: PublicToken[] })[] {
+  return getDb()
+    .select()
+    .from(users)
+    .where(eq(users.isService, true))
+    .orderBy(asc(users.createdAt))
+    .all()
+    .map((u) => ({ ...toPublicUser(u), tokens: listTokens(u.id) }));
+}
+
 // ------------------------------------------------------------------ API tokens
 
 export const TOKEN_PREFIX = "pbx_";
@@ -269,8 +316,12 @@ const hashToken = (token: string) => createHash("sha256").update(token).digest("
 
 export interface PublicToken {
   id: string;
+  userId: string;
   name: string;
   prefix: string;
+  scope: KeyScope;
+  /** Requests per minute, or null for unlimited. */
+  rateLimitPerMinute: number | null;
   createdAt: number;
   lastUsedAt: number | null;
   expiresAt: number | null;
@@ -278,15 +329,28 @@ export interface PublicToken {
 
 const toPublicToken = (t: ApiTokenRow): PublicToken => ({
   id: t.id,
+  userId: t.userId,
   name: t.name,
   prefix: t.prefix,
+  scope: t.scope,
+  rateLimitPerMinute: t.rateLimitPerMinute,
   createdAt: t.createdAt,
   lastUsedAt: t.lastUsedAt,
   expiresAt: t.expiresAt,
 });
 
+export interface TokenOptions {
+  scope?: KeyScope;
+  rateLimitPerMinute?: number | null;
+}
+
 /** Returns the plaintext token once; only its hash is kept. */
-export function createToken(userId: string, name: string, expiresInDays?: number | null) {
+export function createToken(
+  userId: string,
+  name: string,
+  expiresInDays?: number | null,
+  options: TokenOptions = {},
+) {
   const token = TOKEN_PREFIX + randomBytes(32).toString("base64url");
   const now = Date.now();
   const row: ApiTokenRow = {
@@ -298,6 +362,8 @@ export function createToken(userId: string, name: string, expiresInDays?: number
     lastUsedAt: null,
     expiresAt: expiresInDays ? now + expiresInDays * 86_400_000 : null,
     revokedAt: null,
+    scope: options.scope ?? "full",
+    rateLimitPerMinute: options.rateLimitPerMinute ?? null,
     createdAt: now,
   };
   getDb().insert(apiTokens).values(row).run();
@@ -312,6 +378,10 @@ export function listTokens(userId: string): PublicToken[] {
     .orderBy(asc(apiTokens.createdAt))
     .all()
     .map(toPublicToken);
+}
+
+export function getTokenRow(tokenId: string) {
+  return getDb().select().from(apiTokens).where(eq(apiTokens.id, tokenId)).get();
 }
 
 export function revokeToken(userId: string, tokenId: string): boolean {
@@ -331,8 +401,39 @@ export function revokeAllTokens(userId: string) {
     .run();
 }
 
-/** Resolve a bearer token to its active user, or null if unknown, revoked, expired or disabled. */
-export function resolveToken(token: string, now = Date.now()): UserRow | null {
+/**
+ * Replace a key with a new one that has the same owner, name, scope, expiry period and limit.
+ * The old key stops working after `graceMinutes` (0 = at once), so clients can switch over.
+ * Returns the new plaintext token once, or null if the key is unknown or already inactive.
+ */
+export function rotateToken(tokenId: string, graceMinutes = 0, now = Date.now()) {
+  const old = getTokenRow(tokenId);
+  if (!old || old.revokedAt || (old.expiresAt && old.expiresAt <= now)) return null;
+  const lifetimeDays = old.expiresAt
+    ? Math.max(1, Math.round((old.expiresAt - old.createdAt) / 86_400_000))
+    : null;
+  return getDb().transaction((tx) => {
+    const created = createToken(old.userId, old.name, lifetimeDays, {
+      scope: old.scope,
+      rateLimitPerMinute: old.rateLimitPerMinute,
+    });
+    const retireAt = now + Math.max(0, graceMinutes) * 60_000;
+    if (graceMinutes > 0 && (!old.expiresAt || old.expiresAt > retireAt))
+      tx.update(apiTokens).set({ expiresAt: retireAt }).where(eq(apiTokens.id, old.id)).run();
+    else if (graceMinutes <= 0)
+      tx.update(apiTokens).set({ revokedAt: now }).where(eq(apiTokens.id, old.id)).run();
+    return { ...created, retiredAt: graceMinutes > 0 ? retireAt : now };
+  });
+}
+
+/** A resolved key: its owner plus the key's own scope and limit. */
+export interface ResolvedToken {
+  user: UserRow;
+  token: { id: string; scope: KeyScope; rateLimitPerMinute: number | null };
+}
+
+/** Resolve a bearer token to its active owner and key details, or null if unknown, revoked, expired or disabled. */
+export function resolveTokenInfo(token: string, now = Date.now()): ResolvedToken | null {
   if (!token.startsWith(TOKEN_PREFIX)) return null;
   const db = getDb();
   const row = db
@@ -346,8 +447,12 @@ export function resolveToken(token: string, now = Date.now()): UserRow | null {
   // Record usage at most once a minute to avoid a write per request.
   if (!row.lastUsedAt || now - row.lastUsedAt > 60_000)
     db.update(apiTokens).set({ lastUsedAt: now }).where(eq(apiTokens.id, row.id)).run();
-  return user;
+  return { user, token: { id: row.id, scope: row.scope, rateLimitPerMinute: row.rateLimitPerMinute } };
 }
+
+/** Resolve a bearer token to its active user (see resolveTokenInfo). */
+export const resolveToken = (token: string, now = Date.now()): UserRow | null =>
+  resolveTokenInfo(token, now)?.user ?? null;
 
 // ------------------------------------------------------------------ server secrets
 

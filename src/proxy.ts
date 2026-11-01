@@ -4,9 +4,12 @@
  */
 import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE, isPublicPath } from "@/server/auth";
+import { FixedWindowLimiter } from "@/core/ratelimit";
 import { getAuthState, getCaller } from "@/server/caller";
 
 let warned = false;
+/** Per-key request counters (one minute windows). Counted here, once per request, never in the resolver. */
+export const keyLimiter = new FixedWindowLimiter();
 
 export function proxy(req: NextRequest) {
   const state = getAuthState();
@@ -21,7 +24,27 @@ export function proxy(req: NextRequest) {
   }
   const { pathname, search } = req.nextUrl;
   if (isPublicPath(pathname)) return NextResponse.next();
-  if (getCaller(req.headers, req.cookies.get(SESSION_COOKIE)?.value, state)) return NextResponse.next();
+  const caller = getCaller(req.headers, req.cookies.get(SESSION_COOKIE)?.value, state);
+  if (caller) {
+    const key = caller.kind === "user" ? caller.token : undefined;
+    const limit = key?.rateLimitPerMinute;
+    if (!key || !limit) return NextResponse.next();
+    const d = keyLimiter.hit(key.id, limit, 60_000, Date.now());
+    const headers = {
+      "X-RateLimit-Limit": String(d.limit),
+      "X-RateLimit-Remaining": String(d.remaining),
+      "X-RateLimit-Reset": String(d.resetSeconds),
+    };
+    if (d.allowed) {
+      const res = NextResponse.next();
+      for (const [k, v] of Object.entries(headers)) res.headers.set(k, v);
+      return res;
+    }
+    return NextResponse.json(
+      { error: `Rate limit of ${limit} requests per minute exceeded for this API key` },
+      { status: 429, headers: { ...headers, "Retry-After": String(d.resetSeconds) } },
+    );
+  }
   if (pathname.startsWith("/api/")) {
     return NextResponse.json(
       { error: "Authentication required" },

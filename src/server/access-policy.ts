@@ -1,5 +1,5 @@
 import { getSqlite } from "./db";
-import { authorize, requireAdmin, type WorkspaceAction } from "./authorize";
+import { authorize, requireAdmin, requireScope, type WorkspaceAction } from "./authorize";
 import type { Caller } from "./caller";
 import { HttpError } from "./errors";
 
@@ -67,6 +67,11 @@ export const REST_POLICIES: Record<string, Policy> = {
   "POST /api/backup/compact": p("admin"),
   "POST /api/backup/clear": p("admin"),
   "PATCH /api/admin/users/[id]": p("admin"),
+  "GET /api/admin/service-accounts": p("admin"),
+  "POST /api/admin/service-accounts": p("admin"),
+  "POST /api/admin/service-accounts/[id]/tokens": p("admin"),
+  "DELETE /api/admin/tokens/[id]": p("admin"),
+  "POST /api/admin/tokens/[id]/rotate": p("admin"),
   "POST /api/admin/users/[id]/revoke": p("admin"),
   "GET /api/invites": p("account"),
   "POST /api/invites": p("account"),
@@ -76,6 +81,7 @@ export const REST_POLICIES: Record<string, Policy> = {
   "GET /api/me/tokens": p("account"),
   "POST /api/me/tokens": p("account"),
   "DELETE /api/me/tokens/[id]": p("account"),
+  "POST /api/me/tokens/[id]/rotate": p("account"),
   "GET /api/workspaces": p("list"),
   "POST /api/workspaces": p("create"),
   "PATCH /api/workspaces/[id]": p("resource", "write", "workspace"),
@@ -206,6 +212,20 @@ const stringId = (value: unknown) => {
   if (typeof value !== "string" || !value) throw new HttpError(400, "Workspace/resource ID required");
   return value;
 };
+/**
+ * Sources that never reach authorize() still respect an API key's scope: creating a workspace
+ * needs write; changing the caller's own keys, password or invites needs full; saving settings needs
+ * write; and other per-user actions (live connection sessions, OAuth) need run.
+ */
+function requireSourceScope(caller: Caller, source: string, method: string, pathname: string) {
+  if (source === "create") return requireScope(caller, "write");
+  if (source !== "account" || ["GET", "HEAD", "OPTIONS"].includes(method)) return;
+  if (pathname.startsWith("/api/me/") || pathname.startsWith("/api/invites"))
+    return requireScope(caller, "full");
+  if (pathname.startsWith("/api/settings")) return requireScope(caller, "write");
+  requireScope(caller, "run");
+}
+
 export async function authorizeRest(
   caller: Caller,
   req: Request,
@@ -214,6 +234,7 @@ export async function authorizeRest(
   const policy = restPolicy(req.method, new URL(req.url).pathname);
   if (!policy) throw new HttpError(403, "Route has no access policy");
   if (policy.source === "admin") return requireAdmin(caller);
+  requireSourceScope(caller, policy.source, req.method, new URL(req.url).pathname);
   let workspaceId: string;
   switch (policy.source) {
     case "body":
@@ -312,6 +333,7 @@ export function isReadOnlyTool(name: string): boolean {
 export function authorizeTool(caller: Caller, name: string, input: Record<string, unknown>) {
   const action = MCP_POLICIES[name];
   if (!action) throw new HttpError(403, "Tool has no access policy");
+  if (action === "create") requireScope(caller, "write");
   if (action === "list" || action === "create" || action === "identity") return;
   const ids = new Set<string>();
   if (input.workspaceId) ids.add(stringId(input.workspaceId));
