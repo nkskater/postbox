@@ -1,0 +1,263 @@
+{
+  "$kind": "collection",
+  "id": "5b0f2c1a-0000-4000-8000-000000000001",
+  "name": "Orders API",
+  "description": "Orders service.\n\nUsed by the checkout flow.",
+  "variables": [
+    {
+      "key": "baseUrl",
+      "value": "https://api.example.test"
+    },
+    {
+      "key": "legacy",
+      "value": "off",
+      "disabled": true
+    },
+    {
+      "key": "apiToken",
+      "secret": true
+    }
+  ],
+  "scripts": [
+    {
+      "type": "http:beforeRequest",
+      "code": "pm.variables.set('started', Date.now());",
+      "language": "text/javascript"
+    },
+    {
+      "type": "http:afterResponse",
+      "code": "pm.test('fast', () => pm.expect(pm.response.responseTime).to.be.below(2000));",
+      "language": "text/javascript"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "credentials": [
+      {
+        "key": "token",
+        "value": "{{apiToken}}"
+      }
+    ]
+  },
+  "items": [
+    {
+      "$kind": "collection",
+      "name": "Orders",
+      "scripts": [
+        {
+          "type": "http:beforeRequest",
+          "code": "console.log('orders');\nconsole.log('folder');",
+          "language": "text/javascript"
+        }
+      ],
+      "auth": {
+        "type": "noauth"
+      },
+      "items": [
+        {
+          "$kind": "http-request",
+          "name": "List orders",
+          "url": "{{baseUrl}}/orders",
+          "method": "GET",
+          "headers": [
+            {
+              "key": "Accept",
+              "value": "application/json",
+              "$type": "text"
+            },
+            {
+              "key": "X-Debug",
+              "value": "1",
+              "disabled": true
+            }
+          ],
+          "queryParams": [
+            {
+              "key": "status",
+              "value": "open"
+            },
+            {
+              "key": "limit",
+              "value": "50"
+            },
+            {
+              "key": "expand",
+              "value": "items",
+              "disabled": true
+            }
+          ],
+          "scripts": [
+            {
+              "type": "afterResponse",
+              "code": "pm.test('ok', () => pm.response.to.have.status(200));",
+              "language": "text/javascript"
+            }
+          ],
+          "examples": [
+            {
+              "$kind": "http-example",
+              "name": "Two orders",
+              "request": {
+                "url": "{{baseUrl}}/orders",
+                "method": "GET",
+                "queryParams": [
+                  {
+                    "key": "status",
+                    "value": "open"
+                  }
+                ]
+              },
+              "response": {
+                "statusCode": 200,
+                "statusText": "OK",
+                "headers": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "type": "json",
+                  "content": "[{\"id\":1},{\"id\":2}]"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "$kind": "http-request",
+          "name": "Create order",
+          "url": "{{baseUrl}}/orders",
+          "method": "POST",
+          "headers": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": {
+            "type": "json",
+            "content": "{\"sku\":\"A-1\",\"qty\":2}"
+          },
+          "auth": {
+            "type": "apikey",
+            "credentials": [
+              {
+                "key": "key",
+                "value": "X-Api-Key"
+              },
+              {
+                "key": "value",
+                "value": "{{apiToken}}"
+              },
+              {
+                "key": "in",
+                "value": "header"
+              }
+            ]
+          },
+          "scripts": [
+            {
+              "type": "beforeRequest",
+              "code": "pm.variables.set('sku', 'A-1');",
+              "language": "text/javascript"
+            }
+          ]
+        },
+        {
+          "$kind": "http-request",
+          "name": "Get order",
+          "url": "{{baseUrl}}/orders/:orderId",
+          "method": "GET",
+          "pathVariables": [
+            {
+              "key": "orderId",
+              "value": "42"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "$kind": "collection",
+      "name": "Uploads",
+      "items": [
+        {
+          "$kind": "http-request",
+          "name": "Upload form",
+          "url": "{{baseUrl}}/upload",
+          "method": "POST",
+          "body": {
+            "type": "formdata",
+            "content": [
+              {
+                "type": "text",
+                "key": "title",
+                "value": "Invoice"
+              },
+              {
+                "type": "file",
+                "key": "file",
+                "src": "invoice.pdf",
+                "contentType": "application/pdf"
+              },
+              {
+                "type": "text",
+                "key": "draft",
+                "value": "yes",
+                "disabled": true
+              }
+            ]
+          }
+        },
+        {
+          "$kind": "http-request",
+          "name": "Login form",
+          "url": "{{baseUrl}}/login",
+          "method": "POST",
+          "body": {
+            "type": "urlencoded",
+            "content": [
+              {
+                "key": "user",
+                "value": "ada"
+              },
+              {
+                "key": "remember",
+                "value": "1",
+                "disabled": true
+              }
+            ]
+          },
+          "auth": {
+            "type": "basic",
+            "credentials": [
+              {
+                "key": "username",
+                "value": "ada"
+              },
+              {
+                "key": "password",
+                "value": "{{apiToken}}"
+              }
+            ]
+          }
+        },
+        {
+          "$kind": "http-request",
+          "name": "Search",
+          "url": "{{baseUrl}}/graphql",
+          "method": "POST",
+          "body": {
+            "type": "graphql",
+            "content": {
+              "query": "query { orders { id } }",
+              "variables": "{}",
+              "operationName": "Orders"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

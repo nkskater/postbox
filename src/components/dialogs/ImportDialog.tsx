@@ -483,7 +483,7 @@ export function ImportDialog() {
         <DialogHeader>
           <DialogTitle>Import</DialogTitle>
           <DialogDescription>
-            Postman collection (v2.0/v2.1) or environment, OpenAPI 3 / Swagger 2 (JSON or YAML), Hoppscotch
+            Postman collection (v2.0/v2.1/v3) or environment, OpenAPI 3 / Swagger 2 (JSON or YAML), Hoppscotch
             exports, SoapUI XML projects, or a cURL command. Use OpenAPI bundle for referenced files and
             remote origin approval.
           </DialogDescription>
