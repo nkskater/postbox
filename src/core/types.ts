@@ -238,6 +238,8 @@ export interface RequestSettings {
 export interface GrpcSettings {
   /** .proto sources by file name; imports resolve only against these (plus well-known types). */
   protos: Record<string, string>;
+  /** Fetch definitions from the server's reflection service instead of using `protos`. */
+  reflection?: boolean;
   /** Service name, fully qualified or bare when unambiguous. */
   service: string;
   method: string;

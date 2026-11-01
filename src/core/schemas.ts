@@ -237,6 +237,7 @@ export const settingsPatchSchema = z.object({
   grpc: z
     .object({
       protos: z.record(z.string().min(1).max(256), z.string().max(1_048_576)),
+      reflection: z.boolean().optional(),
       service: z.string().max(256),
       method: z.string().max(256),
     })
