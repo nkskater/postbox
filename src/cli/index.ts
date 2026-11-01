@@ -16,6 +16,8 @@ import { renderReport, type ReportFormat } from "../core/runner/reporters";
 import { flattenTree, runCollection } from "../core/runner/runner";
 import { DEFAULT_RUN_OPTIONS, type Variable } from "../core/types";
 import { emptyScopes, redactSecrets, variablesToRecord } from "../core/variables/resolver";
+import { CliError, EXIT } from "./errors";
+import { registerManagement } from "./manage";
 import { consoleReporter } from "./reporter";
 
 type Reporter = "cli" | ReportFormat;
@@ -147,11 +149,10 @@ async function run(file: string, options: Options) {
       },
       data,
       cookieJar: new CookieJarStore(),
-      policy: new HostPolicy(
-        split(process.env.PROXY_ALLOW_HOSTS),
-        split(process.env.PROXY_DENY_HOSTS),
-        [...split(process.env.PROXY_ALLOW_SOCKETS), ...options.allowSocket],
-      ),
+      policy: new HostPolicy(split(process.env.PROXY_ALLOW_HOSTS), split(process.env.PROXY_DENY_HOSTS), [
+        ...split(process.env.PROXY_ALLOW_SOCKETS),
+        ...options.allowSocket,
+      ]),
       secrets,
       signal: controller.signal,
       requestDefaults: {
@@ -201,7 +202,9 @@ async function run(file: string, options: Options) {
 
 const program = new Command()
   .name("postbox")
-  .description("Run Postman collections using the Postbox engine, without a server or database.")
+  .description(
+    "Run Postman collections locally with the Postbox engine, and manage a Postbox server's workspaces and assets.",
+  )
   .version(version);
 
 program
@@ -239,7 +242,17 @@ program
   )
   .action(run);
 
+registerManagement(program);
+
 await program.parseAsync().catch((error: unknown) => {
+  const { code } = error as { code?: unknown; exitCode?: number };
+  if (typeof code === "string" && code.startsWith("commander.")) {
+    // Management groups throw instead of exiting so usage mistakes get a stable code.
+    process.exitCode = ["commander.helpDisplayed", "commander.version", "commander.help"].includes(code)
+      ? 0
+      : EXIT.usage;
+    return;
+  }
   console.error(`postbox: ${(error as Error).message}`);
-  process.exitCode = 1;
+  process.exitCode = error instanceof CliError ? error.code : 1;
 });

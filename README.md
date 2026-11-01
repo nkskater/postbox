@@ -338,6 +338,8 @@ Options include `-g` (globals), `-n` (iterations), `--delay`, `--bail`, `--insec
 `-H "Name: value"` (repeatable default header), `--user-agent <value>` (`""` sends none), `--no-accept-headers`,
 `--script-timeout <ms>` and `--script-memory <mb>`. The exit code is non-zero when a request or assertion fails, so it can be used in CI.
 
+The same CLI can manage a running server: `postbox profile add`, then `workspace`, `collection`, `folder`, `request`, `env`, `globals`, `mock` and `import` commands with JSON output, paging, `--yes` confirmation for deletes and stable exit codes. See [docs/cli-management.md](docs/cli-management.md).
+
 ## Development
 
 ```bash
