@@ -24,7 +24,7 @@ export function renderDocumentation(snapshot: DocumentationSnapshot, page: Docum
   const folders: string[] = [];
   const walk = (folder: FolderNode, path: string[] = []) => {
     const chain = [...path, folder.name];
-    if (folder.description)
+    if (path.length && folder.description)
       folders.push(
         `<section><h2>${e(chain.join(" / "))}</h2><p class="description">${e(folder.description)}</p></section>`,
       );
