@@ -3,14 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import { compareRuns, type HistoricalRun, type RunComparison as Comparison } from "@/core/runner/compare";
 import { Button } from "@/components/ui/button";
-import { formatMs } from "@/lib/format";
+import { formatDateTime, formatMs } from "@/lib/format";
 
 interface RunChoice {
   id: string;
   startedAt: number;
   status: string;
 }
-const timestamp = (time: number) => new Date(time).toLocaleString();
+const timestamp = (time: number) => formatDateTime(time);
 const signedMs = (value: number | null) =>
   value === null ? "Unavailable" : `${value > 0 ? "+" : value < 0 ? "−" : ""}${formatMs(Math.abs(value))}`;
 

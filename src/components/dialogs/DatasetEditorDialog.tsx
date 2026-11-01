@@ -1,4 +1,5 @@
 "use client";
+import { formatDateTime } from "@/lib/format";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DataTable, DatasetDocument, DatasetVersionInfo } from "@/core/types";
 import {
@@ -271,7 +272,7 @@ function DatasetEditor({ id, workspaceId }: { id: string | null; workspaceId: st
                 >
                   {versions.map((version) => (
                     <option key={version.version} value={version.version}>
-                      v{version.version} · {new Date(version.createdAt).toLocaleString()}
+                      v{version.version} · {formatDateTime(version.createdAt)}
                     </option>
                   ))}
                 </select>

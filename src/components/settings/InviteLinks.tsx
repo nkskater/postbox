@@ -1,4 +1,5 @@
 "use client";
+import { formatDateTime } from "@/lib/format";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -102,7 +103,7 @@ export function InviteLinks({ workspaceId }: { workspaceId?: string }) {
       {invites.map((invite) => (
         <div key={invite.id} className="flex items-center justify-between gap-2 text-xs">
           <span>
-            {invite.role ?? "Account"} · expires {new Date(invite.expiresAt).toLocaleString()} ·{" "}
+            {invite.role ?? "Account"} · expires {formatDateTime(invite.expiresAt)} ·{" "}
             {invite.revokedAt ? "revoked" : invite.usedAt ? "used" : "unused"}
           </span>
           {!invite.usedAt && !invite.revokedAt && (

@@ -21,7 +21,9 @@ export type SettingCategory =
   | "data"
   | "integrations"
   | "security"
-  | "keyboard";
+  | "keyboard"
+  | "notifications"
+  | "locale";
 
 export const CATEGORIES: { id: SettingCategory; label: string; description: string }[] = [
   { id: "appearance", label: "Appearance", description: "Theme, colors, typography and density." },
@@ -50,6 +52,16 @@ export const CATEGORIES: { id: SettingCategory; label: string; description: stri
     id: "data",
     label: "History & data",
     description: "How long request history is kept, backups, and database maintenance. Administrators only.",
+  },
+  {
+    id: "notifications",
+    label: "Notifications",
+    description: "Where messages appear, how long they stay, and alerts when a long run finishes.",
+  },
+  {
+    id: "locale",
+    label: "Dates & units",
+    description: "How times, dates and sizes are written.",
   },
   {
     id: "keyboard",
@@ -862,6 +874,159 @@ export const SETTINGS: SettingDef[] = [
     scope: "server",
     default: false,
     keywords: ["history", "secret", "privacy"],
+  },
+
+  // ---------------------------------------------------------------- notifications
+  {
+    key: "notifications.position",
+    category: "notifications",
+    label: "Message position",
+    description: "Where toast messages appear on screen.",
+    type: "select",
+    scope: "browser",
+    default: "bottom-right",
+    options: [
+      { value: "bottom-right", label: "Bottom right" },
+      { value: "bottom-left", label: "Bottom left" },
+      { value: "bottom-center", label: "Bottom center" },
+      { value: "top-right", label: "Top right" },
+      { value: "top-left", label: "Top left" },
+      { value: "top-center", label: "Top center" },
+    ],
+    keywords: ["toast", "message", "alert"],
+  },
+  {
+    key: "notifications.durationSeconds",
+    category: "notifications",
+    label: "Message duration",
+    description: "How long a message stays before it disappears.",
+    type: "number",
+    scope: "browser",
+    default: 4,
+    min: 1,
+    max: 30,
+    unit: "seconds",
+    keywords: ["toast", "timeout"],
+  },
+  {
+    key: "notifications.runFinished",
+    category: "notifications",
+    label: "Notify when a long run finishes",
+    description:
+      "Show a browser notification when a collection run completes while you are in another tab or window. Your browser asks for permission.",
+    type: "boolean",
+    scope: "browser",
+    default: false,
+    keywords: ["browser", "desktop", "runner"],
+  },
+  {
+    key: "notifications.runThresholdSeconds",
+    category: "notifications",
+    label: "Only for runs longer than",
+    description: "Shorter runs finish without a notification.",
+    type: "number",
+    scope: "browser",
+    default: 30,
+    min: 1,
+    max: 3600,
+    unit: "seconds",
+    keywords: ["runner"],
+  },
+  {
+    key: "notifications.sound",
+    category: "notifications",
+    label: "Play a sound",
+    description: "A short chime with the run notification.",
+    type: "boolean",
+    scope: "browser",
+    default: false,
+    keywords: ["audio", "chime"],
+  },
+
+  // ---------------------------------------------------------------- dates & units
+  {
+    key: "locale.timeFormat",
+    category: "locale",
+    label: "Time format",
+    description: "System follows your computer. 12-hour shows 3:45 PM, 24-hour shows 15:45.",
+    type: "select",
+    scope: "browser",
+    default: "system",
+    options: [
+      { value: "system", label: "System" },
+      { value: "12h", label: "12-hour" },
+      { value: "24h", label: "24-hour" },
+    ],
+    keywords: ["clock", "12", "24"],
+  },
+  {
+    key: "locale.dateFormat",
+    category: "locale",
+    label: "Date format",
+    description: "How dates are written.",
+    type: "select",
+    scope: "browser",
+    default: "system",
+    options: [
+      { value: "system", label: "System" },
+      { value: "iso", label: "2026-11-01" },
+      { value: "mdy", label: "11/01/2026" },
+      { value: "dmy", label: "01/11/2026" },
+    ],
+    keywords: ["iso"],
+  },
+  {
+    key: "locale.timeStyle",
+    category: "locale",
+    label: "Recent times",
+    description: "Relative shows '5m ago' for the last day; absolute always shows the full date and time.",
+    type: "select",
+    scope: "browser",
+    default: "relative",
+    options: [
+      { value: "relative", label: "Relative" },
+      { value: "absolute", label: "Absolute" },
+    ],
+    keywords: ["history", "ago"],
+  },
+  {
+    key: "locale.byteUnits",
+    category: "locale",
+    label: "Size units",
+    description: "How response and file sizes are written.",
+    type: "select",
+    scope: "browser",
+    default: "kb",
+    options: [
+      { value: "kb", label: "KB (1024)" },
+      { value: "kib", label: "KiB (1024)" },
+      { value: "si", label: "kB (1000)" },
+    ],
+    keywords: ["bytes", "kib", "size"],
+  },
+
+  // ---------------------------------------------------------------- appearance colours (custom panel)
+  {
+    key: "appearance.methodColors",
+    category: "appearance",
+    label: "HTTP method colors",
+    description: "Your colors for GET, POST and the other methods, as JSON. Edited on the Appearance page.",
+    type: "text",
+    scope: "browser",
+    default: "{}",
+    maxLength: 1000,
+    hidden: true,
+  },
+  {
+    key: "appearance.statusColors",
+    category: "appearance",
+    label: "Status colors",
+    description: "Your colors for success, redirect and error statuses, as JSON.",
+    type: "text",
+    scope: "browser",
+    default: "{}",
+    maxLength: 500,
+    hidden: true,
   },
 
   // ---------------------------------------------------------------- keyboard

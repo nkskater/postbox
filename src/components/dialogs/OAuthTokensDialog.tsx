@@ -1,5 +1,6 @@
 "use client";
 /** Workspace-wide list of saved OAuth 2.0 tokens; values are never shown. */
+import { formatDateTime } from "@/lib/format";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -123,7 +124,7 @@ export function OAuthTokensDialog({
                         : t.expiresAt === undefined
                           ? "No expiry"
                           : t.expiresAt > now
-                            ? `Expires ${new Date(t.expiresAt).toLocaleString()}`
+                            ? `Expires ${formatDateTime(t.expiresAt)}`
                             : "Expired"}
                       {t.hasRefreshToken && t.hasAccessToken ? " · refreshable" : ""}
                     </td>

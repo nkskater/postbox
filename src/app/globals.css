@@ -25,6 +25,16 @@
   --color-ring: var(--ring);
   --color-success: var(--success);
   --color-warning: var(--warning);
+  --color-method-get: var(--method-get);
+  --color-method-post: var(--method-post);
+  --color-method-put: var(--method-put);
+  --color-method-patch: var(--method-patch);
+  --color-method-delete: var(--method-delete);
+  --color-method-head: var(--method-head);
+  --color-method-options: var(--method-options);
+  --color-status-ok: var(--status-ok);
+  --color-status-redirect: var(--status-redirect);
+  --color-status-error: var(--status-error);
   --color-sidebar: var(--sidebar);
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -60,6 +70,16 @@
   --ring: oklch(0.76 0.105 58 / 55%);
   --success: oklch(0.72 0.16 150);
   --warning: oklch(0.8 0.15 85);
+  --method-get: #34d399;
+  --method-post: #fbbf24;
+  --method-put: #38bdf8;
+  --method-patch: #a78bfa;
+  --method-delete: #fb7185;
+  --method-head: #2dd4bf;
+  --method-options: #f472b6;
+  --status-ok: var(--success);
+  --status-redirect: var(--warning);
+  --status-error: var(--destructive);
   --sidebar: oklch(0.15 calc(var(--tone-c) * 1) var(--tone-h));
   color-scheme: dark;
 }

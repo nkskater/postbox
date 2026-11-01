@@ -2,6 +2,7 @@
 /**
  * Auth configuration editor used by requests, folders and collections.
  */
+import { formatTime } from "@/lib/format";
 import { useState } from "react";
 import { toast } from "sonner";
 import { KeyRound } from "lucide-react";
@@ -665,7 +666,7 @@ function OAuth2Editor({
             {config.expiresAt && (
               <span className="text-muted-foreground">
                 {config.expiresAt > now
-                  ? `Expires ${new Date(config.expiresAt).toLocaleTimeString()}`
+                  ? `Expires ${formatTime(config.expiresAt)}`
                   : config.refreshToken
                     ? "Expired; refreshes on next send"
                     : "Token expired"}

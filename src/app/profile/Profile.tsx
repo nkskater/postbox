@@ -2,6 +2,7 @@
 /**
  * Profile: first-run administrator setup, password change and personal API tokens.
  */
+import { formatDate } from "@/lib/format";
 import { copyText } from "@/lib/clipboard";
 import { useApp } from "@/stores/app";
 import { useCallback, useEffect, useState } from "react";
@@ -41,7 +42,7 @@ async function call<T>(url: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
-const date = (ms: number | null) => (ms ? new Date(ms).toLocaleDateString() : "never");
+const date = (ms: number | null) => (ms ? formatDate(ms) : "never");
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (

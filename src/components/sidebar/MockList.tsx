@@ -1,4 +1,5 @@
 "use client";
+import { formatDateTime } from "@/lib/format";
 import { useCallback, useEffect, useState } from "react";
 import type { MockDocument, MockSummary } from "@/core/mocks/model";
 import { useApp } from "@/stores/app";
@@ -439,8 +440,7 @@ function MockPanel({ workspaceId }: { workspaceId: string }) {
             {!logs.length && <p className="text-muted-foreground">No retained requests.</p>}
             {logs.map((log) => (
               <p key={log.id} className="break-all font-mono">
-                {log.method} {log.path} · {log.status} · {log.durationMs} ms ·{" "}
-                {new Date(log.createdAt).toLocaleString()}
+                {log.method} {log.path} · {log.status} · {log.durationMs} ms · {formatDateTime(log.createdAt)}
               </p>
             ))}
             {selected.canEdit && (

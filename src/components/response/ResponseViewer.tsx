@@ -15,7 +15,7 @@ import { CodeEditor, type EditorLanguage } from "@/components/editor/CodeEditor"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { formatBytes, formatMs, formatXml, statusColor } from "@/lib/format";
+import { formatBytes, formatDateTime, formatMs, formatXml, statusColor } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useSetting } from "@/stores/settings";
 
@@ -462,9 +462,7 @@ export function ResponseViewer({
                   <td className="max-w-64 truncate px-2 py-1">{c.value}</td>
                   <td className="px-2 py-1">{c.domain}</td>
                   <td className="px-2 py-1">{c.path}</td>
-                  <td className="px-2 py-1">
-                    {c.expires ? new Date(c.expires).toLocaleString() : "Session"}
-                  </td>
+                  <td className="px-2 py-1">{c.expires ? formatDateTime(c.expires) : "Session"}</td>
                   <td className="px-2 py-1">{c.httpOnly ? "✓" : ""}</td>
                   <td className="px-2 py-1">{c.secure ? "✓" : ""}</td>
                 </tr>
