@@ -178,6 +178,24 @@ describe("request contracts", () => {
       }),
     ).toThrow(/Duplicate/);
   });
+  it("bounds reference expansion and rejects cyclic reference graphs", () => {
+    expect(() =>
+      parseContract({
+        requestBody: { definitions: { cycle: { $ref: "#/definitions/cycle" } }, $ref: "#/definitions/cycle" },
+      }),
+    ).toThrow(/Cyclic/);
+    const definitions: Record<string, unknown> = { leaf: { type: "string" } };
+    for (let i = 0; i < 12; i++)
+      definitions[`n${i}`] = {
+        allOf: [
+          { $ref: `#/definitions/${i ? `n${i - 1}` : "leaf"}` },
+          { $ref: `#/definitions/${i ? `n${i - 1}` : "leaf"}` },
+        ],
+      };
+    expect(() => parseContract({ requestBody: { definitions, $ref: "#/definitions/n11" } })).toThrow(
+      /node limit/,
+    );
+  });
   it("bounds observed body size and nesting", () => {
     const contract = parseContract({ responseBody: true });
     expect(

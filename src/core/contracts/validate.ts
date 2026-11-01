@@ -33,22 +33,40 @@ const keywords = new Set([
   "oneOf",
   "not",
 ]);
-function inspect(schema: unknown, depth = 0, budget = { left: 512 }): void {
+function inspect(
+  schema: unknown,
+  depth = 0,
+  budget = { left: 512 },
+  root: unknown = schema,
+  references = new Set<string>(),
+): void {
   if (depth > 32 || --budget.left < 0) throw new Error("Schema exceeds depth or node limit");
   if (typeof schema === "boolean") return;
   if (!schema || typeof schema !== "object" || Array.isArray(schema))
     throw new Error("Expected a JSON Schema object or boolean");
   for (const [key, value] of Object.entries(schema)) {
     if (!keywords.has(key)) throw new Error(`Unsupported schema keyword: ${key}`);
-    if (key === "$ref" && (typeof value !== "string" || !value.startsWith("#/")))
-      throw new Error("Only local #/ schema references are supported");
+    if (key === "$ref") {
+      if (typeof value !== "string" || !value.startsWith("#/"))
+        throw new Error("Only local #/ schema references are supported");
+      if (references.has(value)) throw new Error("Cyclic schema references are unsupported");
+      let target = root;
+      for (const part of decodeURIComponent(value.slice(2)).split("/")) {
+        const name = part.replace(/~1/g, "/").replace(/~0/g, "~");
+        if (!target || typeof target !== "object" || !Object.hasOwn(target, name))
+          throw new Error("Unresolved local schema reference");
+        target = (target as Record<string, unknown>)[name];
+      }
+      inspect(target, depth + 1, budget, root, new Set([...references, value]));
+    }
     if (["properties", "$defs", "definitions"].includes(key)) {
       if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`Invalid ${key}`);
-      for (const child of Object.values(value)) inspect(child, depth + 1, budget);
-    } else if (["items", "additionalProperties", "not"].includes(key)) inspect(value, depth + 1, budget);
+      for (const child of Object.values(value)) inspect(child, depth + 1, budget, root, references);
+    } else if (["items", "additionalProperties", "not"].includes(key))
+      inspect(value, depth + 1, budget, root, references);
     else if (["allOf", "anyOf", "oneOf"].includes(key)) {
       if (!Array.isArray(value) || value.length > 32) throw new Error(`Invalid ${key}`);
-      value.forEach((child) => inspect(child, depth + 1, budget));
+      value.forEach((child) => inspect(child, depth + 1, budget, root, references));
     }
   }
 }
@@ -59,6 +77,7 @@ function compile(schema: JsonSchema, coerce = false): ValidateFunction {
   if (cached) return cached;
   inspect(schema);
   const ajv = new Ajv({
+    inlineRefs: false,
     strict: false,
     allErrors: false,
     coerceTypes: coerce,

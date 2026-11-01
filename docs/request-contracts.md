@@ -96,7 +96,7 @@ formats, regex patterns and custom executable keywords are rejected. Schemas nev
 fetch resources. Tuple-style array items are unavailable; use a single items schema.
 
 Contracts are limited to 100 parameters and 64 KiB of JSON. Each schema is limited
-to depth 32 and 512 nodes, and observed JSON to 1 MiB and depth 64. Larger/deeper
+to depth 32 and 512 nodes including expanded local references (cyclic references are rejected), and observed JSON to 1 MiB and depth 64. Larger/deeper
 observations are deferred. Schemas are cached in a bounded 64-entry cache; observed
 values are never cached. Keep credentials in runtime scopes, not schema enum/const
 literals. Backups include contract metadata; credential-free export/backup may

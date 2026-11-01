@@ -159,10 +159,11 @@ export function ContractEditor({
       <p className="text-muted-foreground">
         JSON Schema supports types, required fields, enum/const, numeric/string/array/object bounds,
         properties, additionalProperties, items, allOf/anyOf/oneOf/not and local #/ references via definitions
-        or $defs. Remote references, formats and regular expressions are unavailable. Schemas are limited to
-        64 KiB, 512 nodes and depth 32; values to 1 MiB and depth 64. Query arrays use repeated keys;
-        parameter values are coerced for type checks only. JSON bodies are not coerced. Path parameters use
-        pathTemplate such as /pets/&#123;id&#125;. Binary, omitted and truncated examples are deferred.
+        or $defs. Remote references, cyclic schema references, formats and regular expressions are
+        unavailable. Schemas are limited to 64 KiB, 512 nodes and depth 32; values to 1 MiB and depth 64.
+        Query arrays use repeated keys; parameter values are coerced for type checks only. JSON bodies are not
+        coerced. Path parameters use pathTemplate such as /pets/&#123;id&#125;. Binary, omitted and truncated
+        examples are deferred.
       </p>
     </div>
   );
