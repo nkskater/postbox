@@ -82,6 +82,8 @@ beforeAll(async () => {
     url: "https://example.test/hook",
     events: ["run.passed"],
   }).id;
+  const { createListener, listenerInput } = await import("@/server/hook-listeners");
+  ids.hookListener = createListener(workspaceId, listenerInput.parse({ name: "Access listener" })).id;
   ids.environment = repo.createEnvironment(workspaceId, "Environment").id;
   ids.history = withCaller(caller(owner), () =>
     repo.addHistory({

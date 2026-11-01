@@ -14,7 +14,8 @@ export type ResourceKind =
   | "mock"
   | "grpcDefinition"
   | "scriptPackage"
-  | "webhook";
+  | "webhook"
+  | "hookListener";
 export const RESOURCE_TABLES: Record<ResourceKind, string> = {
   workspace: "workspaces",
   folder: "folders",
@@ -29,6 +30,7 @@ export const RESOURCE_TABLES: Record<ResourceKind, string> = {
   grpcDefinition: "grpc_definitions",
   scriptPackage: "script_packages",
   webhook: "webhooks",
+  hookListener: "hook_listeners",
 };
 export function resourceWorkspace(kind: ResourceKind, id: string): string {
   const row = getSqlite()

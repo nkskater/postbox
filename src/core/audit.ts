@@ -19,6 +19,7 @@ export type AuditEntityKind =
   | "mock"
   | "grpcDefinition"
   | "webhook"
+  | "hookListener"
   | "member"
   | "user"
   | "key"
@@ -49,6 +50,7 @@ export const SAFE_FIELDS: Partial<Record<AuditEntityKind, readonly string[]>> = 
   scriptPackage: ["name", "description", "latest_version"],
   mock: ["name", "folder_id"],
   webhook: ["name", "url", "events", "enabled"],
+  hookListener: ["name", "status", "forward_url", "rate_per_minute"],
   grpcDefinition: ["name"],
   cookie: ["domain", "path", "name"],
   user: ["username", "display_name", "is_admin", "disabled", "is_service"],
@@ -122,6 +124,7 @@ const SINGULAR: Record<string, string> = {
   "script-packages": "scriptPackage",
   mocks: "mock",
   webhooks: "webhook",
+  "hook-listeners": "hookListener",
   schedules: "schedule",
   runs: "run",
   cookies: "cookie",
@@ -141,6 +144,7 @@ const KIND_BY_SEGMENT: Record<string, AuditEntityKind> = {
   "script-packages": "scriptPackage",
   mocks: "mock",
   webhooks: "webhook",
+  "hook-listeners": "hookListener",
   schedules: "schedule",
   runs: "run",
   history: "history",

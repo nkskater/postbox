@@ -744,3 +744,69 @@ export const catalogVersions = sqliteTable(
     uniqueIndex("catalog_version_label_unique").on(t.entryId, t.label),
   ],
 );
+
+/** An inbound webhook endpoint (`/hook/<token>`). The token is the credential and is stored hashed. */
+export const hookListeners = sqliteTable(
+  "hook_listeners",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** active | paused | revoked */
+    status: text("status").notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    /** Last characters of the token, so owners can tell listeners apart without storing it. */
+    tokenHint: text("token_hint").notNull(),
+    /** JSON VerificationConfig. */
+    verification: text("verification").notNull(),
+    /** Shared secret for verification. Never listed or returned after it is set. */
+    secret: text("secret").notNull().default(""),
+    responseStatus: integer("response_status").notNull().default(200),
+    responseContentType: text("response_content_type").notNull().default("application/json"),
+    responseBody: text("response_body").notNull().default('{"ok":true}'),
+    forwardUrl: text("forward_url"),
+    ratePerMinute: integer("rate_per_minute").notNull().default(120),
+    receivedCount: integer("received_count").notNull().default(0),
+    lastReceivedAt: integer("last_received_at"),
+    createdBy: text("created_by"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [index("hook_listeners_workspace_idx").on(t.workspaceId)],
+);
+
+/** One request received by a listener, bounded in count, size and age. */
+export const hookEvents = sqliteTable(
+  "hook_events",
+  {
+    id: text("id").primaryKey(),
+    listenerId: text("listener_id")
+      .notNull()
+      .references(() => hookListeners.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id").notNull(),
+    receivedAt: integer("received_at").notNull(),
+    method: text("method").notNull(),
+    path: text("path").notNull(),
+    query: text("query").notNull(),
+    /** JSON array of [name, value] with credentials redacted. */
+    headers: text("headers").notNull(),
+    body: text("body").notNull(),
+    /** utf8 | base64 */
+    bodyEncoding: text("body_encoding").notNull(),
+    bodyBytes: integer("body_bytes").notNull(),
+    /** none | valid | invalid | missing */
+    signature: text("signature").notNull(),
+    responseStatus: integer("response_status").notNull(),
+    /** Set once a forward or a user-requested replay has been attempted. */
+    forwardStatus: integer("forward_status"),
+    forwardError: text("forward_error"),
+    forwardedAt: integer("forwarded_at"),
+    replays: integer("replays").notNull().default(0),
+  },
+  (t) => [index("hook_events_listener_idx").on(t.listenerId, t.receivedAt)],
+);
+
+export type HookListenerRow = typeof hookListeners.$inferSelect;
+export type HookEventRow = typeof hookEvents.$inferSelect;

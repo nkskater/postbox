@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { InviteLinks } from "./InviteLinks";
 import { AuditLog } from "./AuditLog";
 import { UsagePanel } from "./UsagePanel";
+import { HookListenersPanel } from "./HookListenersPanel";
 import { WebhooksPanel } from "./WebhooksPanel";
 import { Input } from "@/components/ui/input";
 
@@ -131,6 +132,7 @@ function Sharing({ workspaceId }: { workspaceId: string }) {
           ))}
           <UsagePanel workspaceId={workspaceId} />
           <WebhooksPanel workspaceId={workspaceId} />
+          <HookListenersPanel workspaceId={workspaceId} />
           <AuditLog workspaceId={workspaceId} />
         </>
       )}
