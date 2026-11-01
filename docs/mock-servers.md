@@ -18,7 +18,7 @@ do not change it until **Refresh examples** is selected. **Source examples**
 opens the existing example editor. Refresh fails if an example has an omitted or
 truncated response, unsupported request-body matching, or invalid URL. Source
 folder deletion does not delete an already captured snapshot; refresh then fails.
-No request scripts execute and the server makes no outbound API calls.
+No request scripts execute and the server makes no outbound API calls. Partial updates (`PATCH`) change only the fields they name.
 
 ## Matching and response selection
 
@@ -46,6 +46,38 @@ scripts, access the app origin, frame the app, or register service workers.
 Cross-origin browser use requires appropriate configured response headers and an
 OPTIONS example for preflight; credentials are never added automatically.
 
+## Failure simulations
+
+Select a mock and use **Failure simulations** (or `scenarios` in the REST/MCP settings) to make an
+endpoint misbehave on purpose. Rules are fixed and deterministic: no scripts run. They apply to every
+request, including paths that match no example, and are evaluated in order.
+
+| Type        | Behavior                                                                                             |
+| ----------- | ---------------------------------------------------------------------------------------------------- |
+| `failFirst` | The first `count` requests of a session answer `status`, then the mock serves normally.              |
+| `failEvery` | Every `every`th request (2 or more) answers `status`.                                                |
+| `error`     | Every matching request answers `status` (400–599).                                                   |
+| `sequence`  | One status per request in order (`0` serves the saved example); `repeat` starts over.                |
+| `rateLimit` | `limit` requests per `windowSeconds`, then `status` (default 429) with `Retry-After`.                |
+| `delay`     | Adds `ms` (1–30,000) of latency. Latency from several rules, plus the mock's own, is capped at 30 s. |
+
+Each rule may carry `match: { method?, path? }` (paths accept whole-segment `:parameters`), a custom
+`body` (up to 8 KiB) and `contentType` for the failure response, and can be switched off with
+`enabled: false`. A simulated failure responds with a JSON body `{"error":"Simulated failure","scenario":…}`
+unless you give one, and with `X-Postbox-Mock-Scenario` naming the rule. A failing rule ends the list: later
+rules do not see that request, so their counters only count requests that reached them. Rate-limit rules also
+add `X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset` to responses they allow. At most 50
+rules per mock. Workspace secrets are masked in simulated bodies like everything else a mock serves.
+
+**Sessions.** Counters are kept per session, so parallel test runs do not disturb each other. Send
+`x-mock-session: <name>` (1–64 letters, digits, `.`, `_` or `-`); requests without it share the `default`
+session. Every response carries `X-Postbox-Mock-Session`. Counters are held in memory: they restart with the
+server, when the rules are changed, and after a reset, and idle sessions expire after an hour (at most 200
+sessions per mock, least recently used first). Rate-limit windows run on the server clock, starting at a
+session's first request in the window, so a reset makes a run reproducible. Reset with
+`POST /api/mocks/:id/reset` and body `{"session":"name"}` (omit `session` to reset all), the **Reset counters**
+button, or the MCP tool `reset_mock_state`.
+
 ## Privacy and limits
 
 Known workspace secrets and credential-like fields are redacted from snapshots,
@@ -70,21 +102,22 @@ Management requires normal Postbox authentication and workspace permissions.
 Invocation `/mock/<id>/<path>` independently enforces private-key/public settings,
 even when application login is enabled.
 
-| Method and path                | Behavior                                                                                                                              |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /api/mocks?workspaceId=…` | List settings and example counts, without keys.                                                                                       |
-| `POST /api/mocks`              | `{workspaceId,folderId,name,enabled?,public?,matchQuery?,matchBody?,delayMs?,status?,headers?}`; returns snapshot and one-time `key`. |
-| `GET /api/mocks/:id`           | Read settings and sanitized example snapshot.                                                                                         |
-| `PATCH /api/mocks/:id`         | Change name, enabled/public flags, matching and response settings.                                                                    |
-| `DELETE /api/mocks/:id`        | Delete endpoint and logs.                                                                                                             |
-| `POST /api/mocks/:id/refresh`  | Explicitly capture the latest saved examples.                                                                                         |
-| `POST /api/mocks/:id/key`      | Rotate credential; returns one-time `key`.                                                                                            |
-| `GET /api/mocks/:id/logs`      | Last 100 metadata entries.                                                                                                            |
-| `DELETE /api/mocks/:id/logs`   | Clear logs.                                                                                                                           |
-| `GET /api/mocks/:id/export`    | Sanitized JSON snapshot without keys or logs.                                                                                         |
+| Method and path                | Behavior                                                                                                                                         |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET /api/mocks?workspaceId=…` | List settings and example counts, without keys.                                                                                                  |
+| `POST /api/mocks`              | `{workspaceId,folderId,name,enabled?,public?,matchQuery?,matchBody?,delayMs?,status?,headers?,scenarios?}`; returns snapshot and one-time `key`. |
+| `GET /api/mocks/:id`           | Read settings and sanitized example snapshot.                                                                                                    |
+| `PATCH /api/mocks/:id`         | Change name, enabled/public flags, matching and response settings.                                                                               |
+| `DELETE /api/mocks/:id`        | Delete endpoint and logs.                                                                                                                        |
+| `POST /api/mocks/:id/refresh`  | Explicitly capture the latest saved examples.                                                                                                    |
+| `POST /api/mocks/:id/key`      | Rotate credential; returns one-time `key`.                                                                                                       |
+| `GET /api/mocks/:id/logs`      | Last 100 metadata entries.                                                                                                                       |
+| `DELETE /api/mocks/:id/logs`   | Clear logs.                                                                                                                                      |
+| `POST /api/mocks/:id/reset`    | Restart failure-simulation counters: `{session?}`; returns `{ok,cleared}`.                                                                       |
+| `GET /api/mocks/:id/export`    | Sanitized JSON snapshot without keys or logs.                                                                                                    |
 
 Header rows use `{key,value,enabled}`. Status `null` uses the selected example.
 MCP provides `list_mocks`, `get_mock`, `create_mock`, `update_mock`, `refresh_mock`,
-`rotate_mock_key`, `delete_mock`, `export_mock`, `list_mock_logs`, and
-`clear_mock_logs`. Existing-resource tools use `mockId`; creation takes the same
+`rotate_mock_key`, `delete_mock`, `export_mock`, `list_mock_logs`, `clear_mock_logs`, and
+`reset_mock_state`. Existing-resource tools use `mockId`; creation takes the same
 fields as REST. Tool discovery advertises all schemas.

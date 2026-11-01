@@ -151,6 +151,7 @@ export const REST_POLICIES: Record<string, Policy> = {
   "DELETE /api/mocks/[id]/logs": p("resource", "write", "mock"),
   "POST /api/mocks/[id]/key": p("resource", "write", "mock"),
   "POST /api/mocks/[id]/refresh": p("resource", "write", "mock"),
+  "POST /api/mocks/[id]/reset": p("resource", "write", "mock"),
   "GET /api/mocks/[id]/export": p("resource", "read", "mock"),
   "GET /api/datasets": p("query", "read"),
   "POST /api/datasets": p("body", "write"),
@@ -241,6 +242,7 @@ export const MCP_POLICIES: Record<string, WorkspaceAction | "list" | "create" | 
   export_mock: "read",
   list_mock_logs: "read",
   clear_mock_logs: "write",
+  reset_mock_state: "write",
 
   get_dataset: "read",
   create_dataset: "write",

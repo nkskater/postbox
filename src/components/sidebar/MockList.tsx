@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { MockDocument, MockSummary } from "@/core/mocks/model";
 import { useApp } from "@/stores/app";
 import { useDialogs } from "@/stores/dialogs";
+import { MockScenarios } from "./MockScenarios";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -313,15 +314,28 @@ function MockPanel({ workspaceId }: { workspaceId: string }) {
         selected && (
           <section className="space-y-3 rounded border p-2">
             <h3 className="font-medium">{selected.name}</h3>
-            <Input aria-label="Mock endpoint" readOnly value={`${window.location.origin}/mock/${selected.id}`} />
+            <Input
+              aria-label="Mock endpoint"
+              readOnly
+              value={`${window.location.origin}/mock/${selected.id}`}
+            />
             <p>
               Append the original API path and query to this URL. Snapshot revision {selected.revision} ·{" "}
               {selected.routeCount} examples.
             </p>
             <p className="text-muted-foreground">
-              Snapshots change only when refreshed. No request scripts run. Logs retain matched templates and
-              status, without incoming query values, headers or bodies.
+              Snapshots change only when refreshed. No request scripts run; failure simulations are fixed
+              rules. Logs retain matched templates and status, without incoming query values, headers or
+              bodies.
             </p>
+            <MockScenarios
+              mock={selected}
+              busy={busy}
+              onChanged={(updated) => {
+                setSelected(updated);
+                void refresh();
+              }}
+            />
             <div className="flex flex-wrap gap-2">
               {selected.canEdit && (
                 <>

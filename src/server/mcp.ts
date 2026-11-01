@@ -1584,6 +1584,21 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
     },
   );
   server.registerTool(
+    "reset_mock_state",
+    {
+      description:
+        "Restart a mock's failure-simulation counters for one session (header x-mock-session) or all sessions, so a test run starts clean",
+      inputSchema: { mockId: z.string(), session: z.string().max(64).optional() },
+    },
+    async ({ mockId, session }) => {
+      try {
+        return okJson(mocks.resetMockState(mockId, session));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
     "clear_mock_logs",
     { description: "Clear retained mock request metadata", inputSchema: { mockId: z.string() } },
     async ({ mockId }) => {
