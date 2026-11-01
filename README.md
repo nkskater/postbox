@@ -495,6 +495,8 @@ Usage is metered per workspace (API calls, runs, run time, retained storage) wit
 
 Workspace owners can send signed webhooks for run events to their own endpoints, with a durable outbox, bounded retries, a delivery log and replay. Targets follow the outbound host policy. See [docs/outbound-webhooks.md](docs/outbound-webhooks.md).
 
+The management API is published as a versioned OpenAPI 3.1 contract (`GET /api/openapi.json`, checked in under `docs/openapi`) with a compatibility policy, error and permission rules and reusable client examples. See [docs/management-api.md](docs/management-api.md).
+
 ![User administration](docs/screenshots/users.png)
 
 Owners open **Settings → Workspace sharing** to add existing users and assign viewer, editor or owner roles.
