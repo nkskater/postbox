@@ -4,6 +4,7 @@ import { scopeAllows, scopeAtLeast, type KeyScope } from "@/core/scopes";
 import { callerScope, currentCaller } from "./access-context";
 import { getDb, schema } from "./db";
 import { HttpError } from "./errors";
+import { audit } from "./audit";
 
 export type WorkspaceRole = "owner" | "editor" | "viewer";
 export type WorkspaceAction = "read" | "write" | "run" | "manage";
@@ -107,6 +108,7 @@ export function setMember(workspaceId: string, username: string, role: Workspace
       members.filter((m) => m.role === "owner").length === 1
     )
       throw new HttpError(409, "A workspace must retain an owner");
+    const previous = members.find((m) => m.userId === user.id)?.role ?? null;
     const key = and(
       eq(schema.workspaceMembers.workspaceId, workspaceId),
       eq(schema.workspaceMembers.userId, user.id),
@@ -120,5 +122,14 @@ export function setMember(workspaceId: string, username: string, role: Workspace
           set: { role },
         })
         .run();
+    if (previous !== role)
+      audit({
+        action: role === null ? "member.remove" : previous === null ? "member.add" : "member.role_change",
+        entityKind: "member",
+        entityId: user.id,
+        entityName: user.username,
+        workspaceId,
+        changes: [{ field: "role", before: previous, after: role }],
+      });
   });
 }

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useApp } from "@/stores/app";
 import { Button } from "@/components/ui/button";
 import { InviteLinks } from "./InviteLinks";
+import { AuditLog } from "./AuditLog";
 import { Input } from "@/components/ui/input";
 
 type Role = "owner" | "editor" | "viewer";
@@ -126,6 +127,7 @@ function Sharing({ workspaceId }: { workspaceId: string }) {
               </Button>
             </div>
           ))}
+          <AuditLog workspaceId={workspaceId} />
         </>
       )}
     </section>

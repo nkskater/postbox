@@ -8,6 +8,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { HttpError, readBodyText } from "@/server/http";
 import { callerOf } from "@/server/caller";
 import { withCaller } from "@/server/access-context";
+import { audit } from "@/server/audit";
 import { authorizeTool, isReadOnlyTool, resourceWorkspace } from "@/server/access-policy";
 import { mcpSettings } from "@/server/integration-settings";
 import { authorize } from "@/server/authorize";
@@ -55,6 +56,33 @@ function normalizeAccept(req: Request, body: string): Request {
     headers.set("accept", "application/json, text/event-stream");
   headers.delete("content-length");
   return new Request(req.url, { method: req.method, headers, body, signal: req.signal });
+}
+
+/** Record mutating tool calls that succeeded, with the ids and argument names but never argument values. */
+function recordToolCall(body: string, res: Response) {
+  void (async () => {
+    try {
+      const message = JSON.parse(body);
+      const name = String(message.params?.name);
+      if (message.method !== "tools/call" || isReadOnlyTool(name)) return;
+      const reply = (await res.clone().json()) as { result?: { isError?: boolean } };
+      if (reply.result?.isError) return;
+      const args = (message.params?.arguments ?? {}) as Record<string, unknown>;
+      const ids = Object.fromEntries(
+        Object.entries(args).filter(([k, v]) => /Id$/.test(k) && typeof v === "string"),
+      );
+      audit({
+        action: `mcp.${name}`,
+        entityKind: "other",
+        entityId: Object.values(ids)[0] as string | undefined,
+        workspaceId: typeof args.workspaceId === "string" ? args.workspaceId : null,
+        via: "mcp",
+        meta: { tool: name, ids, arguments: Object.keys(args) },
+      });
+    } catch {
+      /* never affects the response */
+    }
+  })();
 }
 
 export async function POST(req: Request): Promise<Response> {
@@ -122,7 +150,9 @@ export async function POST(req: Request): Promise<Response> {
     });
     await server.connect(transport);
     try {
-      return await transport.handleRequest(normalizeAccept(req, body));
+      const res = await transport.handleRequest(normalizeAccept(req, body));
+      recordToolCall(body, res);
+      return res;
     } finally {
       await server.close();
     }

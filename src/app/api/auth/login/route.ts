@@ -14,6 +14,7 @@ import {
   verifyLoginSecret,
 } from "@/server/auth";
 import { getAuthState, setUserSessionCookie } from "@/server/caller";
+import { audit } from "@/server/audit";
 import { burnPasswordCheck, getUserByUsername, normalizeUsername, verifyPassword } from "@/server/users";
 
 export const dynamic = "force-dynamic";
@@ -46,10 +47,24 @@ export async function POST(req: Request) {
     if (!ok || !user || user.disabled) {
       recordLoginFailure(ipKey);
       recordLoginFailure(userKey);
+      audit({
+        action: "auth.login_failed",
+        entityKind: "session",
+        entityName: username.slice(0, 64),
+        result: "denied",
+        actor: { name: username.slice(0, 64) || "unknown", kind: "user" },
+      });
       return NextResponse.json({ error: "Invalid username or password" }, { status: 401 });
     }
     clearLoginFailures(ipKey);
     clearLoginFailures(userKey);
+    audit({
+      action: "auth.login",
+      entityKind: "session",
+      entityName: user.username,
+      actor: { id: user.id, name: user.username, kind: "user" },
+      via: "session",
+    });
     return setUserSessionCookie(NextResponse.json({ ok: true }), req, user);
   }
 
