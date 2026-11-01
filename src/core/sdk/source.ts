@@ -65,6 +65,7 @@ function pathOf(url: string): string {
   if (/^https?:\/\//i.test(value)) value = new URL(value).pathname;
   else value = value.split(/[?#]/)[0];
   if (!value.startsWith("/")) value = "/" + value.replace(/^[^/]+\//, "");
+  value = value.replace(/%7b/gi, "{").replace(/%7d/gi, "}");
   value = value.replace(/\{\{([^{}]+)\}\}/g, "{$1}").replace(/:([A-Za-z_][A-Za-z0-9_]*)/g, "{$1}");
   if (!value || value.includes("[REDACTED]") || /[\r\n\\]/.test(value) || value.startsWith("//"))
     throw new Error("SDK path is invalid or contains a redacted credential; use path templates");

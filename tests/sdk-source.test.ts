@@ -36,6 +36,18 @@ describe("SDK source normalization", () => {
     expect(first.operations[0]).toMatchObject({ name: "get_pet", path: "/pets/{id}", authRequired: true });
     expect(artifact.files["package.json"]).not.toContain('"scripts"');
   });
+  it("preserves path templates in absolute collection URLs", () => {
+    for (const url of [
+      "https://example.test/pets/{{id}}",
+      "https://example.test/pets/{id}",
+      "https://example.test/pets/%7B%7Bid%7D%7D",
+    ]) {
+      const source = readSdkDefinition(
+        JSON.stringify({ ...collection, item: [{ name: "Get pet", request: { method: "GET", url } }] }),
+      );
+      expect(source.operations[0]).toMatchObject({ path: "/pets/{id}", pathParameters: ["id"] });
+    }
+  });
   it("supports Postman v3 and YAML OpenAPI with local structural schemas", () => {
     const v3 = postmanV21ToV3(collection).collection;
     expect(readSdkDefinition(JSON.stringify(v3)).operations[0].path).toBe("/pets/{id}");
