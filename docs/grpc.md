@@ -2,12 +2,12 @@
 
 Postbox calls gRPC methods server-side (unary, client-streaming, server-streaming and
 bidirectional) against definitions you supply with the request. This page covers the
-automation interface; the editor is described in the next section. Definitions are stored on each request; sharing them across requests is tracked separately.
+automation interface; the editor is described in the next section. Definitions can be stored on a request or shared across a workspace.
 
 ## In the app
 
 Enter a `grpc://` or `grpcs://` URL and the request gets a **gRPC** tab. Choose **Proto files**
-(paste, add or upload `.proto` files) or **Server reflection**, press **Load methods** /
+(paste, add or upload `.proto` files), a **Shared definition** (see below) or **Server reflection**, press **Load methods** /
 **Discover methods**, and pick a method from the list (each is labelled unary, client,
 server or bidirectional streaming). Write the message as JSON in the **Body** tab (an array
 for client and bidirectional streaming); headers are the call metadata, **Authorization**
@@ -79,6 +79,30 @@ be made to the first, the next is tried.
 `POST /api/grpc/describe` with `{ workspaceId, protos }` returns
 `{ services: [{ name, fullName, methods: [{ name, path, requestType, responseType, clientStreaming, serverStreaming }] }] }`
 without any network access.
+
+## Shared definitions
+
+Many requests can use one set of `.proto` files. In the gRPC tab choose **Shared definition**, pick a set (or
+create one), and **Load methods**. **Share these files…** on a request that already has its own files saves
+them as a shared set and switches the request to it. Editing a shared set (**Save changes**) applies to every
+request that uses it, and its revision number increases when the files change. The editor shows how many
+requests use a set; a set that requests still use cannot be deleted (HTTP 409 naming them).
+
+Files are validated when a set is saved (parsed, imports resolved against the set's own files and the
+built-in well-known types, types linked), so a stored set can always be loaded. Names are unique within a
+workspace. A request references a set with `settings.grpc.definitionId` (its own `protos` are then ignored);
+the id is only honoured for sets of the request's own workspace. Shared sets are included in backups.
+
+| Method and path                           | Behavior                                                                                                            |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/grpc/definitions?workspaceId=…` | List sets (name, revision, file count, requests using it), without files.                                           |
+| `POST /api/grpc/definitions`              | `{ workspaceId, name, description?, files }`; 400 with the parse error for invalid files, 409 for a duplicate name. |
+| `GET /api/grpc/definitions/:id`           | One set with its files.                                                                                             |
+| `PATCH /api/grpc/definitions/:id`         | Change `name`, `description` and/or `files`.                                                                        |
+| `DELETE /api/grpc/definitions/:id`        | Delete a set no request uses.                                                                                       |
+
+Reading needs read access to the workspace; creating, changing and deleting need write access.
+`POST /api/grpc/describe` also accepts `definitionId` in place of `protos`.
 
 ## Reflection
 

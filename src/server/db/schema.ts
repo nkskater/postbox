@@ -424,6 +424,28 @@ export const mockServers = sqliteTable(
   },
   (t) => [index("mock_workspace_idx").on(t.workspaceId)],
 );
+/** Shared gRPC .proto sets: requests point at one with settings.grpc.definitionId. */
+export const grpcDefinitions = sqliteTable(
+  "grpc_definitions",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    /** .proto sources by file name; imports resolve only against these (plus well-known types). */
+    files: text("files", { mode: "json" }).$type<Record<string, string>>().notNull(),
+    /** Incremented on every change to the files. */
+    revision: integer("revision").notNull().default(1),
+    createdBy: text("created_by").references(() => users.id),
+    ...timestamps,
+  },
+  (t) => [
+    index("grpc_definitions_workspace_idx").on(t.workspaceId),
+    uniqueIndex("grpc_definitions_name_unique").on(t.workspaceId, t.name),
+  ],
+);
 export const mockLogs = sqliteTable(
   "mock_logs",
   {

@@ -85,6 +85,13 @@
       "when": 1793503566997,
       "tag": "0011_freezing_phantom_reporter",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1793510910230,
+      "tag": "0012_noisy_zaran",
+      "breakpoints": true
     }
   ]
 }

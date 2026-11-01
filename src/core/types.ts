@@ -240,6 +240,8 @@ export interface GrpcSettings {
   protos: Record<string, string>;
   /** Fetch definitions from the server's reflection service instead of using `protos`. */
   reflection?: boolean;
+  /** A shared definition set of the workspace; when present its files are used instead of `protos`. */
+  definitionId?: string;
   /** Service name, fully qualified or bare when unambiguous. */
   service: string;
   method: string;
