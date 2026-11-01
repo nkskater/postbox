@@ -98,7 +98,7 @@ describe("contract and access policy", () => {
       "/api/runs/[id]/export",
       "/api/history",
       "/api/cookies",
-      "/api/mcp",
+      "/api/mcp", "/api/hook-listeners",
       "/api/settings/import",
       "/api/workspaces/[id]/members",
       "/api/workspaces/[id]/usage",

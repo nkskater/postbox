@@ -907,6 +907,20 @@ export const SETTINGS: SettingDef[] = [
     keywords: ["webhook", "delivery", "retention", "log"],
   },
   {
+    key: "hooks.retentionDays",
+    category: "data",
+    label: "Keep received webhook requests for",
+    description:
+      "Remove requests stored by incoming webhook listeners after this many days. 0 keeps them until the per-listener limit of 200 pushes them out.",
+    type: "number",
+    scope: "server",
+    default: 30,
+    min: 0,
+    max: 3650,
+    unit: "days",
+    keywords: ["webhook", "listener", "incoming", "retention"],
+  },
+  {
     key: "history.skipSecrets",
     category: "data",
     label: "Skip history for requests that use secrets",

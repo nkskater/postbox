@@ -497,6 +497,8 @@ Workspace owners can send signed webhooks for run events to their own endpoints,
 
 The management API is published as a versioned OpenAPI 3.1 contract (`GET /api/openapi.json`, checked in under `docs/openapi`) with a compatibility policy, error and permission rules and reusable client examples. See [docs/management-api.md](docs/management-api.md).
 
+Owners can also create **incoming webhook listeners**: secret URLs that providers call, with signature verification (shared token, HMAC, timestamped), a configurable response, bounded request storage, optional forwarding and replay only on request. See [docs/incoming-webhooks.md](docs/incoming-webhooks.md).
+
 ![User administration](docs/screenshots/users.png)
 
 Owners open **Settings → Workspace sharing** to add existing users and assign viewer, editor or owner roles.

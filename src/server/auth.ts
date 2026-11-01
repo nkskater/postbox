@@ -122,6 +122,7 @@ export function isPublicPath(pathname: string): boolean {
     /^\/api\/catalog(?:\/[a-zA-Z0-9_-]+)?$/.test(pathname) ||
     /^\/api\/documentation\/[a-zA-Z0-9_-]+$/.test(pathname) ||
     pathname.startsWith("/mock/") ||
+    pathname.startsWith("/hook/") ||
     pathname === "/login" ||
     pathname === "/invite" ||
     pathname === "/api/health" ||

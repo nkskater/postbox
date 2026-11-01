@@ -62,6 +62,8 @@ describe("auth primitives", () => {
     expect(isPublicPath("/api/health")).toBe(true);
     expect(isPublicPath("/login")).toBe(true);
     expect(isPublicPath("/api/auth/login")).toBe(true);
+    expect(isPublicPath("/hook/hk_abc")).toBe(true);
+    expect(isPublicPath("/api/hook-listeners")).toBe(false);
     expect(isPublicPath("/api/mcp")).toBe(false);
     expect(isPublicPath("/api/proxy")).toBe(false);
     expect(isPublicPath("/")).toBe(false);
