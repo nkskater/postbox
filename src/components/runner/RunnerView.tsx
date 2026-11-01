@@ -416,6 +416,26 @@ export function RunnerView({ folderId }: { folderId: string }) {
                 }}
               />
             )}
+            {!data && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setDataset(null);
+                  setData({ columns: ["column"], rows: [{ column: "" }] });
+                  setDataName("Manual data");
+                  setFilter("");
+                  setAutoIterations(true);
+                }}
+              >
+                Create data table
+              </Button>
+            )}
+            {dataset && data && (
+              <Button variant="outline" size="sm" onClick={() => setDataset(null)}>
+                Edit inline data
+              </Button>
+            )}
             {!dataset &&
               (data ? (
                 <DataGrid
