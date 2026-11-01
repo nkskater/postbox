@@ -2,10 +2,11 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { execFile } from "node:child_process";
 import http from "node:http";
 import { promisify } from "node:util";
-import { cp, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
+import { buildCliBundle } from "./helpers/cli-bundle";
 import { paginate, renderTable, column } from "../src/cli/output";
 import { exitCodeForStatus } from "../src/cli/errors";
 import { maskToken, normalizeServerUrl } from "../src/cli/profiles";
@@ -88,9 +89,7 @@ beforeAll(async () => {
   server = http.createServer(handler);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  await exec(process.execPath, ["scripts/build-cli.mjs"]);
-  await cp(path.resolve("dist"), path.join(directory, "bundle"), { recursive: true });
-  cli = path.join(directory, "bundle/cli.mjs");
+  cli = await buildCliBundle(directory);
 }, 60000);
 
 afterAll(async () => {

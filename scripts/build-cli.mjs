@@ -6,7 +6,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-const output = path.join(root, "dist");
+// POSTBOX_CLI_OUT lets tests build into a private directory instead of sharing dist/.
+const output = process.env.POSTBOX_CLI_OUT
+  ? path.resolve(process.env.POSTBOX_CLI_OUT)
+  : path.join(root, "dist");
 await build({
   absWorkingDir: root,
   entryPoints: ["src/cli/index.ts"],
