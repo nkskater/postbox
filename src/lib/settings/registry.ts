@@ -20,7 +20,8 @@ export type SettingCategory =
   | "execution"
   | "data"
   | "integrations"
-  | "security";
+  | "security"
+  | "keyboard";
 
 export const CATEGORIES: { id: SettingCategory; label: string; description: string }[] = [
   { id: "appearance", label: "Appearance", description: "Theme, colors, typography and density." },
@@ -51,6 +52,12 @@ export const CATEGORIES: { id: SettingCategory; label: string; description: stri
     description: "How long request history is kept, backups, and database maintenance. Administrators only.",
   },
   {
+    id: "keyboard",
+    label: "Keyboard shortcuts",
+    description:
+      "Change the keys for common actions. Saved with your account, so they follow you between browsers.",
+  },
+  {
     id: "integrations",
     label: "MCP & integrations",
     description: "Let AI clients and tools drive Postbox over MCP. Administrators only.",
@@ -73,6 +80,8 @@ interface Base<T> {
   /** Environment variable that overrides the saved value (server settings). */
   env?: string;
   keywords?: string[];
+  /** Edited by a custom panel, so the generic settings list and search skip it. */
+  hidden?: boolean;
 }
 
 export type SettingDef =
@@ -855,6 +864,19 @@ export const SETTINGS: SettingDef[] = [
     keywords: ["history", "secret", "privacy"],
   },
 
+  // ---------------------------------------------------------------- keyboard
+  {
+    key: "keys.bindings",
+    category: "keyboard",
+    label: "Shortcut bindings",
+    description: "Your changes to the default shortcuts, as JSON. Edited on the Keyboard shortcuts page.",
+    type: "text",
+    scope: "browser",
+    default: "{}",
+    maxLength: 4000,
+    hidden: true,
+  },
+
   // ---------------------------------------------------------------- MCP & integrations
   {
     key: "mcp.enabled",
@@ -1032,6 +1054,7 @@ export function sanitizeSettings(input: Record<string, unknown>): {
 
 /** Search across labels, descriptions, keywords and option labels. */
 export function matchesQuery(def: SettingDef, query: string): boolean {
+  if (def.hidden) return false;
   const q = query.trim().toLowerCase();
   if (!q) return true;
   const hay = [

@@ -1,25 +1,18 @@
 "use client";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useDialogs } from "@/stores/dialogs";
-
-export const SHORTCUTS: [string, string][] = [
-  ["Ctrl/⌘ + Enter", "Send request"],
-  ["Ctrl/⌘ + S", "Save request / folder / environment"],
-  ["Ctrl/⌘ + K", "Command palette"],
-  ["Ctrl/⌘ + ,", "Open settings"],
-  ["Ctrl/⌘ + B", "Toggle sidebar"],
-  ["Ctrl/⌘ + `", "Toggle console"],
-  ["Alt + T", "New request tab"],
-  ["Alt + W", "Close tab"],
-  ["Alt + 1…9", "Jump to tab"],
-  ["Ctrl/⌘ + F", "Search inside an editor or response"],
-  ["Ctrl/⌘ + Space", "Variable autocomplete (after typing {{)"],
-  ["?", "Show this help"],
-];
+import { FIXED_SHORTCUTS, SHORTCUT_ACTIONS, formatCombo } from "@/lib/shortcuts";
+import { useBindings, useIsMac } from "@/lib/use-shortcuts";
 
 export function ShortcutsDialog() {
   const open = useDialogs((s) => s.shortcutsOpen);
   const setOpen = useDialogs((s) => s.setShortcutsOpen);
+  const bindings = useBindings();
+  const mac = useIsMac();
+  const rows: [string, string][] = [
+    ...SHORTCUT_ACTIONS.map((a): [string, string] => [formatCombo(bindings[a.id], mac), a.label]),
+    ...FIXED_SHORTCUTS.map((f): [string, string] => [formatCombo(f.combo, mac), f.label]),
+  ];
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent>
@@ -28,8 +21,8 @@ export function ShortcutsDialog() {
         </DialogHeader>
         <table className="w-full text-sm">
           <tbody>
-            {SHORTCUTS.map(([k, v]) => (
-              <tr key={k} className="border-b last:border-0">
+            {rows.map(([k, v]) => (
+              <tr key={v} className="border-b last:border-0">
                 <td className="py-1.5">
                   <kbd className="rounded border bg-muted px-1.5 py-0.5 font-mono text-xs">{k}</kbd>
                 </td>
@@ -38,6 +31,7 @@ export function ShortcutsDialog() {
             ))}
           </tbody>
         </table>
+        <p className="text-xs text-muted-foreground">Change these under Settings → Keyboard shortcuts.</p>
       </DialogContent>
     </Dialog>
   );

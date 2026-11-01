@@ -3,6 +3,7 @@
  * Request tab: name/breadcrumb, method + URL bar, configuration tabs and the
  * response panel in a resizable vertical split.
  */
+import { useShortcutLabel } from "@/lib/use-shortcuts";
 import { useCallback, useState } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import { ChevronRight, Code2, Loader2, Save } from "lucide-react";
@@ -57,6 +58,8 @@ function TabLabel({ label, n, dot }: { label: string; n?: number; dot?: boolean 
 }
 
 export function RequestEditor({ tab }: { tab: RequestTab }) {
+  const sendKey = useShortcutLabel("send");
+  const saveKey = useShortcutLabel("save");
   const updateDraft = useApp((s) => s.updateDraft);
   const sendTab = useApp((s) => s.sendTab);
   const cancelSend = useApp((s) => s.cancelSend);
@@ -207,7 +210,7 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
             size="sm"
             className={cn("h-7 text-xs", dirty && "text-primary")}
             onClick={save}
-            title="Save (Ctrl+S)"
+            title={`Save (${saveKey})`}
           >
             <Save className="size-3.5" /> Save
           </Button>
@@ -254,9 +257,7 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
           <Button
             className="h-9 w-24"
             onClick={send}
-            title={
-              isGrpc ? "Invoke (Ctrl+Enter)" : isWebSocket ? "Connect (Ctrl+Enter)" : "Send (Ctrl+Enter)"
-            }
+            title={`${isGrpc ? "Invoke" : isWebSocket ? "Connect" : "Send"} (${sendKey})`}
           >
             {isGrpc ? "Invoke" : isWebSocket ? "Connect" : "Send"}
           </Button>

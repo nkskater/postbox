@@ -292,6 +292,8 @@ PowerShell, with variables resolved or left as `{{placeholders}}`.
 | Ctrl/⌘ + F | Search inside an editor or response |
 | ? | Show all shortcuts |
 
+These are the defaults. Change them under **Settings → Keyboard shortcuts**; see [docs/keyboard-shortcuts.md](docs/keyboard-shortcuts.md).
+
 ### 8. Customize Postbox
 
 Open **Settings** with the gear icon or **Ctrl+,**. Settings are saved on the server, so they follow you to every

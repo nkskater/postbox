@@ -4,6 +4,7 @@
  * (Pretty / Raw / Preview with folding and Ctrl+F search), headers, cookies,
  * test results and the request that was actually sent.
  */
+import { ShortcutHint } from "@/components/app/ShortcutHint";
 import { copyText } from "@/lib/clipboard";
 import { useMemo, useState } from "react";
 import { AlertTriangle, Check, Copy, Download, Save, Send, X, WrapText } from "lucide-react";
@@ -128,7 +129,9 @@ export function ResponseViewer({
       <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
         <Send className="size-8 opacity-40" />
         <span>Enter a URL and click Send to get a response</span>
-        <span className="text-xs opacity-70">Ctrl+Enter to send · Ctrl+S to save</span>
+        <span className="text-xs opacity-70">
+          <ShortcutHint id="send" /> to send · <ShortcutHint id="save" /> to save
+        </span>
       </div>
     );
   }
