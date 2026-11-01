@@ -2,7 +2,7 @@
 
 Postbox calls gRPC methods server-side (unary, client-streaming, server-streaming and
 bidirectional) against definitions you supply with the request. This page covers the
-automation interface; the request editor and interactive streaming sessions are tracked separately.
+automation interface; the request editor is tracked separately.
 
 ## Definitions
 
@@ -81,3 +81,20 @@ reflection returns HTTP 400 with an explanatory error.
 `POST /api/grpc/reflect` takes the same body as `POST /api/grpc` (the message body and
 `settings.grpc` are ignored) and returns the same `{ services: [...] }` shape as
 `/api/grpc/describe`.
+
+## Interactive streaming
+
+For client-streaming and bidirectional methods, add `"interactive": true` to the
+`POST /api/grpc` body to keep the request stream open. Any messages in the request body are
+sent first; the stream's first event is `{ "type": "session", "id": "..." }`. Then:
+
+- `POST /api/grpc/{id}/send` with `{ "message": { ... } }` sends one message (HTTP 409 with the
+  reason if the message is invalid or the stream is closed).
+- `POST /api/grpc/{id}/end` half-closes the request stream; the call continues until the server
+  finishes.
+- `POST /api/grpc/{id}/cancel` cancels the call; the stream reports a `CANCELLED` status.
+
+Sessions belong to the user who opened them (other IDs return 404), are limited in number, are
+cancelled after 30 minutes without activity, and end with the stream's `done` event. The
+request's **Timeout** is still the deadline for the whole call, so raise it for long
+conversations. Server-streaming and unary methods cannot be interactive (HTTP 400).

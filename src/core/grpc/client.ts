@@ -38,7 +38,22 @@ export interface GrpcCallInput {
   metadata: GrpcMetadata;
   verifySsl: boolean;
   timeoutMs: number;
+  /**
+   * Keep the request stream open after `messages` so more can be sent, then ended, through
+   * the returned connection. Only for client-streaming and bidirectional methods.
+   */
+  interactive?: boolean;
 }
+
+/** Control of a running call: send more messages, half-close the request stream, or cancel. */
+export interface GrpcConnection {
+  send(message: unknown): void;
+  end(): void;
+  cancel(): void;
+}
+
+export const MAX_GRPC_SENT_MESSAGES = 10_000;
+export const MAX_GRPC_SENT_BYTES = 16 * 1024 * 1024;
 
 /** Headers that belong to HTTP, not gRPC metadata, or that gRPC sets itself. */
 const RESERVED = new Set([
@@ -141,10 +156,12 @@ export async function startGrpcCall(
   input: GrpcCallInput,
   onEvent: (e: GrpcEvent) => void,
   opts: { policy?: HostPolicy; signal?: AbortSignal } = {},
-): Promise<{ finished: Promise<void> }> {
+): Promise<{ finished: Promise<void>; connection: GrpcConnection }> {
   const policy = opts.policy ?? OPEN_POLICY;
   const { info, request, response } = resolveMethod(input.root, input.service, input.method);
 
+  if (input.interactive && !info.clientStreaming)
+    throw new ProtoError(`${info.name} does not stream from the client, so it cannot be interactive`);
   if (!info.clientStreaming && input.messages.length !== 1)
     throw new ProtoError(`${info.name} takes exactly one request message`);
   // Encode everything first so a bad message fails before any connection is made.
@@ -165,8 +182,20 @@ export async function startGrpcCall(
   const serialize = (b: Buffer) => b;
   const deserialize = (b: Buffer) => b;
 
+  // Messages written so far, replayed if the first address cannot be reached. Dropped once
+  // the server has answered, because no other address is tried after that.
+  const buffered: Buffer[] = [...encoded];
+  let bufferedBytes = encoded.reduce((n, b) => n + b.length, 0);
+  let sentCount = 0;
+  let ended = !input.interactive;
+  let writable: grpc.ClientWritableStream<Buffer> | grpc.ClientDuplexStream<Buffer, Buffer> | undefined;
+  let activeCall: { cancel(): void } | undefined;
+  let isSettled = () => false;
+  const nextSentIndex = () => sentCount++;
+
   const finished = new Promise<void>((resolve) => {
     let settled = false;
+    isSettled = () => settled;
     let received = 0;
     let receivedBytes = 0;
     let heardFromServer = false;
@@ -192,6 +221,7 @@ export async function startGrpcCall(
     const onMessage = (buf: Buffer) => {
       if (settled) return;
       heardFromServer = true;
+      buffered.length = 0;
       received++;
       receivedBytes += buf.length;
       if (received > MAX_GRPC_RESPONSE_MESSAGES || receivedBytes > MAX_GRPC_RESPONSE_BYTES) {
@@ -259,6 +289,7 @@ export async function startGrpcCall(
 
       call.on("metadata", (md: grpc.Metadata) => {
         heardFromServer = true;
+        buffered.length = 0;
         onEvent({ type: "metadata", metadata: flattenMetadata(md), at: now() });
       });
       // Failures arrive as a status; the listener only stops Node treating them as uncaught.
@@ -288,13 +319,16 @@ export async function startGrpcCall(
         finish();
       });
 
+      activeCall = call;
       if (info.clientStreaming) {
-        const writable = call as grpc.ClientWritableStream<Buffer>;
-        encoded.forEach((buf, i) => {
-          writable.write(buf);
-          if (index === 0) onEvent({ type: "sent", index: i, message: input.messages[i], at: now() });
-        });
-        writable.end();
+        const stream = call as grpc.ClientWritableStream<Buffer>;
+        writable = stream;
+        for (const buf of buffered) stream.write(buf);
+        if (index === 0)
+          input.messages.forEach((message) =>
+            onEvent({ type: "sent", index: nextSentIndex(), message, at: now() }),
+          );
+        if (ended) stream.end();
       }
     };
 
@@ -305,7 +339,31 @@ export async function startGrpcCall(
     }
     attempt(0);
   });
-  return { finished };
+  const connection: GrpcConnection = {
+    send(message) {
+      if (isSettled()) throw new ProtoError("The call has finished");
+      if (!info.clientStreaming || ended)
+        throw new ProtoError("The request stream is closed; no more messages can be sent");
+      const buf = encodeMessage(request, message);
+      if (buf.length > MAX_GRPC_MESSAGE_BYTES)
+        throw new ProtoError(`Messages are limited to ${MAX_GRPC_MESSAGE_BYTES} bytes`);
+      if (sentCount >= MAX_GRPC_SENT_MESSAGES || bufferedBytes + buf.length > MAX_GRPC_SENT_BYTES)
+        throw new ProtoError("Too many messages sent on this call");
+      bufferedBytes += buf.length;
+      buffered.push(buf);
+      writable?.write(buf);
+      onEvent({ type: "sent", index: nextSentIndex(), message, at: now() });
+    },
+    end() {
+      if (isSettled() || ended) return;
+      ended = true;
+      writable?.end();
+    },
+    cancel() {
+      activeCall?.cancel();
+    },
+  };
+  return { finished, connection };
 }
 
 /** Run a call to completion. */
