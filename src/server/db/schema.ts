@@ -232,6 +232,34 @@ export const loadRuns = sqliteTable(
   (t) => [index("load_runs_workspace_idx").on(t.workspaceId, t.startedAt)],
 );
 
+/**
+ * A secret in the vault. `ciphertext` is AES-256-GCM output (src/core/vault/crypto.ts); the key lives outside
+ * the database and backups. Empty ciphertext means the value was withheld (a backup without secrets).
+ */
+export const vaultSecrets = sqliteTable(
+  "vault_secrets",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    ciphertext: text("ciphertext").notNull().default(""),
+    keyId: text("key_id").notNull().default(""),
+    /** May scripts read it with pm.vault.get()? References in requests do not need this. */
+    scriptAccess: integer("script_access", { mode: "boolean" }).notNull().default(false),
+    /** Collections (folder ids) that may reference it; empty means the whole workspace. */
+    collectionIds: text("collection_ids", { mode: "json" }).$type<string[]>().notNull().default([]),
+    createdBy: text("created_by"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    /** When the value was last replaced (or re-encrypted under a new key). */
+    rotatedAt: integer("rotated_at"),
+  },
+  (t) => [uniqueIndex("vault_secrets_name_unique").on(t.workspaceId, t.name)],
+);
+
 export const runResults = sqliteTable(
   "run_results",
   {

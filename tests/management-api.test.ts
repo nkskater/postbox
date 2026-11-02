@@ -101,6 +101,7 @@ describe("contract and access policy", () => {
       "/api/mcp",
       "/api/hook-listeners",
       "/api/load-runs",
+      "/api/vault",
       "/api/settings/import",
       "/api/workspaces/[id]/members",
       "/api/workspaces/[id]/usage",

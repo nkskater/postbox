@@ -12,6 +12,7 @@ import { execute, type ExecuteResult, type SavedRequestResolver } from "@/core/e
 import { CookieJarStore } from "@/core/http/cookies";
 import { HostPolicy } from "@/core/http/policy";
 import { withOutbound } from "./outbound";
+import { loadVaultForExecution } from "./vault";
 import {
   emptyScopes,
   variablesToRecord,
@@ -57,6 +58,8 @@ export function loadScopes(
   const globals = repo.listVariables(workspaceId, "global", null);
   const env = environmentId ? repo.listVariables(workspaceId, "environment", environmentId) : [];
   const col = collectionId ? repo.listVariables(workspaceId, "collection", collectionId) : [];
+  const vault = loadVaultForExecution(workspaceId, collectionId);
+  const hasVault = Object.keys(vault.values).length > 0;
   return {
     workspaceId,
     environmentId,
@@ -66,8 +69,9 @@ export function loadScopes(
       globals: variablesToRecord(globals),
       environment: variablesToRecord(env),
       collection: variablesToRecord(col),
+      ...(hasVault ? { vault: vault.values, vaultScripts: vault.scriptNames } : {}),
     },
-    secrets: secretValues(globals, env, col),
+    secrets: [...secretValues(globals, env, col), ...vault.secrets],
     secretKeys: {
       globals: globals.filter((v) => v.type === "secret" && v.enabled).map((v) => v.key),
       environment: env.filter((v) => v.type === "secret" && v.enabled).map((v) => v.key),

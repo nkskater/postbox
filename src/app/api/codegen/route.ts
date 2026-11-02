@@ -46,8 +46,13 @@ export const POST = route(async (req: Request) => {
     ...input.request,
     settings: { ...DEFAULT_SETTINGS, ...(input.request.settings ?? {}) },
   });
+  // Vault references stay as {{vault:name}} in a snippet: decrypted values never leave an execution.
   const resolver = input.resolveVariables
-    ? new Resolver(loadScopes(input.workspaceId, input.environmentId ?? null, chain[0]?.id ?? null).scopes)
+    ? new Resolver(
+        (({ vault: _vault, vaultScripts: _names, ...scopes }) => scopes)(
+          loadScopes(input.workspaceId, input.environmentId ?? null, chain[0]?.id ?? null).scopes,
+        ),
+      )
     : new PassthroughResolver();
   const { prepared, resolvedBody, effectiveAuth } = await prepareRequest(
     request,

@@ -12,6 +12,7 @@ export type AuditEntityKind =
   | "variable"
   | "run"
   | "loadRun"
+  | "vaultSecret"
   | "history"
   | "cookie"
   | "schedule"
@@ -47,6 +48,7 @@ export const SAFE_FIELDS: Partial<Record<AuditEntityKind, readonly string[]>> = 
   environment: ["name", "sort"],
   variable: ["key", "scope", "type", "enabled"],
   loadRun: ["name", "status"],
+  vaultSecret: ["name", "description", "script_access", "collection_ids", "key_id"],
   schedule: ["name", "cron", "enabled", "folder_id", "environment_id", "dataset_id"],
   dataset: ["name", "description"],
   scriptPackage: ["name", "description", "latest_version"],
@@ -130,6 +132,7 @@ const SINGULAR: Record<string, string> = {
   schedules: "schedule",
   runs: "run",
   "load-runs": "loadRun",
+  vault: "vaultSecret",
   cookies: "cookie",
   users: "user",
   tokens: "key",
@@ -151,6 +154,7 @@ const KIND_BY_SEGMENT: Record<string, AuditEntityKind> = {
   schedules: "schedule",
   runs: "run",
   "load-runs": "loadRun",
+  vault: "vaultSecret",
   history: "history",
   cookies: "cookie",
   users: "user",

@@ -47,6 +47,7 @@ const TABLES = {
   appSettings: schema.appSettings,
   outboundProxy: schema.outboundProxy,
   tlsProfiles: schema.tlsProfiles,
+  vaultSecrets: schema.vaultSecrets,
 } as const;
 type TableName = keyof typeof TABLES;
 /** Insert order: parents before children. */
@@ -70,6 +71,7 @@ const ORDER: TableName[] = [
   "appSettings",
   "outboundProxy",
   "tlsProfiles",
+  "vaultSecrets",
 ];
 
 export interface Backup {
@@ -183,6 +185,8 @@ export function createBackup(db: DB, opts: { includeSecrets: boolean }): Backup 
     // Proxy password, private keys and their passphrases are credentials.
     tables.outboundProxy = tables.outboundProxy.map((p) => ({ ...p, password: "" }));
     tables.tlsProfiles = tables.tlsProfiles.map((p) => ({ ...p, keyPem: "", passphrase: "" }));
+    // The vault's values are encrypted, but a backup without secrets carries none of them at all.
+    tables.vaultSecrets = tables.vaultSecrets.map((v) => ({ ...v, ciphertext: "", keyId: "" }));
     tables.appSettings = tables.appSettings.map((s) =>
       s.key === "execution.defaultHeaders" ? { ...s, value: maskHeaders(s.value) } : s,
     );
@@ -264,6 +268,7 @@ export function restoreBackup(db: DB, sqlite: Database.Database, input: unknown)
     })),
     workspaceMembers: tables.workspaceMembers.filter((m) => known(m.userId)),
     appSettings: settings,
+    vaultSecrets: withCreator(tables.vaultSecrets),
     outboundProxy: tables.outboundProxy.filter((p) => validProxyRow(p)),
     // A client certificate without its key (scrubbed backup) cannot be used; keep the CA part only.
     tlsProfiles: tables.tlsProfiles
@@ -279,6 +284,7 @@ export function restoreBackup(db: DB, sqlite: Database.Database, input: unknown)
       db.delete(schema.appSettings).run();
       db.delete(schema.outboundProxy).run();
       db.delete(schema.tlsProfiles).run();
+      db.delete(schema.vaultSecrets).run();
       for (const name of ORDER) insertAll(db, name, rows[name]);
     })();
   } catch (err) {

@@ -404,6 +404,14 @@ DNS dot. An empty setting disables that list; malformed entries, empty comma-sep
 entries, URLs, ports and invalid CIDR prefixes reject the policy when it is loaded.
 Deny rules win, and hostnames and resolved addresses are checked at every redirect hop.
 
+### Secrets vault
+
+Store API keys and tokens encrypted (AES-256-GCM) with the key held outside the database and backups, reference them
+as `{{vault:name}}` in requests, limit them to collections, and optionally let scripts read them with `pm.vault.get`.
+Values are write-only everywhere, masked in history and results, and withheld from backups made without secrets.
+Existing secret variables can be moved in with one action, and keys rotate without downtime. See
+[docs/secrets-vault.md](docs/secrets-vault.md).
+
 ### Load testing
 
 Run a collection with virtual users under a constant, ramp or spike profile and read throughput, error rate and
