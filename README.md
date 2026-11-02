@@ -416,6 +416,8 @@ The [credential broker](docs/credential-broker.md) goes further: register an API
 
 [Traffic capture](docs/traffic-capture.md) records the requests a client or script makes through a relay URL, with credentials removed before storage, and turns the ones you pick into requests.
 
+[AI model requests](docs/ai-requests.md) are a request body mode for OpenAI-compatible and Anthropic endpoints: streamed text, reasoning, tool-call inspection and token usage, with tools never run by Postbox.
+
 ### Load testing
 
 Run a collection with virtual users under a constant, ramp or spike profile and read throughput, error rate and

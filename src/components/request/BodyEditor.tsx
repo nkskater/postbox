@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import { KeyValueEditor } from "./KeyValueEditor";
 import { cn } from "@/lib/utils";
+import { AiBodyEditor, emptyAiBody } from "./AiBodyEditor";
 import { getSetting } from "@/lib/settings/runtime";
 import { formatXml } from "@/lib/format";
 import { toast } from "sonner";
@@ -23,6 +24,7 @@ const MODES: { mode: BodyMode; label: string }[] = [
   { mode: "raw", label: "raw" },
   { mode: "binary", label: "binary" },
   { mode: "graphql", label: "GraphQL" },
+  { mode: "ai", label: "AI model" },
 ];
 
 const LANGS: { value: RawLanguage; label: string }[] = [
@@ -62,6 +64,8 @@ export function switchBodyMode(body: BodyConfig, mode: BodyMode): BodyConfig {
       return { mode: "binary", binary: null };
     case "graphql":
       return { mode: "graphql", graphql: { query: "", variables: "" } };
+    case "ai":
+      return body.mode === "ai" ? body : emptyAiBody();
   }
 }
 
@@ -201,6 +205,7 @@ export function BodyEditor({
           </label>
         )}
         {body.mode === "graphql" && <GraphqlBodyEditor body={body} onChange={onChange} draft={draft} />}
+        {body.mode === "ai" && <AiBodyEditor body={body} onChange={onChange} />}
       </div>
     </div>
   );

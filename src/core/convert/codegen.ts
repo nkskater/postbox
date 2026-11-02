@@ -2,6 +2,7 @@
  * Code snippet generators: cURL (bash), JavaScript fetch, Python requests, PowerShell.
  * Input is a request whose variables have (optionally) been resolved.
  */
+import { buildAiPayload } from "../ai/build";
 import type { BodyConfig } from "../types";
 
 export interface CodegenRequest {
@@ -50,6 +51,12 @@ export function rawBody(b: BodyConfig): string | null {
   switch (b.mode) {
     case "raw":
       return b.raw;
+    case "ai":
+      try {
+        return JSON.stringify(buildAiPayload(b.ai));
+      } catch {
+        return null;
+      }
     case "graphql": {
       let variables: unknown;
       try {
@@ -225,7 +232,7 @@ export function generatePowerShell(r: CodegenRequest): string {
     }
   }
   const ct =
-    b.mode === "graphql"
+    b.mode === "graphql" || b.mode === "ai"
       ? "application/json"
       : b.mode === "urlencoded"
         ? "application/x-www-form-urlencoded"

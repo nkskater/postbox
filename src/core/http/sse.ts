@@ -92,7 +92,9 @@ export type SseMessage =
   | { type: "open"; status: number; headers: [string, string][]; attempt: number }
   | ({ type: "event"; index: number; receivedAt: number } & SseEvent)
   | { type: "reconnecting"; delayMs: number; lastEventId: string; reason: string }
-  | { type: "closed"; reason: string; events: number };
+  | { type: "closed"; reason: string; events: number }
+  /** Only with `captureErrorBody`: what a non-event-stream response said (cut to 1 MiB). */
+  | { type: "rejected"; status: number; body: string };
 
 export interface SseOptions {
   policy?: HostPolicy;
@@ -101,6 +103,8 @@ export interface SseOptions {
   maxEvents?: number;
   /** Automatic reconnects after the stream ends or fails; 0 disables. */
   maxReconnects?: number;
+  /** Report the body of a response that is not an event stream, such as a provider's error. */
+  captureErrorBody?: boolean;
   /** Initial reconnection delay until the server sends `retry:`. */
   retryMs?: number;
 }
@@ -258,13 +262,29 @@ function openOnce(
         onMessage({ type: "open", status, headers: rawHeaders, attempt });
         // Per the spec, only a 200 text/event-stream response is an event stream; anything else ends it.
         if (status !== 200 || !/^text\/event-stream/i.test(type)) {
-          res.resume();
-          return finish(
+          const reason =
             status === 204
               ? "Server closed the stream (204)"
-              : `Not an event stream (HTTP ${status}${type ? `, ${type.split(";")[0]}` : ""})`,
-            false,
-          );
+              : `Not an event stream (HTTP ${status}${type ? `, ${type.split(";")[0]}` : ""})`;
+          if (!opts.captureErrorBody) {
+            res.resume();
+            return finish(reason, false);
+          }
+          const chunks: Buffer[] = [];
+          let size = 0;
+          res.on("data", (chunk: Buffer) => {
+            if (size < 1024 * 1024) chunks.push(chunk.subarray(0, 1024 * 1024 - size));
+            size += chunk.length;
+          });
+          const report = () => {
+            if (settled) return;
+            onMessage({ type: "rejected", status, body: Buffer.concat(chunks).toString("utf8") });
+            finish(reason, false);
+          };
+          res.on("end", report);
+          res.on("error", report);
+          res.on("close", report);
+          return;
         }
         clearTimeout(connectTimer);
         const decoder = new StringDecoder("utf8");

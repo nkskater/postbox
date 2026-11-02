@@ -1,3 +1,4 @@
+import type { AiConfig } from "./ai/types";
 import type { RequestContract } from "./contracts/model";
 /**
  * Core domain model shared by the UI, API routes, runner and CLI.
@@ -39,7 +40,8 @@ export type BodyConfig =
       mode: "binary";
       binary: { fileName: string; contentType?: string; data: string; missing?: boolean } | null;
     }
-  | { mode: "graphql"; graphql: { query: string; variables: string; operationName?: string } };
+  | { mode: "graphql"; graphql: { query: string; variables: string; operationName?: string } }
+  | { mode: "ai"; ai: AiConfig };
 
 export type BodyMode = BodyConfig["mode"];
 

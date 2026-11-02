@@ -89,6 +89,7 @@ describe("contract and access policy", () => {
       "/api/mqtt",
       "/api/graphql/",
       "/api/sse",
+      "/api/ai",
       "/api/codegen",
       "/api/mocks",
       "/api/script-packages",
