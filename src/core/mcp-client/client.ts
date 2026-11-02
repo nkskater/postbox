@@ -82,9 +82,11 @@ export async function connectExternalMcp(raw: McpConnectionConfig, policy: HostP
     instructions: client.getInstructions(),
     protocolVersion: transport.protocolVersion,
   };
-  if (Buffer.byteLength(JSON.stringify(info)) > 1048576) {
+  try {
+    if (Buffer.byteLength(JSON.stringify(info)) > 1048576) throw new Error("Metadata size limit");
+  } catch {
     await close();
-    throw new McpClientError("limit", "MCP server metadata exceeds 1 MiB");
+    throw new McpClientError("limit", "MCP server metadata exceeds size or nesting limits");
   }
   const run = async (rawAction: McpAction) => {
     if (closed) throw new McpClientError("transport", "MCP session is closed");
