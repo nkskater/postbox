@@ -47,6 +47,19 @@ export async function startMcpFixture() {
         const id = "fixture-" + ++sequence;
         sessions.add(id);
         res.setHeader("mcp-session-id", id);
+        if (req.url === "/deepmetadata") {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(
+            '{"jsonrpc":"2.0","id":' +
+              message.id +
+              ',"result":{"protocolVersion":"2025-03-26","serverInfo":{"name":"Deep fixture","version":"1.0.0"},"capabilities":{"experimental":' +
+              '{"nested":'.repeat(20000) +
+              "null" +
+              "}".repeat(20000) +
+              "}}}",
+          );
+          return;
+        }
         result = {
           protocolVersion: "2025-03-26",
           capabilities: { tools: {}, resources: {}, prompts: {} },

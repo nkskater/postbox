@@ -85,6 +85,12 @@ describe("external Streamable HTTP MCP client", () => {
     }
     expect(server.sessions.size).toBe(0);
   });
+  it("cleans up a remote session when deeply nested metadata cannot be retained safely", async () => {
+    await expect(connectExternalMcp(config("/deepmetadata"), new HostPolicy())).rejects.toMatchObject({
+      code: "limit",
+    });
+    expect(server.sessions.size).toBe(0);
+  });
   it("enforces literal and resolved-address host policy before endpoint traffic, and refuses cross-origin fetches", async () => {
     const before = server.requests.length;
     await expect(connectExternalMcp(config(), new HostPolicy([], ["127.0.0.0/8"]))).rejects.toMatchObject({
