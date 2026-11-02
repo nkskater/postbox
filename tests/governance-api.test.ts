@@ -97,6 +97,9 @@ describe("governance versions, assignments, reports and workspace access", () =>
     expect(
       (await request("PUT", "binding", specId, owner, { ruleSetId: policy.id, expectedRevision: 0 })).status,
     ).toBe(200);
+    expect(
+      (await request("PUT", "binding", specId, owner, { ruleSetId: policy.id, expectedRevision: 0 })).status,
+    ).toBe(409);
     expect((await request("POST", "lint", specId, viewer, {})).status).toBe(200);
     expect((await request("POST", "reports", specId, viewer, {})).status).toBe(403);
     const report = await request("POST", "reports", specId, owner, {});
