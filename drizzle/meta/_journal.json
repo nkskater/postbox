@@ -183,6 +183,13 @@
       "when": 1793581582967,
       "tag": "0025_large_stone_men",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1793583379451,
+      "tag": "0026_past_risque",
+      "breakpoints": true
     }
   ]
 }

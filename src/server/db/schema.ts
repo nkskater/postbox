@@ -905,3 +905,19 @@ export const tlsProfiles = sqliteTable("tls_profiles", {
 
 export type HookListenerRow = typeof hookListeners.$inferSelect;
 export type HookEventRow = typeof hookEvents.$inferSelect;
+
+/** Workspace-scoped external MCP call templates; credentials are variable references. */
+export const mcpCalls = sqliteTable(
+  "mcp_calls",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    config: text("config", { mode: "json" }).$type<import("@/core/mcp-client/model").McpCall>().notNull(),
+    revision: integer("revision").notNull().default(1),
+    ...timestamps,
+  },
+  (t) => [index("mcp_calls_workspace_idx").on(t.workspaceId)],
+);

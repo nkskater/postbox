@@ -11,6 +11,7 @@ import { DatasetList } from "./DatasetList";
 import { HistoryList } from "./HistoryList";
 
 const VIEWS = [
+  { id: "mcp-client", label: "MCP client", icon: Server },
   { id: "catalog", label: "Catalog", icon: Library },
   { id: "packages", label: "Packages", icon: Library },
   { id: "mocks", label: "Mocks", icon: Server },
@@ -41,6 +42,8 @@ export function Sidebar() {
             title={v.label}
             onClick={() => {
               setView(v.id);
+              if (v.id === "mcp-client")
+                useApp.getState().openTab({ id: "mcp-client", type: "mcp-client", name: "MCP client" });
               if (v.id === "catalog")
                 useApp.getState().openTab({ id: "api-catalog", type: "catalog", name: "API catalog" });
             }}
@@ -56,6 +59,23 @@ export function Sidebar() {
         ))}
       </nav>
       <div className="min-w-0 flex-1">
+        {view === "mcp-client" && (
+          <div className="p-3 space-y-3 text-xs">
+            <h2 className="font-medium">MCP client</h2>
+            <p>
+              Discover and test external MCP servers. Save calls in the current workspace and supply
+              credentials through variables.
+            </p>
+            <button
+              className="underline text-primary"
+              onClick={() =>
+                useApp.getState().openTab({ id: "mcp-client", type: "mcp-client", name: "MCP client" })
+              }
+            >
+              Open MCP client
+            </button>
+          </div>
+        )}
         {view === "catalog" && (
           <div className="space-y-3 p-3 text-xs">
             <h2 className="font-medium">API catalog</h2>
