@@ -9,6 +9,8 @@ export type ResourceKind =
   | "run"
   | "loadRun"
   | "vaultSecret"
+  | "brokerApi"
+  | "brokerGrant"
   | "history"
   | "cookie"
   | "schedule"
@@ -27,6 +29,8 @@ export const RESOURCE_TABLES: Record<ResourceKind, string> = {
   run: "runs",
   loadRun: "load_runs",
   vaultSecret: "vault_secrets",
+  brokerApi: "broker_apis",
+  brokerGrant: "broker_grants",
   history: "history",
   cookie: "cookies",
   schedule: "schedules",

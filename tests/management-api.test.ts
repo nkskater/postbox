@@ -102,6 +102,7 @@ describe("contract and access policy", () => {
       "/api/hook-listeners",
       "/api/load-runs",
       "/api/vault",
+      "/api/broker",
       "/api/settings/import",
       "/api/workspaces/[id]/members",
       "/api/workspaces/[id]/usage",

@@ -102,6 +102,13 @@ beforeAll(async () => {
   ids.hookListener = createListener(workspaceId, listenerInput.parse({ name: "Access listener" })).id;
   const { createSecret } = await import("@/server/vault");
   ids.vaultSecret = createSecret(workspaceId, { name: "access-secret", value: "access-secret-value" }).id;
+  const { createApi, requestAccess } = await import("@/server/broker");
+  ids.brokerApi = createApi(workspaceId, {
+    name: "Access API",
+    baseUrl: "https://example.test/api",
+    secretName: "access-secret",
+  }).id;
+  ids.brokerGrant = withCaller(caller(owner), () => requestAccess(ids.brokerApi, {})).id;
   ids.loadRun = "access-load-run";
   getDb()
     .insert(schema.loadRuns)

@@ -13,6 +13,8 @@ export type AuditEntityKind =
   | "run"
   | "loadRun"
   | "vaultSecret"
+  | "brokerApi"
+  | "brokerGrant"
   | "history"
   | "cookie"
   | "schedule"
@@ -49,6 +51,8 @@ export const SAFE_FIELDS: Partial<Record<AuditEntityKind, readonly string[]>> = 
   variable: ["key", "scope", "type", "enabled"],
   loadRun: ["name", "status"],
   vaultSecret: ["name", "description", "script_access", "collection_ids", "key_id"],
+  brokerApi: ["name", "description", "base_url", "secret_name", "methods", "path_prefixes", "enabled"],
+  brokerGrant: ["status", "methods", "path_prefixes", "expires_at"],
   schedule: ["name", "cron", "enabled", "folder_id", "environment_id", "dataset_id"],
   dataset: ["name", "description"],
   scriptPackage: ["name", "description", "latest_version"],
