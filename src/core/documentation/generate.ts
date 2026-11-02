@@ -88,6 +88,20 @@ export function generateDocumentation(
         return { mode: "raw", raw: clean(value.raw, limits.body), language: value.language };
       case "urlencoded":
         return { mode: "urlencoded", urlencoded: kv(value.urlencoded) };
+      case "ai":
+        return {
+          mode: "ai",
+          ai: {
+            ...value.ai,
+            system: clean(value.ai.system, limits.body),
+            extra: clean(value.ai.extra, limits.body),
+            messages: value.ai.messages.map((m) => ({
+              ...m,
+              content: clean(m.content, limits.body),
+              toolCalls: m.toolCalls?.map((c) => ({ ...c, arguments: clean(c.arguments, limits.body) })),
+            })),
+          },
+        };
       case "graphql":
         return {
           mode: "graphql",

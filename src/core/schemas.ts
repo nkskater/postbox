@@ -1,4 +1,5 @@
 import { contractSchema } from "./contracts/model";
+import { AI_PROVIDERS } from "./ai/types";
 import { parseContract } from "./contracts/validate";
 import { visualizationSchema } from "./visualizer/model";
 /**
@@ -67,6 +68,49 @@ const bodyConfigSchema = z.discriminatedUnion("mode", [
       query: z.string(),
       variables: z.string().default("{}"),
       operationName: z.string().optional(),
+    }),
+  }),
+  z.object({
+    mode: z.literal("ai"),
+    ai: z.object({
+      provider: z.enum(AI_PROVIDERS),
+      model: z.string().max(200),
+      system: z.string().max(200_000).default(""),
+      messages: z
+        .array(
+          z.object({
+            role: z.enum(["user", "assistant", "tool"]),
+            content: z.string().max(500_000),
+            toolCalls: z
+              .array(
+                z.object({
+                  id: z.string().max(200),
+                  name: z.string().max(200),
+                  arguments: z.string().max(200_000),
+                }),
+              )
+              .max(64)
+              .optional(),
+            toolCallId: z.string().max(200).optional(),
+          }),
+        )
+        .max(500),
+      temperature: z.number().min(0).max(2).optional(),
+      topP: z.number().min(0).max(1).optional(),
+      maxTokens: z.number().int().min(1).max(1_000_000).optional(),
+      stream: z.boolean().default(true),
+      tools: z
+        .array(
+          z.object({
+            name: z.string().max(100),
+            description: z.string().max(5000).default(""),
+            parameters: z.string().max(100_000).default(""),
+          }),
+        )
+        .max(64)
+        .default([]),
+      toolChoice: z.enum(["auto", "none", "required"]).default("auto"),
+      extra: z.string().max(100_000).default(""),
     }),
   }),
 ]);

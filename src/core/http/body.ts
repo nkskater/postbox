@@ -2,6 +2,7 @@
  * Encode a (variable-resolved) BodyConfig into bytes plus a default Content-Type.
  */
 import { randomBytes } from "node:crypto";
+import { buildAiPayload } from "../ai/build";
 import type { BodyConfig, RawLanguage } from "../types";
 
 export interface EncodedBody {
@@ -60,6 +61,11 @@ export function encodeBody(body: BodyConfig, method: string): EncodedBody {
       if (g.operationName) payload.operationName = g.operationName;
       return { body: Buffer.from(JSON.stringify(payload), "utf8"), contentType: "application/json" };
     }
+    case "ai":
+      return {
+        body: Buffer.from(JSON.stringify(buildAiPayload(body.ai)), "utf8"),
+        contentType: "application/json",
+      };
     default:
       return {};
   }

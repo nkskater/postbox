@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { VarInput } from "@/components/editor/VarInput";
 import { ResponseViewer } from "@/components/response/ResponseViewer";
+import { AiPanel } from "@/components/response/AiPanel";
 import { EventStreamPanel } from "@/components/response/EventStreamPanel";
 import { WebSocketPanel } from "@/components/response/WebSocketPanel";
 import { SocketIoPanel } from "@/components/response/SocketIoPanel";
@@ -81,10 +82,14 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
   const isMqtt = /^mqtts?:\/\//i.test(d.url.trim());
   const isGrpc = isGrpcUrl(d.url);
   const isWebSocket = isSocketIo || isMqtt || isGrpc || /^wss?:\/\//i.test(d.url.trim());
+  const isAi = d.body.mode === "ai";
+  const [aiKey, setAiKey] = useState<number | null>(null);
   const [streamKey, setStreamKey] = useState<number | null>(null);
   const [wsKey, setWsKey] = useState<number | null>(null);
   const send = () => {
     setStreamKey(null);
+    if (isAi) return setAiKey(d.url.trim() ? Date.now() : null);
+    setAiKey(null);
     if (isWebSocket) return setWsKey(Date.now());
     setWsKey(null);
     return sendTab(tab.id);
@@ -264,7 +269,7 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
           </Button>
         )}
         <Button
-          hidden={isWebSocket}
+          hidden={isWebSocket || isAi}
           variant="outline"
           className="h-9"
           title="Open as a server-sent event stream and show events live"
@@ -402,6 +407,18 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
             />
           ) : wsKey !== null && isWebSocket ? (
             <WebSocketPanel key={wsKey} draft={d as RequestDef} onClose={() => setWsKey(null)} />
+          ) : aiKey !== null && isAi ? (
+            <AiPanel
+              key={aiKey}
+              draft={d as RequestDef}
+              onClose={() => setAiKey(null)}
+              onAppend={(added) =>
+                d.body.mode === "ai" &&
+                set({
+                  body: { ...d.body, ai: { ...d.body.ai, messages: [...d.body.ai.messages, ...added] } },
+                })
+              }
+            />
           ) : streamKey !== null ? (
             <EventStreamPanel key={streamKey} draft={d as RequestDef} onClose={() => setStreamKey(null)} />
           ) : (

@@ -68,6 +68,20 @@ function resolveBody(body: BodyConfig, r: Resolver): BodyConfig {
           variables: r.resolve(body.graphql.variables),
         },
       };
+    case "ai": {
+      const ai = body.ai;
+      return {
+        ...body,
+        ai: {
+          ...ai,
+          model: r.resolve(ai.model),
+          system: r.resolve(ai.system),
+          extra: r.resolve(ai.extra),
+          messages: ai.messages.map((m) => ({ ...m, content: r.resolve(m.content) })),
+          tools: ai.tools.map((t) => ({ ...t, description: r.resolve(t.description) })),
+        },
+      };
+    }
     default:
       return body;
   }

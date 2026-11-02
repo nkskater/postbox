@@ -1,4 +1,5 @@
 import { parseContract } from "../contracts/validate";
+import { buildAiPayload } from "../ai/build";
 import type { RequestContract } from "../contracts/model";
 /**
  * Postman Collection v2.0/v2.1 and environment import/export.
@@ -697,6 +698,18 @@ function exportBody(b: BodyConfig): PmBody | undefined {
   switch (b.mode) {
     case "none":
       return undefined;
+    case "ai": {
+      // Postman has no model request body, so the JSON the request would send is exported.
+      try {
+        return {
+          mode: "raw",
+          raw: JSON.stringify(buildAiPayload(b.ai), null, 2),
+          options: { raw: { language: "json" } },
+        };
+      } catch {
+        return undefined;
+      }
+    }
     case "raw":
       return { mode: "raw", raw: b.raw, options: { raw: { language: b.language } } };
     case "urlencoded":
