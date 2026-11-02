@@ -200,7 +200,7 @@ function MonitorDashboard({ workspaceId }: { workspaceId: string }) {
               }}
               className={`block w-full rounded border p-3 text-left text-sm ${selected === item.id ? "bg-accent" : ""}`}
             >
-              <strong>{item.name}</strong>
+              <strong className="[overflow-wrap:anywhere]">{item.name}</strong>
               <div className="text-xs mt-1">
                 {item.enabled ? item.state : "paused"} · {item.cron}
               </div>
