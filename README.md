@@ -637,3 +637,5 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the design. Planned work is tracked a
 Use **Visualization** in the response panel for offline tables and SVG charts from request scripts. See the [response visualization guide](docs/response-visualizer.md).
 
 Share pinned helpers across collections using **Packages** and `pm.require`. See the [script package guide](docs/script-packages.md) for approval, versioning and automation.
+
+[Application tests](docs/application-tests.md) validate captured UI-test responses against collection assertions without replaying requests, with coverage and JSON/JUnit/HTML reports.
