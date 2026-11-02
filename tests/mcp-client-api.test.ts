@@ -219,6 +219,45 @@ describe("MCP client saved calls and user-owned sessions", () => {
     expect(service.mcpSessionCount()).toBe(0);
     expect(server.sessions.size).toBe(0);
   });
+  it("enforces vault allowed domains before any credentials leave in headers or tool arguments", async () => {
+    const vault = await import("@/server/vault");
+    withCaller(caller(owner), () =>
+      vault.createSecret(ws, {
+        name: "mcpRestricted",
+        value: "domain-restricted-secret",
+        domains: ["example.invalid"],
+      }),
+    );
+    const before = server.requests.length;
+    const denied = await route("POST", "sessions", owner, {
+      workspaceId: ws,
+      connection: {
+        url: server.url + "/mcp",
+        headers: [{ key: "Authorization", value: "Bearer {{vault:mcpRestricted}}" }],
+      },
+    });
+    expect(denied.status).toBe(403);
+    expect(await denied.text()).not.toContain("domain-restricted-secret");
+    expect(server.requests.length).toBe(before);
+    expect(service.mcpSessionCount()).toBe(0);
+    const opened = await route("POST", "sessions", owner, {
+      workspaceId: ws,
+      connection: { url: server.url + "/mcp" },
+    });
+    expect(opened.status).toBe(201);
+    const session = await opened.json();
+    const beforeAction = server.requests.length;
+    const action = await route(
+      "POST",
+      "sessions/" + session.id,
+      owner,
+      { action: { type: "tools/call", name: "echo", arguments: { value: "{{vault:mcpRestricted}}" } } },
+      session.id,
+    );
+    expect(action.status).toBe(403);
+    expect(server.requests.length).toBe(beforeAction);
+    expect((await route("DELETE", "sessions/" + session.id, owner, undefined, session.id)).status).toBe(200);
+  });
   it("keeps remote authentication failure separate from local login and leaks no remote diagnostic body", async () => {
     const response = await route("POST", "sessions", owner, {
       workspaceId: ws,

@@ -1,3 +1,4 @@
+import type { OutgoingMessage } from "../vault/domains";
 import { ListToolsResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -13,7 +14,11 @@ export class McpClientError extends Error {
     this.name = "McpClientError";
   }
 }
-export async function connectExternalMcp(raw: McpConnectionConfig, policy: HostPolicy) {
+export async function connectExternalMcp(
+  raw: McpConnectionConfig,
+  policy: HostPolicy,
+  options: { guard?: (message: OutgoingMessage) => string | null } = {},
+) {
   const config = mcpConnectionSchema.parse(raw),
     url = new URL(config.url);
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.hash)
@@ -23,7 +28,7 @@ export async function connectExternalMcp(raw: McpConnectionConfig, policy: HostP
     );
   const controller = new AbortController();
   const transport = new StreamableHTTPClientTransport(url, {
-    fetch: mcpFetch(url.origin, policy, config.timeoutMs, controller.signal),
+    fetch: mcpFetch(url.origin, policy, config.timeoutMs, controller.signal, options.guard),
     requestInit: { headers: Object.fromEntries(config.headers.map((h) => [h.key, h.value])) },
     reconnectionOptions: {
       maxRetries: 0,
@@ -57,6 +62,11 @@ export async function connectExternalMcp(raw: McpConnectionConfig, policy: HostP
     const message = e.message ?? "";
     if (e.code === 401 || e.code === 403 || /401|403|Unauthorized/i.test(message))
       return new McpClientError("auth", "MCP authentication failed; check the configured credentials");
+    if (/vault domain policy/i.test(message))
+      return new McpClientError(
+        "policy",
+        "MCP request was blocked by a vault secret allowed-domain restriction",
+      );
     if (/policy|PROXY_ALLOW|PROXY_DENY|blocked by|not in /i.test(message))
       return new McpClientError("policy", "MCP endpoint was blocked by the outbound host policy");
     if (/timeout|timed out/i.test(message)) return new McpClientError("timeout", "MCP request timed out");

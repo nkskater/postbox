@@ -124,3 +124,8 @@ are capped at 256 KiB, 32 nesting levels and 10,000 JSON nodes. There are at mos
 Tool schemas are inspected as data; Postbox does not compile remote output schemas
 into host-side validators. Returned tool content remains available for inspection.
 Session credential redaction is bounded to 5,000 distinct values and 2 MiB.
+
+Workspace vault references (`{{vault:name}}`) also resolve through the shared
+execution context. Allowed-domain restrictions are checked on every outgoing
+MCP transport message, including resolved headers and tool arguments, before
+sending. Collection-scoped secrets are not available to standalone MCP calls.

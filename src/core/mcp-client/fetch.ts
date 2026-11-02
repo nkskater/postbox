@@ -1,3 +1,4 @@
+import type { OutgoingMessage } from "../vault/domains";
 import dns from "node:dns";
 import http from "node:http";
 import https from "node:https";
@@ -10,6 +11,7 @@ export function mcpFetch(
   policy: HostPolicy,
   timeoutMs: number,
   lifetime: AbortSignal,
+  guard?: (message: OutgoingMessage) => string | null,
 ): typeof fetch {
   return (async (input: RequestInfo | URL, init: RequestInit = {}) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
@@ -36,6 +38,12 @@ export function mcpFetch(
       throw new Error("MCP accepts JSON request bodies only");
     if (typeof init.body === "string" && Buffer.byteLength(init.body) > 1048576)
       throw new Error("MCP request exceeds 1 MiB");
+    const refused = guard?.({
+      url: url.toString(),
+      headers: [...headers],
+      body: typeof init.body === "string" ? init.body : undefined,
+    });
+    if (refused) throw new Error("Vault domain policy: " + refused);
     const signal = AbortSignal.any([lifetime, ...(init.signal ? [init.signal] : [])]);
     const lookup: net.LookupFunction = (hostname, options, callback) =>
       dns.lookup(hostname, options, (error, address, family) => {

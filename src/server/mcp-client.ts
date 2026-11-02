@@ -1,3 +1,4 @@
+import { checkVaultDomains, guardedSecrets } from "@/core/vault/guard";
 import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -230,7 +231,9 @@ export async function openMcpSession(raw: z.input<typeof mcpConnectSchema>) {
   state.pending++;
   state.pendingOwners.set(owner, (state.pendingOwners.get(owner) ?? 0) + 1);
   try {
-    const connection = await connectExternalMcp(config, getPolicy());
+    const connection = await connectExternalMcp(config, getPolicy(), {
+      guard: (message) => checkVaultDomains(guardedSecrets(context.scopes), message),
+    });
     const id = newId();
     const session: Session = {
       id,
