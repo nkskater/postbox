@@ -48,6 +48,7 @@ import { AuditLog } from "./AuditLog";
 import { QuotaEditor, UsagePanel } from "./UsagePanel";
 import { VaultPanel } from "./VaultPanel";
 import { BrokerPanel } from "./BrokerPanel";
+import { CapturePanel } from "./CapturePanel";
 import { useIdentity } from "./useIdentity";
 import { WorkspaceSharing } from "./WorkspaceSharing";
 import { AppearancePreview } from "./AppearancePreview";
@@ -272,6 +273,7 @@ export function SettingsView() {
               {section === "variables" && <VaultPanel isAdmin={!!identity?.isAdmin} />}
               {section === "variables" && <BrokerPanel />}
               {section === "execution" && <OutboundPanel isAdmin={!!identity?.isAdmin} />}
+              {section === "execution" && <CapturePanel />}
               {section === "data" && <DataManagement isAdmin={!!identity?.isAdmin} />}
               {section === "integrations" && <IntegrationsPanel isAdmin={!!identity?.isAdmin} />}
               {section === "security" && <SecurityPanel isAdmin={!!identity?.isAdmin} />}

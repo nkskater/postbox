@@ -56,6 +56,7 @@ import * as runs from "./runs";
 import * as load from "./load";
 import * as vault from "./vault";
 import * as broker from "./broker";
+import * as capture from "./capture";
 import { profileSchema } from "@/core/load/profile";
 import { thresholdsSchema } from "@/core/load/thresholds";
 import { renderLoadReport, type LoadReportFormat } from "@/core/load/report";
@@ -1864,6 +1865,75 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
     async ({ grantId, ...rest }) => {
       try {
         return okJson(await broker.call(grantId, rest));
+      } catch (err) {
+        return errResult(err);
+      }
+    },
+  );
+
+  // ================================================================ TRAFFIC CAPTURE
+  // Recordings are stored with credentials already removed; a person starts a session in Settings.
+
+  server.registerTool(
+    "list_capture_sessions",
+    {
+      title: "List Capture Sessions",
+      description:
+        "List traffic recording sessions (state, entry count, HTTPS consent). Never returns the relay URL token.",
+      inputSchema: { workspaceId: z.string().optional() },
+    },
+    async ({ workspaceId }) => {
+      try {
+        return okJson({ sessions: capture.listSessions(resolveWorkspaceId(workspaceId)) });
+      } catch (err) {
+        return errResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "list_capture_entries",
+    {
+      title: "List Captured Requests",
+      description:
+        "List what a capture session recorded (method, URL, status, sizes). Pass entryId for one entry with its redacted headers and bodies.",
+      inputSchema: {
+        captureSessionId: z.string().min(1),
+        entryId: z.string().optional(),
+        limit: z.number().int().min(1).max(500).optional(),
+      },
+    },
+    async ({ captureSessionId, entryId, limit }) => {
+      try {
+        return okJson(
+          entryId
+            ? capture.getEntry(captureSessionId, entryId)
+            : { entries: capture.listEntries(captureSessionId, limit) },
+        );
+      } catch (err) {
+        return errResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "capture_to_requests",
+    {
+      title: "Create Requests From Captures",
+      description:
+        "Turn selected captured entries into requests in a new folder. Credentials were removed when recorded, so add authentication before sending them.",
+      inputSchema: {
+        captureSessionId: z.string().min(1),
+        entryIds: z.array(z.string().min(1)).min(1).max(500),
+        folderId: z.string().optional().describe("Import under this folder instead of the top level"),
+        name: z.string().max(200).optional(),
+      },
+    },
+    async ({ captureSessionId, entryIds, folderId, name }) => {
+      try {
+        return okJson(
+          capture.createRequests(captureSessionId, { entryIds, parentId: folderId ?? null, name }),
+        );
       } catch (err) {
         return errResult(err);
       }

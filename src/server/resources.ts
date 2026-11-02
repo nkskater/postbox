@@ -20,6 +20,7 @@ export type ResourceKind =
   | "scriptPackage"
   | "webhook"
   | "hookListener"
+  | "captureSession"
   | "mcpCall"
   | "monitor"
   | "specification";
@@ -42,6 +43,7 @@ export const RESOURCE_TABLES: Record<ResourceKind, string> = {
   scriptPackage: "script_packages",
   webhook: "webhooks",
   hookListener: "hook_listeners",
+  captureSession: "capture_sessions",
   mcpCall: "mcp_calls",
   monitor: "monitors",
   specification: "specifications",

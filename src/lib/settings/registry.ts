@@ -976,6 +976,20 @@ export const SETTINGS: SettingDef[] = [
     keywords: ["webhook", "listener", "incoming", "retention"],
   },
   {
+    key: "capture.retentionDays",
+    category: "data",
+    label: "Keep recorded traffic for",
+    description:
+      "Remove requests recorded by traffic capture sessions after this many days. 0 keeps them until the per-session limit of 500 pushes them out.",
+    type: "number",
+    scope: "server",
+    default: 14,
+    min: 0,
+    max: 3650,
+    unit: "days",
+    keywords: ["capture", "proxy", "recording", "traffic", "retention"],
+  },
+  {
     key: "history.skipSecrets",
     category: "data",
     label: "Skip history for requests that use secrets",
