@@ -412,6 +412,8 @@ Values are write-only everywhere, masked in history and results, and withheld fr
 Existing secret variables can be moved in with one action, and keys rotate without downtime. See
 [docs/secrets-vault.md](docs/secrets-vault.md).
 
+The [credential broker](docs/credential-broker.md) goes further: register an API once and let people, service accounts and agents call it through Postbox with an approved, revocable, consumer-bound reference, without ever holding the credential.
+
 ### Load testing
 
 Run a collection with virtual users under a constant, ramp or spike profile and read throughput, error rate and

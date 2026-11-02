@@ -53,6 +53,7 @@ import { workspaceRole } from "./authorize";
 import * as runs from "./runs";
 import * as load from "./load";
 import * as vault from "./vault";
+import * as broker from "./broker";
 import { profileSchema } from "@/core/load/profile";
 import { thresholdsSchema } from "@/core/load/thresholds";
 import { renderLoadReport, type LoadReportFormat } from "@/core/load/report";
@@ -1611,6 +1612,83 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
       try {
         vault.deleteSecret(secretId);
         return okJson({ deleted: true, secretId });
+      } catch (err) {
+        return errResult(err);
+      }
+    },
+  );
+
+  // ================================================================ CREDENTIAL BROKER
+  // The agent never sees a credential: it asks for access, then calls through Postbox, which injects it.
+
+  server.registerTool(
+    "list_broker_apis",
+    {
+      title: "List Brokered APIs",
+      description:
+        "List the APIs registered with the credential broker (base URL, allowed methods and paths; never credentials). Request access to one with request_broker_access.",
+      inputSchema: { workspaceId: z.string().optional() },
+    },
+    async ({ workspaceId }) => {
+      try {
+        return okJson({ apis: broker.listApis(resolveWorkspaceId(workspaceId)) });
+      } catch (err) {
+        return errResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "request_broker_access",
+    {
+      title: "Request Brokered API Access",
+      description:
+        "Ask for access to a brokered API. A workspace owner must approve it; the returned grant id is the reference for broker_call and only works for you.",
+      inputSchema: { brokerApiId: z.string().min(1), reason: z.string().max(500).optional() },
+    },
+    async ({ brokerApiId, reason }) => {
+      try {
+        return okJson(broker.requestAccess(brokerApiId, { reason }));
+      } catch (err) {
+        return errResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "list_broker_access",
+    {
+      title: "List Brokered API Access",
+      description:
+        "List your access grants (state, limits, expiry), or all of them if you own the workspace.",
+      inputSchema: { workspaceId: z.string().optional() },
+    },
+    async ({ workspaceId }) => {
+      try {
+        return okJson({ grants: broker.listGrants(resolveWorkspaceId(workspaceId)) });
+      } catch (err) {
+        return errResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "broker_call",
+    {
+      title: "Call Brokered API",
+      description:
+        "Call an API through the credential broker with an approved grant. Give a method and a path under the API's base URL; Postbox adds the credential and masks it if the API echoes it back.",
+      inputSchema: {
+        grantId: z.string().min(1),
+        method: z.enum(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]),
+        path: z.string().min(1),
+        headers: z.record(z.string(), z.string()).optional(),
+        body: z.string().optional(),
+      },
+    },
+    async ({ grantId, ...rest }) => {
+      try {
+        return okJson(await broker.call(grantId, rest));
       } catch (err) {
         return errResult(err);
       }

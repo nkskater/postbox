@@ -266,6 +266,76 @@ export const vaultSecrets = sqliteTable(
   (t) => [uniqueIndex("vault_secrets_name_unique").on(t.workspaceId, t.name, t.ownerId)],
 );
 
+/**
+ * An API whose credential the broker injects. The credential itself stays in the vault (`secretName`); a consumer
+ * only ever holds a grant, never the value.
+ */
+export const brokerApis = sqliteTable(
+  "broker_apis",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    /** Calls go to this URL plus a path the consumer supplies. */
+    baseUrl: text("base_url").notNull(),
+    /** Name of the workspace vault secret that holds the credential. */
+    secretName: text("secret_name").notNull(),
+    /** How the credential is attached: bearer, header, basic or query. */
+    injection: text("injection", { mode: "json" }).$type<Record<string, unknown>>().notNull(),
+    /** Methods any consumer may use; empty means all. */
+    methods: text("methods", { mode: "json" }).$type<string[]>().notNull().default([]),
+    /** Path prefixes any consumer may reach; empty means everything under the base URL. */
+    pathPrefixes: text("path_prefixes", { mode: "json" }).$type<string[]>().notNull().default([]),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    createdBy: text("created_by"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [uniqueIndex("broker_apis_name_unique").on(t.workspaceId, t.name)],
+);
+
+/**
+ * One consumer's access to one brokered API. Its id is the reference the consumer presents; it is useless to anyone
+ * else because the call must also come from the consumer it was approved for.
+ */
+export const brokerGrants = sqliteTable(
+  "broker_grants",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    apiId: text("api_id")
+      .notNull()
+      .references(() => brokerApis.id, { onDelete: "cascade" }),
+    /** A user id (service accounts included), or "open" / "env" for the single-user and environment modes. */
+    consumerId: text("consumer_id").notNull(),
+    consumerName: text("consumer_name").notNull().default(""),
+    /** When set, only that API key (of the consumer) may use the grant. */
+    tokenId: text("token_id"),
+    status: text("status").notNull().default("pending"),
+    reason: text("reason").notNull().default(""),
+    /** Narrower than the API's own limits; empty means the API's. */
+    methods: text("methods", { mode: "json" }).$type<string[]>().notNull().default([]),
+    pathPrefixes: text("path_prefixes", { mode: "json" }).$type<string[]>().notNull().default([]),
+    requestedBy: text("requested_by"),
+    decidedBy: text("decided_by"),
+    decidedAt: integer("decided_at"),
+    expiresAt: integer("expires_at"),
+    lastUsedAt: integer("last_used_at"),
+    useCount: integer("use_count").notNull().default(0),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    index("broker_grants_api_idx").on(t.apiId),
+    index("broker_grants_consumer_idx").on(t.workspaceId, t.consumerId),
+  ],
+);
+
 export const runResults = sqliteTable(
   "run_results",
   {

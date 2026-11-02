@@ -48,6 +48,7 @@ const TABLES = {
   outboundProxy: schema.outboundProxy,
   tlsProfiles: schema.tlsProfiles,
   vaultSecrets: schema.vaultSecrets,
+  brokerApis: schema.brokerApis,
 } as const;
 type TableName = keyof typeof TABLES;
 /** Insert order: parents before children. */
@@ -72,6 +73,7 @@ const ORDER: TableName[] = [
   "outboundProxy",
   "tlsProfiles",
   "vaultSecrets",
+  "brokerApis",
 ];
 
 export interface Backup {
@@ -272,6 +274,8 @@ export function restoreBackup(db: DB, sqlite: Database.Database, input: unknown)
     vaultSecrets: withCreator(tables.vaultSecrets).filter(
       (v) => !v.ownerId || v.ownerId === "open" || v.ownerId === "env" || known(v.ownerId),
     ),
+    // Brokered APIs come back; the access granted to consumers does not, so it has to be approved again.
+    brokerApis: withCreator(tables.brokerApis),
     outboundProxy: tables.outboundProxy.filter((p) => validProxyRow(p)),
     // A client certificate without its key (scrubbed backup) cannot be used; keep the CA part only.
     tlsProfiles: tables.tlsProfiles
