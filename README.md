@@ -651,3 +651,5 @@ Share pinned helpers across collections using **Packages** and `pm.require`. See
 [Application tests](docs/application-tests.md) validate captured UI-test responses against collection assertions without replaying requests, with coverage and JSON/JUnit/HTML reports.
 
 [External MCP client](docs/mcp-client.md) discovers tools, resources and prompts on Streamable HTTP servers, executes operations, and saves variable-driven calls.
+
+[API monitoring](docs/monitoring.md) adds scheduled thresholds, retained check history, incident/recovery dashboards, and deduplicated webhook and SMTP alerts.

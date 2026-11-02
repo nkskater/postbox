@@ -4,5 +4,7 @@ export async function register() {
     startScheduler();
     const { startWebhookWorker } = await import("./server/webhooks");
     startWebhookWorker();
+    const { startMonitorEmailWorker } = await import("./server/monitor-email");
+    startMonitorEmailWorker();
   }
 }

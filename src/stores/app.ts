@@ -52,6 +52,7 @@ export type Tab =
   | { id: string; type: "cookies"; name: string }
   | { id: string; type: "catalog"; name: string }
   | { id: string; type: "mcp-client"; name: string }
+  | { id: string; type: "monitors"; name: string }
   | { id: string; type: "settings"; name: string };
 
 export interface KnownVariable {
@@ -183,7 +184,15 @@ interface AppState {
   variables: Record<string, KnownVariable>;
   theme: "dark" | "light";
   sidebarView:
-    "collections" | "environments" | "history" | "datasets" | "mocks" | "packages" | "catalog" | "mcp-client";
+    | "collections"
+    | "environments"
+    | "history"
+    | "datasets"
+    | "mocks"
+    | "packages"
+    | "catalog"
+    | "mcp-client"
+    | "monitors";
   historyVersion: number;
   datasetVersion: number;
   packageVersion: number;

@@ -43,6 +43,15 @@ export function summarize(event: WebhookEvent): Summary {
   const name = text(d.name) || "Collection";
   const key = `${event.type.split(".")[0]}:${text(d.folderId) || event.workspaceId}`;
   switch (event.type) {
+    case "monitor.incident":
+    case "monitor.recovered":
+      return {
+        title: `Monitor ${event.type === "monitor.incident" ? "incident" : "recovered"}: ${text(d.monitorName)}`,
+        detail: Array.isArray(d.reasons) ? d.reasons.map(text).join("; ") : "Monitor state changed",
+        severity: event.type === "monitor.incident" ? "bad" : "good",
+        key: `monitor:${text(d.incidentId) || text(d.monitorId)}`,
+        incident: event.type === "monitor.incident" ? "trigger" : "resolve",
+      };
     case "run.passed":
       return {
         title: `Run passed: ${name}`,

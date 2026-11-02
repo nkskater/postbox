@@ -99,6 +99,7 @@ describe("contract and access policy", () => {
       "/api/history",
       "/api/cookies",
       "/api/mcp",
+      "/api/monitors",
       "/api/hook-listeners",
       "/api/load-runs",
       "/api/vault",

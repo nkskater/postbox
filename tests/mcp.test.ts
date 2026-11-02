@@ -49,6 +49,59 @@ afterAll(async () => {
 });
 
 describe("MCP server (/api/mcp)", () => {
+  it("creates, runs, inspects and updates a monitor through MCP", async () => {
+    const workspace = parseToolJson<{ id: string }>(
+      await client.callTool({ name: "create_workspace", arguments: { name: "Monitor MCP" } }),
+    );
+    const folder = parseToolJson<{ id: string }>(
+      await client.callTool({
+        name: "create_folder",
+        arguments: { workspaceId: workspace.id, name: "Watched API" },
+      }),
+    );
+    await client.callTool({
+      name: "create_request",
+      arguments: { folderId: folder.id, name: "Health", url: server.url + "/echo" },
+    });
+    const created = await client.callTool({
+      name: "create_monitor",
+      arguments: {
+        workspaceId: workspace.id,
+        folderId: folder.id,
+        name: "Monitor automation",
+        cron: "0 0 1 1 *",
+        enabled: false,
+      },
+    });
+    expect(created.isError).toBeFalsy();
+    const monitor = parseToolJson<{ id: string; revision: number }>(created);
+    expect(
+      parseToolJson<unknown[]>(
+        await client.callTool({ name: "list_monitors", arguments: { workspaceId: workspace.id } }),
+      ),
+    ).toHaveLength(1);
+    const run = await client.callTool({ name: "run_monitor", arguments: { monitorId: monitor.id } });
+    expect(run.isError).toBeFalsy();
+    let value: { history: unknown[]; revision: number } = { history: [], revision: 1 };
+    for (let i = 0; i < 100; i++) {
+      value = parseToolJson(
+        await client.callTool({ name: "get_monitor", arguments: { monitorId: monitor.id } }),
+      );
+      if (value.history.length) break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(value.history).toHaveLength(1);
+    const updated = await client.callTool({
+      name: "update_monitor",
+      arguments: { monitorId: monitor.id, patch: { name: "Updated monitor", expectedRevision: 1 } },
+    });
+    expect(updated.isError).toBeFalsy();
+    expect(parseToolJson<{ revision: number }>(updated).revision).toBe(2);
+    expect(
+      (await client.callTool({ name: "delete_monitor", arguments: { monitorId: monitor.id } })).isError,
+    ).toBeFalsy();
+  });
+
   it("discovers snippet targets and resolves extended snippet bodies and options", async () => {
     const catalog = parseToolJson<{ targets: { id: string; options: { id: string }[] }[] }>(
       await client.callTool({ name: "list_code_snippet_targets", arguments: {} }),

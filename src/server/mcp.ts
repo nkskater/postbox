@@ -17,6 +17,7 @@ import { mockCreateSchema, mockPatchSchema } from "@/core/mocks/model";
  * single-request execution, collection runs, code generation, and import/export
  * as MCP tools and resources over `/api/mcp`.
  */
+import * as monitors from "./monitors";
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
@@ -277,6 +278,94 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
     },
   );
 
+  server.registerTool(
+    "list_monitors",
+    {
+      description: "List scheduled API monitors, thresholds and incident state.",
+      inputSchema: { workspaceId: z.string().min(1) },
+    },
+    async ({ workspaceId }) => {
+      try {
+        return okJson(monitors.listMonitors(workspaceId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "get_monitor",
+    {
+      description: "Monitor history, incidents and email delivery status.",
+      inputSchema: {
+        monitorId: z.string().min(1),
+        hours: z.number().min(1).max(2160).optional(),
+        before: z.string().max(200).optional(),
+      },
+    },
+    async ({ monitorId, hours, before }) => {
+      try {
+        return okJson(monitors.getMonitor(monitorId, hours, before));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "create_monitor",
+    {
+      description: "Create a schedule-backed API monitor with latency/availability/assertion thresholds.",
+      inputSchema: monitors.monitorInput.shape,
+    },
+    async (input) => {
+      try {
+        return okJson(monitors.createMonitor(input));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "update_monitor",
+    {
+      description: "Update a monitor using its current revision.",
+      inputSchema: { monitorId: z.string().min(1), patch: monitors.monitorPatch },
+    },
+    async ({ monitorId, patch }) => {
+      try {
+        return okJson(monitors.updateMonitor(monitorId, patch));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "delete_monitor",
+    {
+      description: "Delete a monitor and its schedule/history.",
+      inputSchema: { monitorId: z.string().min(1) },
+    },
+    async ({ monitorId }) => {
+      try {
+        return okJson(monitors.deleteMonitor(monitorId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "run_monitor",
+    {
+      description: "Run a monitor once through the shared admission queue.",
+      inputSchema: { monitorId: z.string().min(1) },
+    },
+    async ({ monitorId }) => {
+      try {
+        return okJson(await monitors.runMonitor(monitorId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
   server.registerTool(
     "whoami",
     {

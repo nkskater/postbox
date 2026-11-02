@@ -2,6 +2,7 @@ import { resolveSettings } from "@/lib/settings/registry";
 import { pruneAudit } from "./audit";
 import { pruneUsage } from "./usage";
 import { pruneHookEvents } from "./hook-listeners";
+import { pruneMonitorHistory } from "./monitors";
 import { pruneWebhooks } from "./webhooks";
 import { readSavedSettings } from "./settings";
 
@@ -16,6 +17,7 @@ export function pruneAuditIfDue(at = Date.now()): number {
   if (at - lastPrune < 3_600_000) return 0;
   lastPrune = at;
   const values = resolveSettings(readSavedSettings(), process.env).values;
+  pruneMonitorHistory(values["monitors.retentionDays"] as number, at);
   pruneUsage(values["usage.retentionDays"] as number, at);
   pruneWebhooks(values["webhooks.retentionDays"] as number, at);
   pruneHookEvents(values["hooks.retentionDays"] as number, at);

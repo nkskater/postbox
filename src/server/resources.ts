@@ -20,7 +20,8 @@ export type ResourceKind =
   | "scriptPackage"
   | "webhook"
   | "hookListener"
-  | "mcpCall";
+  | "mcpCall"
+  | "monitor";
 export const RESOURCE_TABLES: Record<ResourceKind, string> = {
   workspace: "workspaces",
   folder: "folders",
@@ -41,6 +42,7 @@ export const RESOURCE_TABLES: Record<ResourceKind, string> = {
   webhook: "webhooks",
   hookListener: "hook_listeners",
   mcpCall: "mcp_calls",
+  monitor: "monitors",
 };
 export function resourceWorkspace(kind: ResourceKind, id: string): string {
   const row = getSqlite()

@@ -1010,3 +1010,86 @@ export const mcpCalls = sqliteTable(
   },
   (t) => [index("mcp_calls_workspace_idx").on(t.workspaceId)],
 );
+
+/** A collection schedule with retained monitoring state and threshold policy. */
+export const monitors = sqliteTable(
+  "monitors",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    scheduleId: text("schedule_id")
+      .notNull()
+      .unique()
+      .references(() => schedules.id, { onDelete: "cascade" }),
+    rules: text("rules", { mode: "json" }).$type<import("@/core/monitoring/model").MonitorRules>().notNull(),
+    emails: text("emails", { mode: "json" }).$type<string[]>().notNull(),
+    state: text("state").notNull().default("unknown"),
+    failures: integer("failures").notNull().default(0),
+    successes: integer("successes").notNull().default(0),
+    openIncidentId: text("open_incident_id"),
+    revision: integer("revision").notNull().default(1),
+    ...timestamps,
+  },
+  (t) => [index("monitors_workspace_idx").on(t.workspaceId)],
+);
+export const monitorSamples = sqliteTable(
+  "monitor_samples",
+  {
+    id: text("id").primaryKey(),
+    monitorId: text("monitor_id")
+      .notNull()
+      .references(() => monitors.id, { onDelete: "cascade" }),
+    runId: text("run_id").notNull().unique(),
+    at: integer("at").notNull(),
+    outcome: text("outcome").notNull(),
+    metrics: text("metrics", { mode: "json" })
+      .$type<import("@/core/monitoring/model").MonitorMetrics>()
+      .notNull(),
+    reasons: text("reasons", { mode: "json" }).$type<string[]>().notNull(),
+  },
+  (t) => [index("monitor_samples_time_idx").on(t.monitorId, t.at)],
+);
+export const monitorIncidents = sqliteTable(
+  "monitor_incidents",
+  {
+    id: text("id").primaryKey(),
+    monitorId: text("monitor_id")
+      .notNull()
+      .references(() => monitors.id, { onDelete: "cascade" }),
+    startedAt: integer("started_at").notNull(),
+    resolvedAt: integer("resolved_at"),
+    reasons: text("reasons", { mode: "json" }).$type<string[]>().notNull(),
+    openingRunId: text("opening_run_id").notNull(),
+    recoveryRunId: text("recovery_run_id"),
+  },
+  (t) => [index("monitor_incidents_time_idx").on(t.monitorId, t.startedAt)],
+);
+export const monitorEmails = sqliteTable(
+  "monitor_emails",
+  {
+    id: text("id").primaryKey(),
+    monitorId: text("monitor_id")
+      .notNull()
+      .references(() => monitors.id, { onDelete: "cascade" }),
+    incidentId: text("incident_id")
+      .notNull()
+      .references(() => monitorIncidents.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    recipient: text("recipient").notNull(),
+    subject: text("subject").notNull(),
+    body: text("body").notNull(),
+    status: text("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: integer("next_attempt_at"),
+    lockedUntil: integer("locked_until"),
+    lastError: text("last_error"),
+    createdAt: integer("created_at").notNull(),
+    finishedAt: integer("finished_at"),
+  },
+  (t) => [
+    uniqueIndex("monitor_email_event_unique").on(t.incidentId, t.kind, t.recipient),
+    index("monitor_email_due_idx").on(t.status, t.nextAttemptAt),
+  ],
+);

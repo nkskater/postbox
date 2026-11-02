@@ -1,6 +1,11 @@
 /** Event names are shared with the browser, so this file must not import Node modules. */
 /** Events a webhook can subscribe to. New sources add names here and call `emitEvent`. */
 export const WEBHOOK_EVENTS = [
+  {
+    type: "monitor.incident",
+    description: "A monitor crossed its failure threshold and opened an incident.",
+  },
+  { type: "monitor.recovered", description: "A monitor recovered and closed its open incident." },
   { type: "run.passed", description: "A collection run finished and every request and test passed." },
   { type: "run.failed", description: "A collection run finished with a failed request or test." },
   { type: "run.cancelled", description: "A collection run was cancelled before it finished." },

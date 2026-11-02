@@ -1,3 +1,4 @@
+import type { listMonitors, getMonitor, monitorInput, monitorPatch } from "@/server/monitors";
 import type { getFolderCatalog, searchCatalog, getCatalogEntry, publishCatalog } from "@/server/catalog";
 import type { CatalogPublishInput, CatalogMetadataInput, CatalogSearchInput } from "@/core/catalog/model";
 import type { getDocumentation, publishDocumentation } from "@/server/documentation";
@@ -89,6 +90,25 @@ const q = (params: Record<string, string | null | undefined>) =>
   new URLSearchParams(Object.entries(params).filter(([, v]) => v != null) as [string, string][]).toString();
 
 export const api = {
+  monitors: {
+    list: (workspaceId: string, signal?: AbortSignal) =>
+      call<ReturnType<typeof listMonitors>>(
+        "GET",
+        `/api/monitors?workspaceId=${encodeURIComponent(workspaceId)}`,
+        undefined,
+        signal,
+      ),
+    get: (id: string, hours = 168, signal?: AbortSignal) =>
+      call<ReturnType<typeof getMonitor>>("GET", `/api/monitors/${id}?hours=${hours}`, undefined, signal),
+    create: (input: z.input<typeof monitorInput>) =>
+      call<ReturnType<typeof getMonitor>>("POST", "/api/monitors", input),
+    update: (id: string, input: z.input<typeof monitorPatch>) =>
+      call<ReturnType<typeof getMonitor>>("PATCH", `/api/monitors/${id}`, input),
+    run: (id: string) => call<{ runId: string }>("POST", `/api/monitors/${id}/run`),
+    delete: (id: string) => call<{ ok: boolean }>("DELETE", `/api/monitors/${id}`),
+    retry: (id: string, deliveryId: string) =>
+      call<{ ok: boolean }>("POST", `/api/monitors/${id}/retry-email`, { deliveryId }),
+  },
   catalog: {
     managed: (id: string) => call<ReturnType<typeof getFolderCatalog>>("GET", `/api/folders/${id}/catalog`),
     publish: (id: string, body: CatalogPublishInput) =>
