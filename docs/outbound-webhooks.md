@@ -50,6 +50,47 @@ The body is JSON and carries totals only, never requests, responses or variable 
 }
 ```
 
+## Formats for chat and incident tools
+
+Choose a **format** per webhook. The stored event is always the Postbox JSON above; the format turns it into the body a
+service expects at send time.
+
+| Format      | Sends                                                                                                                                                                 |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `postbox`   | The signed JSON event (default)                                                                                                                                       |
+| `slack`     | An incoming-webhook message with a text fallback and a block, markup escaped                                                                                          |
+| `discord`   | A message and an embed, colored by outcome, with mentions disabled so an event can never ping `@everyone`                                                             |
+| `teams`     | A MessageCard with a colored title and facts                                                                                                                          |
+| `pagerduty` | Events API v2: a failed run or load test **triggers** an incident, a later pass of the same collection **resolves** it (`dedup_key = postbox:<kind>:<collection id>`) |
+
+Slack, Discord and Teams addresses **are** credentials, so they must be vault references (below). PagerDuty needs its
+routing key in the vault (`routingKeyRef`); the address defaults to `https://events.pagerduty.com/v2/enqueue`. The
+`Postbox-*` headers are still sent (and the signature still covers exactly the bytes sent), which services ignore.
+
+## Secrets from the vault
+
+Anything secret can be kept in the [secrets vault](secrets-vault.md) instead of on the webhook:
+
+- **URL**: set it to `{{vault:name}}` (the whole URL). Required for Slack, Discord and Teams.
+- **Signing key**: `signingKeyRef` names a vault secret used instead of a generated `whsec_…` key. The stored key is
+  dropped, rotation is done by replacing the vault value (the next delivery uses it), and **Rotate secret** is refused.
+- **PagerDuty routing key** and **custom header values** (`Authorization: Bearer {{vault:api-token}}`).
+
+Webhooks run without a signed-in user, so they can only use **enabled, workspace-wide** secrets: collection-scoped and
+personal secrets are refused when you save, and a secret that disappears later fails the delivery with a clear message
+and no retries. A secret limited to certain hosts is only sent to those hosts. The API, the audit log and delivery
+records contain the reference (the secret's name), never the value; header values are write-only and only their names
+are listed.
+
+## Custom headers and pausing
+
+`headers` adds up to 10 request headers (`[{ "name": "X-Team", "value": "payments" }]`). Names that belong to the
+transport or to Postbox (`Content-Type`, `Host`, `Postbox-*`, …) are refused.
+
+`pauseAfterFailures` (default 0, never) pauses a webhook after that many deliveries in a row **fail for good**
+(permanent errors, or retries used up). Each success resets the count. A paused webhook sends nothing, shows the reason
+and the time, and is recorded in the audit log; turn it back on (**Resume**, or `enabled: true`) to clear the pause.
+
 ## Verifying a delivery
 
 Each request has these headers:
@@ -112,14 +153,14 @@ delivery again as a new delivery of the same event. Finished deliveries are remo
 All routes need workspace `owner` access (or an administrator) and a key with the `full` scope when the key is
 scoped. Changes are recorded in the audit log without secrets.
 
-| Route                                | Purpose                                                                             |
-| ------------------------------------ | ----------------------------------------------------------------------------------- |
-| `GET /api/webhooks?workspaceId=`     | List webhooks (no secrets)                                                          |
-| `POST /api/webhooks`                 | Create `{workspaceId, name, url, events[], enabled?}`; returns the secret once      |
-| `GET/PATCH/DELETE /api/webhooks/:id` | Read, change (`name`, `url`, `events`, `enabled`), delete                           |
-| `POST /api/webhooks/:id/rotate`      | New secret, returned once                                                           |
-| `POST /api/webhooks/:id/test`        | Queue a `webhook.test` event                                                        |
-| `GET /api/webhooks/:id/deliveries`   | List (`?status=&limit=`), or `?delivery=<id>` for one with its attempts and payload |
-| `POST /api/webhooks/:id/replay`      | Body `{deliveryId}`; queue a finished delivery again                                |
+| Route                                | Purpose                                                                                                                                                                            |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/webhooks?workspaceId=`     | List webhooks (no secrets)                                                                                                                                                         |
+| `POST /api/webhooks`                 | Create `{workspaceId, name, url, events[], enabled?, format?, signingKeyRef?, routingKeyRef?, headers?, pauseAfterFailures?}`; returns the secret once (none with `signingKeyRef`) |
+| `GET/PATCH/DELETE /api/webhooks/:id` | Read, change (any of the create fields), delete                                                                                                                                    |
+| `POST /api/webhooks/:id/rotate`      | New secret, returned once                                                                                                                                                          |
+| `POST /api/webhooks/:id/test`        | Queue a `webhook.test` event                                                                                                                                                       |
+| `GET /api/webhooks/:id/deliveries`   | List (`?status=&limit=`), or `?delivery=<id>` for one with its attempts and payload                                                                                                |
+| `POST /api/webhooks/:id/replay`      | Body `{deliveryId}`; queue a finished delivery again                                                                                                                               |
 
 A workspace can have up to 20 webhooks.
