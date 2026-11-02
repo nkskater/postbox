@@ -19,7 +19,7 @@ import { RequestEditor } from "@/components/request/RequestEditor";
 import { FolderEditor } from "@/components/folder/FolderEditor";
 import { EnvironmentEditor } from "@/components/env/EnvironmentEditor";
 import { ConsolePanel } from "@/components/console/ConsolePanel";
-import { RunnerView } from "@/components/runner/RunnerView";
+import { RunnerTabs } from "@/components/runner/RunnerTabs";
 import { SaveRequestDialog } from "@/components/dialogs/SaveRequestDialog";
 import { ShortcutsDialog } from "@/components/dialogs/ShortcutsDialog";
 import { CommandPalette } from "@/components/dialogs/CommandPalette";
@@ -65,7 +65,7 @@ function MainArea() {
     case "globals":
       return <EnvironmentEditor key="globals" environmentId={null} />;
     case "runner":
-      return <RunnerView key={tab.folderId} folderId={tab.folderId} />;
+      return <RunnerTabs key={tab.folderId} folderId={tab.folderId} />;
     case "cookies":
       return <CookiesView />;
     case "catalog":

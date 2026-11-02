@@ -9,13 +9,17 @@ the REST API below.
 
 ## Events
 
-| Event           | Sent when                                                    |
-| --------------- | ------------------------------------------------------------ |
-| `run.passed`    | A collection run finished and every request and test passed. |
-| `run.failed`    | A run finished with a failed request or test.                |
-| `run.cancelled` | A run was cancelled.                                         |
-| `run.error`     | A run stopped because of an internal error.                  |
-| `webhook.test`  | You pressed **Send test**. Sent to that webhook only.        |
+| Event            | Sent when                                                    |
+| ---------------- | ------------------------------------------------------------ |
+| `run.passed`     | A collection run finished and every request and test passed. |
+| `run.failed`     | A run finished with a failed request or test.                |
+| `run.cancelled`  | A run was cancelled.                                         |
+| `run.error`      | A run stopped because of an internal error.                  |
+| `load.passed`    | A load test finished and every threshold passed.             |
+| `load.failed`    | A load test finished with a failed threshold.                |
+| `load.cancelled` | A load test was cancelled.                                   |
+| `load.error`     | A load test stopped because of an internal error.            |
+| `webhook.test`   | You pressed **Send test**. Sent to that webhook only.        |
 
 Scheduled runs and runs started from the CLI, MCP or the UI all produce the same events. Events for monitoring,
 reviews and specifications will use the same mechanism when those features exist.

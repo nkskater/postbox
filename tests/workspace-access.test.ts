@@ -84,6 +84,19 @@ beforeAll(async () => {
   }).id;
   const { createListener, listenerInput } = await import("@/server/hook-listeners");
   ids.hookListener = createListener(workspaceId, listenerInput.parse({ name: "Access listener" })).id;
+  ids.loadRun = "access-load-run";
+  getDb()
+    .insert(schema.loadRuns)
+    .values({
+      id: ids.loadRun,
+      workspaceId,
+      name: "Access load run",
+      status: "passed",
+      profile: { type: "constant", vus: 1, durationSec: 1 },
+      startedAt: Date.now(),
+      finishedAt: Date.now(),
+    })
+    .run();
   ids.environment = repo.createEnvironment(workspaceId, "Environment").id;
   ids.history = withCaller(caller(owner), () =>
     repo.addHistory({

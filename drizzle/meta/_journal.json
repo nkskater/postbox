@@ -169,6 +169,13 @@
       "when": 1793574600845,
       "tag": "0023_sudden_blazing_skull",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1793576799987,
+      "tag": "0024_steep_hannibal_king",
+      "breakpoints": true
     }
   ]
 }

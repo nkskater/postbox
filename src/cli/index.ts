@@ -19,6 +19,7 @@ import { emptyScopes, redactSecrets, variablesToRecord } from "../core/variables
 import { CliError, EXIT } from "./errors";
 import { registerSdk } from "./sdk";
 import { registerAppTest } from "./app-test";
+import { registerLoad } from "./load";
 import { registerManagement } from "./manage";
 import { consoleReporter } from "./reporter";
 
@@ -245,6 +246,7 @@ program
   .action(run);
 
 registerManagement(program);
+registerLoad(program);
 registerSdk(program);
 registerAppTest(program);
 

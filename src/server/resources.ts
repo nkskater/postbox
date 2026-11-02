@@ -7,6 +7,7 @@ export type ResourceKind =
   | "request"
   | "environment"
   | "run"
+  | "loadRun"
   | "history"
   | "cookie"
   | "schedule"
@@ -22,6 +23,7 @@ export const RESOURCE_TABLES: Record<ResourceKind, string> = {
   request: "requests",
   environment: "environments",
   run: "runs",
+  loadRun: "load_runs",
   history: "history",
   cookie: "cookies",
   schedule: "schedules",

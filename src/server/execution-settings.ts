@@ -52,3 +52,17 @@ export function historySettings(env: NodeJS.ProcessEnv = process.env): {
     skipSecrets: values["history.skipSecrets"] as boolean,
   };
 }
+
+/** Current load-test ceilings (read at admission so changes apply to the next test). */
+export function loadLimits(env: NodeJS.ProcessEnv = process.env): {
+  maxVus: number;
+  maxDurationSec: number;
+  maxRequests: number;
+} {
+  const { values } = resolveSettings(readSavedSettings(), env);
+  return {
+    maxVus: values["load.maxVus"] as number,
+    maxDurationSec: values["load.maxDurationSec"] as number,
+    maxRequests: values["load.maxRequests"] as number,
+  };
+}
