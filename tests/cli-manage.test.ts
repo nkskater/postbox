@@ -128,6 +128,21 @@ function handler(req: http.IncomingMessage, res: http.ServerResponse) {
         return reply(200, { id: "s1", name: "api", patched: Object.keys(JSON.parse(body)) });
       case "DELETE /api/vault/s1":
         return reply(200, { deleted: true });
+      case "POST /api/vault/s1/reveal":
+        return reply(200, { value: "revealed-secret-value" });
+      case "POST /api/vault/export":
+        return reply(
+          200,
+          JSON.stringify({ format: "postbox.vault", encrypted: true, received: JSON.parse(body) }),
+        );
+      case "POST /api/vault/import":
+        return reply(200, {
+          created: ["a"],
+          replaced: [],
+          skipped: [],
+          warnings: [],
+          received: JSON.parse(body),
+        });
       case "POST /api/vault/migrate":
         return reply(200, { moved: [{ key: "token", name: "environment.Prod.token" }], skipped: [] });
       case "GET /api/admin/vault":

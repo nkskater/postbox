@@ -25,6 +25,8 @@ export interface VariableScopes {
   vault?: Record<string, string>;
   /** Names from `vault` that scripts may read with pm.vault.get(). */
   vaultScripts?: string[];
+  /** Hosts each restricted vault secret may be sent to (see src/core/vault/domains.ts). */
+  vaultDomains?: Record<string, string[]>;
 }
 
 /** Prefix of a vault reference inside {{ }}. */

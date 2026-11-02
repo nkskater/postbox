@@ -128,6 +128,8 @@ export interface ScriptResult {
   nextRequest?: string | null;
   nextRequestSet: boolean;
   skipRequest: boolean;
+  /** Vault secrets the script replaced with pm.vault.set (names that allow script access only). */
+  vaultChanges?: Record<string, string>;
 }
 
 export interface RunScriptOptions {
@@ -151,14 +153,15 @@ export async function runScript(
 ): Promise<ScriptResult> {
   const limits = { ...DEFAULT_LIMITS, ...opts.limits };
   // Vault values never enter the guest as a scope: scripts get only the names marked for script access.
-  const { vault, vaultScripts, ...guestScopes } = ctx.scopes;
+  const { vault, vaultScripts, vaultDomains, ...guestScopes } = ctx.scopes;
   const scriptVault: Record<string, string> = {};
   for (const name of vaultScripts ?? [])
     if (vault && Object.hasOwn(vault, name)) scriptVault[name] = vault[name];
-  const withVault = (scopes: VariableScopes): VariableScopes => ({
+  const withVault = (scopes: VariableScopes, changed: Record<string, string> = {}): VariableScopes => ({
     ...scopes,
-    ...(vault ? { vault } : {}),
+    ...(vault ? { vault: { ...vault, ...changed } } : {}),
     ...(vaultScripts ? { vaultScripts } : {}),
+    ...(vaultDomains ? { vaultDomains } : {}),
   });
   const source = opts.source ?? ctx.info.eventName;
   const logs: ConsoleEntry[] = [];
@@ -454,10 +457,15 @@ export async function runScript(
     if (!parsed.success)
       return { ...base, error: `Script produced an invalid result: ${describeIssues(parsed.error)}` };
     const state = parsed.data;
+    // Only secrets the script was allowed to read can have been replaced.
+    const vaultChanges = Object.fromEntries(
+      Object.entries(state.vaultSet ?? {}).filter(([name]) => Object.hasOwn(scriptVault, name)),
+    );
     return {
       visualization: state.visualization,
       visualizationSet: state.visualizationSet,
-      scopes: withVault(state.scopes),
+      vaultChanges: Object.keys(vaultChanges).length ? vaultChanges : undefined,
+      scopes: withVault(state.scopes, vaultChanges),
       request: { ...ctx.request, ...state.request },
       tests: state.tests,
       logs,

@@ -49,7 +49,7 @@ export const POST = route(async (req: Request) => {
   // Vault references stay as {{vault:name}} in a snippet: decrypted values never leave an execution.
   const resolver = input.resolveVariables
     ? new Resolver(
-        (({ vault: _vault, vaultScripts: _names, ...scopes }) => scopes)(
+        (({ vault: _vault, vaultScripts: _names, vaultDomains: _domains, ...scopes }) => scopes)(
           loadScopes(input.workspaceId, input.environmentId ?? null, chain[0]?.id ?? null).scopes,
         ),
       )

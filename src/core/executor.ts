@@ -1,3 +1,4 @@
+import { checkVaultDomains, guardedSecrets } from "./vault/guard";
 import { parseContract, validateContractRequest, validateContractResponse } from "./contracts/validate";
 import type { ContractDiagnostic } from "./contracts/model";
 import type { ModuleSnapshot } from "./packages/model";
@@ -295,6 +296,9 @@ async function executeInternal(
     policy: opts.policy,
     signal: opts.signal,
     oauth2CacheScope: opts.oauth2CacheScope,
+    guard: opts.scopes.vaultDomains
+      ? (message) => checkVaultDomains(guardedSecrets(scopes), message)
+      : undefined,
   };
   const info = (eventName: "prerequest" | "test") => ({
     eventName,
@@ -308,7 +312,12 @@ async function executeInternal(
   // Scopes that come back from a script lack the vault; host calls made on its behalf need it again.
   const withVault = (current?: VariableScopes): VariableScopes | undefined =>
     current && opts.scopes.vault
-      ? { ...current, vault: opts.scopes.vault, vaultScripts: opts.scopes.vaultScripts }
+      ? {
+          ...current,
+          vault: opts.scopes.vault,
+          vaultScripts: opts.scopes.vaultScripts,
+          vaultDomains: opts.scopes.vaultDomains,
+        }
       : current;
 
   // pm.sendRequest implementation: resolve variables, send through the same engine/policy.
@@ -474,6 +483,10 @@ async function executeInternal(
         { host, limits: opts.scriptLimits, secrets, source, signal: opts.signal },
       );
       scopes = result.scopes;
+      // A replaced vault value must be redacted from now on, even though it was never a variable.
+      for (const value of Object.values(result.vaultChanges ?? {}))
+        for (const form of credentialRedactionValues([value]))
+          if (!secrets.includes(form)) secrets.push(form);
       if (result.visualizationSet) {
         visualization = result.visualization;
         visualizationResult = visualization

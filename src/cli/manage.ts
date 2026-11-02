@@ -816,6 +816,13 @@ export function registerManagement(program: Command) {
       .option("--script-access", "Let scripts read it with pm.vault.get")
       .option("--no-script-access", "Do not let scripts read it")
       .option(
+        "--domains <list>",
+        "Only send it to these hosts, comma separated (api.example.com, *.example.org)",
+      )
+      .option("--personal", "Only you can use it (new secrets only)")
+      .option("--disable", "Switch it off without deleting it")
+      .option("--enable", "Switch it back on")
+      .option(
         "--collection <id>",
         "Only available in this collection (repeatable)",
         (v: string, p: string[]) => [...p, v],
@@ -828,6 +835,10 @@ export function registerManagement(program: Command) {
         description?: string;
         scriptAccess?: boolean;
         collection: string[];
+        domains?: string;
+        personal?: boolean;
+        disable?: boolean;
+        enable?: boolean;
       }>();
       const source = o.valueFile ?? (process.stdin.isTTY ? undefined : "-");
       if (!source)
@@ -844,6 +855,15 @@ export function registerManagement(program: Command) {
         ...(o.description !== undefined ? { description: o.description } : {}),
         ...(o.scriptAccess !== undefined ? { scriptAccess: o.scriptAccess } : {}),
         ...(o.collection.length ? { collectionIds: o.collection } : {}),
+        ...(o.domains !== undefined
+          ? {
+              domains: o.domains
+                .split(",")
+                .map((d) => d.trim())
+                .filter(Boolean),
+            }
+          : {}),
+        ...(o.disable ? { enabled: false } : o.enable ? { enabled: true } : {}),
       };
       ctx.show(
         existing
@@ -881,6 +901,89 @@ export function registerManagement(program: Command) {
         }),
       ),
     ),
+  );
+  withWorkspace(
+    vaultCmd
+      .command("reveal <name>")
+      .description("Print a secret's value (its creator or a workspace owner; audited)"),
+  ).action(
+    act(async (ctx, [secretName]) => {
+      const existing = await secretByName(ctx, secretName);
+      if (!existing) throw new CliError(`No secret "${secretName}" in this workspace.`, EXIT.notFound);
+      const { value } = await ctx.api.request<{ value: string }>(
+        "POST",
+        `/api/vault/${enc(String(existing.id))}/reveal`,
+      );
+      process.stdout.write(value + (process.stdout.isTTY ? "\n" : ""));
+    }),
+  );
+  withWorkspace(
+    vaultCmd
+      .command("export")
+      .description("Write the workspace's secrets to a passphrase-protected file (workspace owners)")
+      .requiredOption("--out <file>", "File to write")
+      .option("--passphrase-file <path>", 'File holding the passphrase, or "-" for standard input')
+      .option("--include-personal", "Include your personal secrets"),
+  ).action(
+    act(async (ctx, _args, command) => {
+      const o = command.opts<{ out: string; passphraseFile?: string; includePersonal?: boolean }>();
+      if (!o.passphraseFile)
+        throw new CliError(
+          "Provide the passphrase with --passphrase-file <path> (or - for standard input).",
+          EXIT.usage,
+        );
+      let passphrase: string;
+      try {
+        passphrase = (
+          o.passphraseFile === "-" ? await readStdin() : await readFile(o.passphraseFile, "utf8")
+        ).replace(/\r?\n$/, "");
+      } catch (error) {
+        throw new CliError(`Cannot read ${o.passphraseFile}: ${(error as Error).message}`, EXIT.usage);
+      }
+      const text = await ctx.api.request<string>("POST", "/api/vault/export", {
+        raw: true,
+        body: {
+          workspaceId: await ctx.workspace(),
+          passphrase,
+          ...(o.includePersonal ? { includePersonal: true } : {}),
+        },
+      });
+      await writeFile(o.out, text, { mode: 0o600 });
+      out(`Wrote ${o.out}`);
+    }),
+  );
+  withWorkspace(
+    vaultCmd
+      .command("import <file>")
+      .description("Add the secrets from an export file")
+      .option("--passphrase-file <path>", 'File holding the passphrase, or "-" for standard input')
+      .option("--on-conflict <mode>", "skip, replace or rename when a name exists", "skip"),
+  ).action(
+    act(async (ctx, [file], command) => {
+      const o = command.opts<{ passphraseFile?: string; onConflict: string }>();
+      if (!["skip", "replace", "rename"].includes(o.onConflict))
+        throw new CliError("Use skip, replace or rename.", EXIT.usage);
+      let passphrase: string | undefined;
+      if (o.passphraseFile) {
+        try {
+          passphrase = (
+            o.passphraseFile === "-" ? await readStdin() : await readFile(o.passphraseFile, "utf8")
+          ).replace(/\r?\n$/, "");
+        } catch (error) {
+          throw new CliError(`Cannot read ${o.passphraseFile}: ${(error as Error).message}`, EXIT.usage);
+        }
+      }
+      ctx.show(
+        await ctx.api.request("POST", "/api/vault/import", {
+          body: {
+            workspaceId: await ctx.workspace(),
+            file: await readJson(file),
+            ...(passphrase ? { passphrase } : {}),
+            onConflict: o.onConflict,
+          },
+        }),
+      );
+    }),
   );
   vaultCmd
     .command("status")

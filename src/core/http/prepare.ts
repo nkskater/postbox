@@ -3,6 +3,8 @@
  * resolves variables, merges inherited headers, encodes the body and applies auth.
  */
 import type { AuthConfig, BodyConfig, FolderDef, KeyValue, PreparedRequest, RequestDef } from "../types";
+import { checkVaultDomains, guardedSecrets } from "../vault/guard";
+import { VaultDomainError } from "../vault/guard";
 import { DEFAULT_SETTINGS } from "../types";
 import { Resolver } from "../variables/resolver";
 import { applyAuth, resolveAuth, resolveEffectiveAuth, type OAuth2Token } from "./auth";
@@ -128,6 +130,14 @@ export async function prepareRequest(
     resolver,
   );
   const { oauth2Token } = await applyAuth(prepared, effectiveAuth, engine, opts.offline);
+
+  // A domain-restricted vault secret never leaves for a host it is not allowed for (every protocol prepares here).
+  const misdirected = checkVaultDomains(guardedSecrets(resolver.scopes), {
+    url: prepared.url,
+    headers: prepared.headers,
+    body: prepared.body,
+  });
+  if (misdirected) throw new VaultDomainError(misdirected, []);
 
   return { prepared, unresolved: [...resolver.unresolved], oauth2Token, effectiveAuth, resolvedBody };
 }

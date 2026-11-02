@@ -12,7 +12,7 @@ import { execute, type ExecuteResult, type SavedRequestResolver } from "@/core/e
 import { CookieJarStore } from "@/core/http/cookies";
 import { HostPolicy } from "@/core/http/policy";
 import { withOutbound } from "./outbound";
-import { loadVaultForExecution } from "./vault";
+import { loadVaultForExecution, setFromScript as setVaultFromScript } from "./vault";
 import {
   emptyScopes,
   variablesToRecord,
@@ -69,7 +69,9 @@ export function loadScopes(
       globals: variablesToRecord(globals),
       environment: variablesToRecord(env),
       collection: variablesToRecord(col),
-      ...(hasVault ? { vault: vault.values, vaultScripts: vault.scriptNames } : {}),
+      ...(hasVault
+        ? { vault: vault.values, vaultScripts: vault.scriptNames, vaultDomains: vault.domains }
+        : {}),
     },
     secrets: [...secretValues(globals, env, col), ...vault.secrets],
     secretKeys: {
@@ -83,6 +85,12 @@ export function loadScopes(
 /** Persist script-made variable changes; returns warnings (e.g. no active environment). */
 export function persistScopes(ctx: ScopeContext, after: VariableScopes): string[] {
   const warnings: string[] = [];
+  // pm.vault.set: scripts can replace secrets that allow script access.
+  for (const name of after.vaultScripts ?? []) {
+    const next = after.vault?.[name];
+    if (next !== undefined && next !== ctx.scopes.vault?.[name])
+      setVaultFromScript(ctx.workspaceId, name, next);
+  }
   repo.persistScopeDiff(
     ctx.workspaceId,
     "global",

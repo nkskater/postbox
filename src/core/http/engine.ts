@@ -32,6 +32,8 @@ export interface EngineOptions {
   signal?: AbortSignal;
   /** Encoded body cap (truncates) and per-stage decoded cap (rejects). Default 50 MB. */
   maxBodyBytes?: number;
+  /** Checked before every hop is sent (redirects included); a returned reason refuses the hop. */
+  guard?: (message: { url: string; headers: [string, string][]; body?: Buffer }) => string | null;
 }
 
 export class RequestError extends Error {
@@ -415,6 +417,9 @@ export async function sendRequest(
         hopHeaders = [...hopHeaders, ["Authorization", `NTLM ${negotiateMessage()}`]];
         ntlmState = "negotiating";
       }
+
+      const refused = options.guard?.({ url: url.toString(), headers: hopHeaders, body });
+      if (refused) throw new RequestError(refused, "EVAULTDOMAIN");
 
       const httpVersion = settings.httpVersion ?? "http1";
       if (httpVersion === "http2" && proxied && url.protocol === "http:") {
