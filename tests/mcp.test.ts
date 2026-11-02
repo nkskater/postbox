@@ -49,6 +49,69 @@ afterAll(async () => {
 });
 
 describe("MCP server (/api/mcp)", () => {
+  it("generates and previews/applies linked specification round trips through MCP", async () => {
+    const ws = parseToolJson<{ id: string }>(
+      await client.callTool({ name: "create_workspace", arguments: { name: "Sync MCP" } }),
+    );
+    const folder = parseToolJson<{ id: string }>(
+      await client.callTool({
+        name: "create_folder",
+        arguments: { workspaceId: ws.id, name: "Sync collection" },
+      }),
+    );
+    await client.callTool({
+      name: "create_request",
+      arguments: { folderId: folder.id, name: "Health", url: "https://example.test/health" },
+    });
+    const created = await client.callTool({
+      name: "generate_collection_specification",
+      arguments: { folderId: folder.id },
+    });
+    expect(created.isError).toBeFalsy();
+    const spec = parseToolJson<{ id: string }>(created);
+    const linked = await client.callTool({
+      name: "get_collection_specification",
+      arguments: { folderId: folder.id },
+    });
+    expect(parseToolJson<{ specificationId: string }>(linked).specificationId).toBe(spec.id);
+    const p = parseToolJson<{ token: string; inSync: boolean }>(
+      await client.callTool({
+        name: "preview_specification_sync",
+        arguments: { specificationId: spec.id, folderId: folder.id, direction: "specification" },
+      }),
+    );
+    expect(p.inSync).toBe(true);
+    expect(
+      (
+        await client.callTool({
+          name: "apply_specification_sync",
+          arguments: {
+            specificationId: spec.id,
+            folderId: folder.id,
+            direction: "specification",
+            token: p.token,
+          },
+        })
+      ).isError,
+    ).toBeFalsy();
+    const generated = await client.callTool({
+      name: "generate_specification_collection",
+      arguments: { specificationId: spec.id },
+    });
+    expect(generated.isError).toBeFalsy();
+    expect(
+      parseToolJson<unknown[]>(
+        await client.callTool({
+          name: "list_specification_collections",
+          arguments: { specificationId: spec.id },
+        }),
+      ),
+    ).toHaveLength(2);
+    expect(
+      (await client.callTool({ name: "unlink_collection_specification", arguments: { folderId: folder.id } }))
+        .isError,
+    ).toBeFalsy();
+  });
   it("creates, versions, validates and exports specifications through MCP", async () => {
     const ws = parseToolJson<{ id: string }>(
       await client.callTool({ name: "create_workspace", arguments: { name: "Specification MCP" } }),

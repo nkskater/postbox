@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "@/stores/app";
 import { api } from "@/lib/api";
+import { SpecificationCollectionsPanel } from "./SpecificationSyncPanel";
 import { CodeEditor } from "@/components/editor/CodeEditor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -397,6 +398,19 @@ function WorkspaceSpecifications({ workspaceId }: { workspaceId: string }) {
               bundle only.
             </p>
           </section>
+          {doc?.format === "openapi" && (
+            <SpecificationCollectionsPanel
+              key={doc.specificationId}
+              specificationId={doc.specificationId}
+              version={doc.version}
+              onBusyChange={setBusy}
+              disabled={busy || dirty}
+              onChanged={async () => {
+                load(await api.specifications.get(doc.specificationId));
+                await refresh();
+              }}
+            />
+          )}
           <section className="rounded border p-3 space-y-3">
             <div className="flex flex-wrap gap-3">
               <label className="text-xs">

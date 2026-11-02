@@ -1,3 +1,4 @@
+import * as specificationSync from "./specification-sync";
 import * as specifications from "./specifications";
 import { generateCatalogSdk } from "./sdk";
 import { sdkOptionsSchema } from "@/core/sdk/model";
@@ -280,6 +281,114 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
     },
   );
 
+  server.registerTool(
+    "get_collection_specification",
+    {
+      description: "Inspect a collection's source specification link.",
+      inputSchema: { folderId: z.string().min(1) },
+    },
+    async ({ folderId }) => {
+      try {
+        return okJson(specificationSync.getCollectionSpecification(folderId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "generate_collection_specification",
+    {
+      description:
+        "Generate and link a versioned OpenAPI specification from typed collection requests and examples.",
+      inputSchema: {
+        folderId: z.string().min(1),
+        options: specificationSync.generateSpecificationInput.optional(),
+      },
+    },
+    async ({ folderId, options }) => {
+      try {
+        return okJson(specificationSync.generateSpecification(folderId, options));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "unlink_collection_specification",
+    {
+      description: "Remove a source link while retaining the collection and specification.",
+      inputSchema: { folderId: z.string().min(1) },
+    },
+    async ({ folderId }) => {
+      try {
+        return okJson(specificationSync.unlinkSpecification(folderId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "list_specification_collections",
+    {
+      description: "List collections linked to a specification.",
+      inputSchema: { specificationId: z.string().min(1) },
+    },
+    async ({ specificationId }) => {
+      try {
+        return okJson(specificationSync.listSpecificationCollections(specificationId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "generate_specification_collection",
+    {
+      description:
+        "Create a linked collection from a saved OpenAPI version using existing server precedence.",
+      inputSchema: {
+        specificationId: z.string().min(1),
+        options: specificationSync.generateCollectionInput.optional(),
+      },
+    },
+    async ({ specificationId, options }) => {
+      try {
+        return okJson(await specificationSync.generateCollection(specificationId, options));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "preview_specification_sync",
+    {
+      description:
+        "Preview linked collection/specification drift and three-way conflicts without changing either side.",
+      inputSchema: { specificationId: z.string().min(1), ...specificationSync.syncPreviewInput.shape },
+    },
+    async ({ specificationId, ...input }) => {
+      try {
+        return okJson(await specificationSync.previewSpecificationSync(specificationId, input));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "apply_specification_sync",
+    {
+      description:
+        "Apply a reviewed synchronization token with explicit keep/take conflict choices; stale previews are rejected.",
+      inputSchema: { specificationId: z.string().min(1), ...specificationSync.syncApplyInput.shape },
+    },
+    async ({ specificationId, ...input }) => {
+      try {
+        return okJson(await specificationSync.applySpecificationSync(specificationId, input));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
   server.registerTool(
     "list_specifications",
     {

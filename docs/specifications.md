@@ -98,3 +98,5 @@ tools use `specificationId`; `save_specification` takes the PATCH object as
 `patch`. `get_specification` accepts optional `version`. Read-only MCP mode
 exposes list/get/validate and excludes source mutations. Returned files from
 `get_specification` can be exported using the documented bundle structure.
+
+[Generate and synchronize linked OpenAPI collections](specification-sync.md) from the specification's linked collections panel or a collection's Specification tab.
