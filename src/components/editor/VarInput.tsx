@@ -12,6 +12,7 @@ import { useApp } from "@/stores/app";
 import { cn } from "@/lib/utils";
 import { useVariableOptions, variableExtensions } from "./variables-ext";
 import { editorTheme } from "./theme";
+import { MoveToVault } from "./MoveToVault";
 
 const singleLine: Extension = [
   // Strip newlines from typed or pasted text.
@@ -33,6 +34,8 @@ export interface VarInputProps {
   readOnly?: boolean;
   /** Show the value as dots (secret fields). */
   masked?: boolean;
+  /** A credential that is not dotted out (tokens) but can still be moved into the secrets vault. */
+  vaultable?: boolean;
   autoFocus?: boolean;
   onPasteText?: (text: string) => boolean;
 }
@@ -45,6 +48,7 @@ export function VarInput({
   className,
   readOnly,
   masked,
+  vaultable,
   autoFocus,
   onPasteText,
 }: VarInputProps) {
@@ -107,6 +111,7 @@ export function VarInput({
           history: true,
         }}
       />
+      {(masked || vaultable) && !readOnly && <MoveToVault value={value} onMoved={onChange} />}
     </div>
   );
 }

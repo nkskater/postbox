@@ -48,7 +48,8 @@ export function variableExtensions(
   vars: Record<string, KnownVariable>,
   opts: VariableExtOptions = {},
 ): Extension[] {
-  const known = (name: string) => name in vars || isDynamicVariable(name);
+  // {{vault:name}} is resolved on the server, so the browser cannot tell whether the secret exists; it is not flagged.
+  const known = (name: string) => name in vars || isDynamicVariable(name) || name.startsWith("vault:");
   const missingClass = opts.highlightUnresolved === false ? "pb-var-ok" : "pb-var-missing";
   const decorator = new MatchDecorator({
     regexp: PATTERN,
@@ -83,6 +84,8 @@ export function variableExtensions(
           dom.className = "pb-var-tooltip";
           const v = vars[name];
           if (v) dom.textContent = `${name} = ${v.secret ? "••••••••" : v.value || "(empty)"}   [${v.scope}]`;
+          else if (name.startsWith("vault:"))
+            dom.textContent = `${name.slice(6)}: secrets vault reference (resolved only when the request is sent)`;
           else if (isDynamicVariable(name))
             dom.textContent = `${name}: dynamic variable (generated per request)`;
           else dom.textContent = `${name} is not defined in the active environment, collection or globals`;

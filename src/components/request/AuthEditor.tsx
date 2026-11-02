@@ -152,6 +152,7 @@ export function AuthEditor({
         <>
           <Field label="Token">
             <VarInput
+              vaultable
               value={auth.bearer.token}
               onChange={(token) => onChange({ ...auth, bearer: { ...auth.bearer, token } })}
               placeholder="Token"
@@ -211,6 +212,7 @@ export function AuthEditor({
           </Field>
           <Field label="Value">
             <VarInput
+              vaultable
               value={auth.apikey.value}
               onChange={(v) => onChange({ ...auth, apikey: { ...auth.apikey, value: v } })}
             />
@@ -548,6 +550,7 @@ function OAuth2Editor({
       </Field>
       <Field label="Access Token">
         <VarInput
+          vaultable
           value={config.accessToken}
           onChange={(accessToken) => set({ accessToken, expiresAt: undefined })}
           placeholder="Obtained automatically or paste one"
@@ -847,7 +850,12 @@ function OAuth1Editor({ config, onChange }: { config: OAuth1Config; onChange: (c
         </Field>
       )}
       <Field label="Access Token">
-        <VarInput value={config.token ?? ""} onChange={optional("token")} placeholder="Token (optional)" />
+        <VarInput
+          vaultable
+          value={config.token ?? ""}
+          onChange={optional("token")}
+          placeholder="Token (optional)"
+        />
       </Field>
       {!rsa && (
         <Field label="Token Secret">

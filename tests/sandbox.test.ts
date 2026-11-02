@@ -278,7 +278,7 @@ describe("script sandbox", () => {
 
   it("reports clear errors for documented APIs that Postbox does not support", async () => {
     const r = await runScript(
-      `pm.test("vault", () => { pm.expect(pm.vault.get("key")).to.equal(undefined); pm.expect(pm.vault.has("key")).to.equal(false); pm.expect(() => pm.vault.set("key", "v")).to.throw(/pm.vault.set .* is not supported/); });
+      `pm.test("vault", () => { pm.expect(pm.vault.get("key")).to.equal(undefined); pm.expect(pm.vault.has("key")).to.equal(false); pm.expect(() => pm.vault.set("key", "v")).to.throw(/existing secret that allows script access/); pm.expect(() => pm.vault.unset("key")).to.throw(/pm.vault.unset .* is not supported/); });
        pm.test("visualizer", () => { pm.visualizer.set("<p>{{value}}</p>", {value: "hi"}); pm.expect(pm.visualizer.get().data.value).to.equal("hi"); });
        pm.test("packages", () => pm.expect(() => pm.require("package")).to.throw(/unavailable/));
        pm.test("datasets", () => pm.expect(() => pm.datasets("select 1")).to.throw(/pm.datasets is not supported/));
