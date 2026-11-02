@@ -59,6 +59,22 @@ beforeAll(async () => {
       updatedAt: Date.now(),
     })
     .run();
+  ids.mcpCall = withCaller(caller(owner), () => ({ id: "access-mcp-call" })).id;
+  getDb()
+    .insert(schema.mcpCalls)
+    .values({
+      id: ids.mcpCall,
+      workspaceId,
+      name: "Access MCP",
+      config: {
+        name: "Access MCP",
+        connection: { url: "https://example.test/mcp", headers: [], timeoutMs: 15000 },
+        action: { type: "tools/list" },
+      },
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    })
+    .run();
   ids.grpcDefinition = "access-grpc-definition";
   getDb()
     .insert(schema.grpcDefinitions)

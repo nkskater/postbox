@@ -14,6 +14,7 @@ import { useApp } from "@/stores/app";
 import { useDialogs } from "@/stores/dialogs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Sidebar } from "@/components/sidebar/Sidebar";
+import { McpClientPanel } from "@/components/mcp-client/McpClientPanel";
 import { CatalogBrowser } from "@/components/catalog/CatalogBrowser";
 import { RequestEditor } from "@/components/request/RequestEditor";
 import { FolderEditor } from "@/components/folder/FolderEditor";
@@ -68,6 +69,8 @@ function MainArea() {
       return <RunnerTabs key={tab.folderId} folderId={tab.folderId} />;
     case "cookies":
       return <CookiesView />;
+    case "mcp-client":
+      return <McpClientPanel />;
     case "catalog":
       return <CatalogBrowser />;
     case "settings":
