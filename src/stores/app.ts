@@ -54,6 +54,7 @@ export type Tab =
   | { id: string; type: "mcp-client"; name: string }
   | { id: string; type: "monitors"; name: string }
   | { id: string; type: "specifications"; name: string }
+  | { id: string; type: "governance"; name: string }
   | { id: string; type: "settings"; name: string };
 
 export interface KnownVariable {
@@ -194,7 +195,8 @@ interface AppState {
     | "catalog"
     | "mcp-client"
     | "monitors"
-    | "specifications";
+    | "specifications"
+    | "governance";
   historyVersion: number;
   datasetVersion: number;
   packageVersion: number;

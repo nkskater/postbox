@@ -103,6 +103,7 @@ describe("contract and access policy", () => {
       "/api/mcp",
       "/api/monitors",
       "/api/specifications",
+      "/api/governance",
       "/api/folders/[id]/specification",
       "/api/hook-listeners",
       "/api/load-runs",

@@ -57,6 +57,27 @@ beforeAll(async () => {
       createdAt: 1,
     })
     .run();
+  ids.governanceRuleSet = "access-governance";
+  getDb()
+    .insert(schema.governanceRuleSets)
+    .values({ id: ids.governanceRuleSet, workspaceId, name: "Access policy", createdAt: 1, updatedAt: 1 })
+    .run();
+  getDb()
+    .insert(schema.governanceRuleVersions)
+    .values({
+      ruleSetId: ids.governanceRuleSet,
+      version: 1,
+      config: {
+        formatVersion: 1,
+        name: "Access policy",
+        description: "",
+        rules: [],
+        overrides: {},
+        exclusions: [],
+      },
+      createdAt: 1,
+    })
+    .run();
   ids.workspace = workspaceId;
   ids.folder = repo.createFolder(workspaceId, null).id;
   ids.request = repo.createRequest(workspaceId, ids.folder, { url: "http://127.0.0.1:1/" }).id;

@@ -1,3 +1,4 @@
+import { governanceConfig, governanceOverrides, governanceExclusion } from "@/core/governance/model";
 import { specificationSource } from "@/core/specifications/model";
 import { analyzeSpecification } from "@/core/specifications/analyze";
 import { createHash, randomBytes } from "node:crypto";
@@ -47,6 +48,9 @@ const TABLES = {
   specifications: schema.specifications,
   specificationVersions: schema.specificationVersions,
   specificationLinks: schema.specificationLinks,
+  governanceRuleSets: schema.governanceRuleSets,
+  governanceRuleVersions: schema.governanceRuleVersions,
+  governanceBindings: schema.governanceBindings,
   mockServers: schema.mockServers,
   scriptPackages: schema.scriptPackages,
   scriptPackageVersions: schema.scriptPackageVersions,
@@ -76,6 +80,9 @@ const ORDER: TableName[] = [
   "specifications",
   "specificationVersions",
   "specificationLinks",
+  "governanceRuleSets",
+  "governanceRuleVersions",
+  "governanceBindings",
   "mockServers",
   "scriptPackages",
   "scriptPackageVersions",
@@ -314,6 +321,33 @@ export function restoreBackup(db: DB, sqlite: Database.Database, input: unknown)
         ? { ...row, enabled: false, lastRunId: null, lastRunAt: null }
         : row,
     ),
+    governanceRuleVersions: tables.governanceRuleVersions.map((row) => {
+      const parsed = governanceConfig.safeParse(row.config);
+      if (!parsed.success) throw new BackupError("Invalid governance policy in backup");
+      return { ...row, config: parsed.data };
+    }),
+    governanceBindings: tables.governanceBindings.map((row) => {
+      const spec = tables.specifications.find((s) => s.id === row.specificationId),
+        set = tables.governanceRuleSets.find((s) => s.id === row.ruleSetId),
+        version = tables.governanceRuleVersions.find(
+          (v) => v.ruleSetId === row.ruleSetId && v.version === (row.ruleVersion ?? set?.revision),
+        );
+      if (
+        !spec ||
+        !set ||
+        spec.workspaceId !== row.workspaceId ||
+        set.workspaceId !== row.workspaceId ||
+        !version
+      )
+        throw new BackupError("Invalid governance binding in backup");
+      try {
+        governanceOverrides.parse(row.overrides ?? {});
+        z.array(governanceExclusion).parse(row.exclusions ?? []);
+      } catch {
+        throw new BackupError("Invalid governance overrides in backup");
+      }
+      return row;
+    }),
     specificationVersions: tables.specificationVersions.map((row) => {
       const parent = tables.specifications.find((s) => s.id === row.specificationId);
       const parsed = specificationSource.safeParse({

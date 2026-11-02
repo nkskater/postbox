@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "@/stores/app";
 import { api } from "@/lib/api";
+import { SpecificationGovernancePanel } from "@/components/governance/GovernancePanel";
 import { SpecificationCollectionsPanel } from "./SpecificationSyncPanel";
 import { CodeEditor } from "@/components/editor/CodeEditor";
 import { Button } from "@/components/ui/button";
@@ -398,6 +399,20 @@ function WorkspaceSpecifications({ workspaceId }: { workspaceId: string }) {
               bundle only.
             </p>
           </section>
+          {doc && (
+            <SpecificationGovernancePanel
+              key={doc.specificationId}
+              specificationId={doc.specificationId}
+              version={doc.version}
+              workspaceId={workspaceId}
+              disabled={busy || dirty}
+              onBusyChange={setBusy}
+              onFile={(path) => {
+                if (source.files.some((f) => f.path === path)) setFile(path);
+                else setError("This report location belongs to a different source version.");
+              }}
+            />
+          )}
           {doc?.format === "openapi" && (
             <SpecificationCollectionsPanel
               key={doc.specificationId}
