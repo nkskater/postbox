@@ -1184,3 +1184,21 @@ export const specificationVersions = sqliteTable(
   },
   (t) => [primaryKey({ columns: [t.specificationId, t.version] })],
 );
+
+export const specificationLinks = sqliteTable("specification_links", {
+  folderId: text("folder_id")
+    .primaryKey()
+    .references(() => folders.id, { onDelete: "cascade" }),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  specificationId: text("specification_id")
+    .notNull()
+    .references(() => specifications.id, { onDelete: "cascade" }),
+  specVersion: integer("spec_version").notNull(),
+  revision: integer("revision").notNull().default(1),
+  baseline: text("baseline", { mode: "json" })
+    .$type<import("@/server/specification-sync").SyncBaseline>()
+    .notNull(),
+  ...timestamps,
+});

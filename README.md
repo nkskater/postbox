@@ -657,3 +657,5 @@ Share pinned helpers across collections using **Packages** and `pm.require`. See
 [API monitoring](docs/monitoring.md) adds scheduled thresholds, retained check history, incident/recovery dashboards, and deduplicated webhook and SMTP alerts.
 
 - [API specification workspace](docs/specifications.md): versioned definitions, diagnostics, references and documentation preview.
+
+- [Linked OpenAPI collections](docs/specification-sync.md): generation, reviewed synchronization and drift/conflict detection.

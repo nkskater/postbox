@@ -390,7 +390,13 @@ function buildBody(spec: Obj, op: Obj, params: Obj[]): { body: BodyConfig; conte
   };
 }
 
-export function importOpenApi(input: string | Obj, opts: { sourceUrl?: string } = {}): ImportedCollection {
+export function importOpenApi(
+  input: string | Obj,
+  opts: {
+    sourceUrl?: string;
+    onOperation?: (request: RequestNode, operation: { method: string; path: string; value: Obj }) => void;
+  } = {},
+): ImportedCollection {
   const spec = typeof input === "string" ? parseSpec(input) : input;
   if (!isOpenApi(spec)) throw new Error("Not an OpenAPI/Swagger document");
   const info = (spec.info ?? {}) as Obj;
@@ -550,6 +556,7 @@ export function importOpenApi(input: string | Obj, opts: { sourceUrl?: string } 
         description: String(op.description ?? ""),
         examples: [],
       };
+      opts.onOperation?.(req, { method, path, value: op });
       convertedBytes += Buffer.byteLength(
         serializeSample(req, OPENAPI_LIMITS.maxTotalBytes, "converted request content"),
         "utf8",

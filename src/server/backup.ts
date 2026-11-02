@@ -2,7 +2,7 @@ import { specificationSource } from "@/core/specifications/model";
 import { analyzeSpecification } from "@/core/specifications/analyze";
 import { createHash, randomBytes } from "node:crypto";
 import { sanitizeExample } from "@/core/examples";
-import { credentialRedactionValues, sensitiveFieldValues } from "@/core/retention";
+import { credentialRedactionValues, sensitiveFieldValues, redactSensitiveFields } from "@/core/retention";
 import { redactStoredValue } from "@/core/variables/resolver";
 import type { MockRoute } from "@/core/mocks/model";
 /**
@@ -46,6 +46,7 @@ const TABLES = {
   monitors: schema.monitors,
   specifications: schema.specifications,
   specificationVersions: schema.specificationVersions,
+  specificationLinks: schema.specificationLinks,
   mockServers: schema.mockServers,
   scriptPackages: schema.scriptPackages,
   scriptPackageVersions: schema.scriptPackageVersions,
@@ -74,6 +75,7 @@ const ORDER: TableName[] = [
   "monitors",
   "specifications",
   "specificationVersions",
+  "specificationLinks",
   "mockServers",
   "scriptPackages",
   "scriptPackageVersions",
@@ -175,6 +177,42 @@ export function createBackup(db: DB, opts: { includeSecrets: boolean }): Backup 
       ...r,
       auth: r.auth ? withoutAuthCredentials(r.auth as never) : r.auth,
       headers: maskHeaders(r.headers),
+    });
+    tables.specificationLinks = tables.specificationLinks.map((row) => {
+      const baseline = redactStoredValue(
+        redactSensitiveFields(row.baseline as import("./specification-sync").SyncBaseline),
+        mockSecrets,
+      );
+      return {
+        ...row,
+        baseline: {
+          ...baseline,
+          root: { ...baseline.root, auth: withoutAuthCredentials(baseline.root.auth) },
+          remoteRoot: { ...baseline.remoteRoot, auth: withoutAuthCredentials(baseline.remoteRoot.auth) },
+          requests: Object.fromEntries(
+            Object.entries(baseline.requests).map(([key, item]) => [
+              key,
+              {
+                ...item,
+                collection: {
+                  ...item.collection,
+                  auth: withoutAuthCredentials(item.collection.auth),
+                  headers: maskHeaders(item.collection.headers),
+                },
+                remote: {
+                  ...item.remote,
+                  auth: withoutAuthCredentials(item.remote.auth),
+                  headers: maskHeaders(item.remote.headers),
+                },
+              },
+            ]),
+          ),
+          variables: baseline.variables.map((v) => (v.type === "secret" ? { ...v, value: "" } : v)),
+          remoteVariables: baseline.remoteVariables.map((v) =>
+            v.type === "secret" ? { ...v, value: "" } : v,
+          ),
+        },
+      };
     });
     tables.folders = tables.folders.map(scrub);
     tables.requests = tables.requests.map(scrub);

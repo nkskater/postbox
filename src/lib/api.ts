@@ -1,3 +1,4 @@
+import type * as specificationSync from "@/server/specification-sync";
 import type * as specifications from "@/server/specifications";
 import type { SpecificationAnalysis } from "@/core/specifications/model";
 import type { listMonitors, getMonitor, monitorInput, monitorPatch } from "@/server/monitors";
@@ -92,6 +93,49 @@ const q = (params: Record<string, string | null | undefined>) =>
   new URLSearchParams(Object.entries(params).filter(([, v]) => v != null) as [string, string][]).toString();
 
 export const api = {
+  specificationSync: {
+    link: (folderId: string) =>
+      call<ReturnType<typeof specificationSync.getCollectionSpecification>>(
+        "GET",
+        `/api/folders/${folderId}/specification`,
+      ),
+    generateSpecification: (
+      folderId: string,
+      input: Parameters<typeof specificationSync.generateSpecification>[1] = {},
+    ) =>
+      call<ReturnType<typeof specificationSync.generateSpecification>>(
+        "POST",
+        `/api/folders/${folderId}/specification`,
+        input,
+      ),
+    unlink: (folderId: string) => call<{ ok: boolean }>("DELETE", `/api/folders/${folderId}/specification`),
+    collections: (id: string) =>
+      call<ReturnType<typeof specificationSync.listSpecificationCollections>>(
+        "GET",
+        `/api/specifications/${id}/collections`,
+      ),
+    generateCollection: (
+      id: string,
+      input: Parameters<typeof specificationSync.generateCollection>[1] = {},
+    ) =>
+      call<Awaited<ReturnType<typeof specificationSync.generateCollection>>>(
+        "POST",
+        `/api/specifications/${id}/collections`,
+        input,
+      ),
+    preview: (id: string, input: Parameters<typeof specificationSync.previewSpecificationSync>[1]) =>
+      call<Awaited<ReturnType<typeof specificationSync.previewSpecificationSync>>>(
+        "POST",
+        `/api/specifications/${id}/sync/preview`,
+        input,
+      ),
+    apply: (id: string, input: Parameters<typeof specificationSync.applySpecificationSync>[1]) =>
+      call<Awaited<ReturnType<typeof specificationSync.applySpecificationSync>>>(
+        "POST",
+        `/api/specifications/${id}/sync/apply`,
+        input,
+      ),
+  },
   specifications: {
     list: (workspaceId: string) =>
       call<ReturnType<typeof specifications.listSpecifications>>(

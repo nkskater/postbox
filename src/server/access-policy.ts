@@ -43,6 +43,13 @@ export const REST_POLICIES: Record<string, Policy> = {
   "POST /api/mcp-client/sessions": p("body", "run"),
   "POST /api/mcp-client/sessions/[id]": p("account"),
   "DELETE /api/mcp-client/sessions/[id]": p("account"),
+  "GET /api/folders/[id]/specification": p("resource", "read", "folder"),
+  "POST /api/folders/[id]/specification": p("resource", "write", "folder"),
+  "DELETE /api/folders/[id]/specification": p("resource", "write", "folder"),
+  "GET /api/specifications/[id]/collections": p("resource", "read", "specification"),
+  "POST /api/specifications/[id]/collections": p("resource", "write", "specification"),
+  "POST /api/specifications/[id]/sync/preview": p("resource", "read", "specification"),
+  "POST /api/specifications/[id]/sync/apply": p("resource", "write", "specification"),
   "GET /api/specifications": p("query", "read"),
   "POST /api/specifications": p("body", "write"),
   "POST /api/specifications/validate": p("body", "read"),
@@ -347,6 +354,13 @@ export async function authorizeRest(
 }
 
 export const MCP_POLICIES: Record<string, WorkspaceAction | "list" | "create" | "identity"> = {
+  get_collection_specification: "read",
+  generate_collection_specification: "write",
+  unlink_collection_specification: "write",
+  list_specification_collections: "read",
+  generate_specification_collection: "write",
+  preview_specification_sync: "read",
+  apply_specification_sync: "write",
   list_specifications: "read",
   get_specification: "read",
   create_specification: "write",

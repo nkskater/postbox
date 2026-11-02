@@ -16,6 +16,7 @@ import { AuthEditor } from "@/components/request/AuthEditor";
 import { KeyValueEditor } from "@/components/request/KeyValueEditor";
 import { ScriptEditor } from "@/components/request/ScriptEditor";
 import { CatalogPublisher } from "@/components/catalog/CatalogPublisher";
+import { CollectionSpecificationPanel } from "@/components/specifications/SpecificationSyncPanel";
 import { DocumentationEditor } from "./DocumentationEditor";
 import { VariablesEditor } from "@/components/env/VariablesEditor";
 
@@ -107,6 +108,11 @@ export function FolderEditor({ folderId }: { folderId: string }) {
             Post-response Script
           </TabsTrigger>
           {isCollection && (
+            <TabsTrigger value="specification" className="text-xs">
+              Specification
+            </TabsTrigger>
+          )}
+          {isCollection && (
             <TabsTrigger value="catalog" className="text-xs">
               Catalog publishing
             </TabsTrigger>
@@ -123,6 +129,23 @@ export function FolderEditor({ folderId }: { folderId: string }) {
           )}
         </TabsList>
         <div className="min-h-0 flex-1 overflow-auto px-4 py-3">
+          {isCollection && (
+            <TabsContent value="specification" className="mt-0">
+              <CollectionSpecificationPanel
+                key={folderId}
+                folderId={folderId}
+                disabled={dirty}
+                onChanged={async () => {
+                  const f = await api.folders.get(folderId);
+                  const d: Editable = { ...f, variables: f.variables ?? [] };
+                  setData(d);
+                  setSaved(JSON.stringify(d));
+                  await refreshTree();
+                  await refreshVariables();
+                }}
+              />
+            </TabsContent>
+          )}
           {isCollection && (
             <TabsContent value="documentation" className="mt-0">
               <DocumentationEditor key={folderId} folderId={folderId} />
