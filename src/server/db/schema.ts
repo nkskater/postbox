@@ -722,6 +722,19 @@ export const webhooks = sqliteTable(
     /** JSON array of event types. */
     events: text("events").notNull(),
     enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    /** postbox | slack | discord | teams | pagerduty (src/core/webhook-adapters.ts). */
+    format: text("format").notNull().default("postbox"),
+    /** Name of the vault secret holding the signing key; when set, `secret` is empty. */
+    secretRef: text("secret_ref").notNull().default(""),
+    /** Vault secret holding the PagerDuty routing key. */
+    routingKeyRef: text("routing_key_ref").notNull().default(""),
+    /** JSON [{name, value}]; values may be {{vault:name}} references and are never returned by the API. */
+    headers: text("headers").notNull().default("[]"),
+    /** Consecutive failed deliveries after which the webhook is paused; 0 never pauses. */
+    pauseAfterFailures: integer("pause_after_failures").notNull().default(0),
+    failureStreak: integer("failure_streak").notNull().default(0),
+    pausedAt: integer("paused_at"),
+    pauseReason: text("pause_reason").notNull().default(""),
     createdBy: text("created_by"),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),

@@ -285,7 +285,7 @@ describe("webhook delivery", () => {
     expect(sent.headers["postbox-event"]).toBe("run.passed");
     expect(sent.headers["postbox-delivery-attempt"]).toBe("1");
     expect(
-      verifySignature(hook.secret, sent.body, String(sent.headers["postbox-signature"]), Date.now()),
+      verifySignature(hook.secret!, sent.body, String(sent.headers["postbox-signature"]), Date.now()),
     ).toBe(true);
     const event = JSON.parse(sent.body);
     expect(event).toMatchObject({ type: "run.passed", workspaceId, data: { runId: "r1" } });
@@ -426,7 +426,7 @@ describe("webhook delivery", () => {
     await hooks.processDue();
     const header = String(received[0].headers["postbox-signature"]);
     expect(verifySignature(rotated.secret, received[0].body, header, Date.now())).toBe(true);
-    expect(verifySignature(hook.secret, received[0].body, header, Date.now())).toBe(false);
+    expect(verifySignature(hook.secret!, received[0].body, header, Date.now())).toBe(false);
   });
 
   it("stops queueing when too many deliveries are waiting", () => {

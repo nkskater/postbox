@@ -274,12 +274,17 @@ export interface VaultForExecution {
  * personal ones (which win over a workspace secret of the same name). Secrets that cannot be read (withheld value,
  * missing key) are left out, so their references show up as unresolved instead of failing the run.
  */
-export function loadVaultForExecution(workspaceId: string, collectionId: string | null): VaultForExecution {
+export function loadVaultForExecution(
+  workspaceId: string,
+  collectionId: string | null,
+  opts: { unattended?: boolean } = {},
+): VaultForExecution {
   const rows = getDb().select().from(vaultSecrets).where(eq(vaultSecrets.workspaceId, workspaceId)).all();
   const out: VaultForExecution = { values: {}, scriptNames: [], domains: {}, secrets: [] };
   if (!rows.length) return out;
   const ring = getKeys().ring;
-  const me = identity();
+  // Unattended work (webhook delivery) has no user, even when its timer was started inside someone's request.
+  const me = opts.unattended ? null : identity();
   // Workspace secrets first, so a personal secret of the same name replaces them.
   const usable = rows
     .filter((r) => r.enabled && r.ciphertext && (r.ownerId === "" || r.ownerId === me))

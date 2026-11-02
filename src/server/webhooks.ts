@@ -24,9 +24,24 @@ import {
   nextDelay,
   signPayload,
   type Outcome,
+  type WebhookEvent,
   type WebhookEventType,
 } from "@/core/webhooks";
+import {
+  AdapterError,
+  PAGERDUTY_URL,
+  URL_IS_CREDENTIAL,
+  WEBHOOK_FORMATS,
+  checkCustomHeaders,
+  renderAdapter,
+  type WebhookFormat,
+} from "@/core/webhook-adapters";
+import { checkVaultDomains, guardedSecrets } from "@/core/vault/guard";
+import { SECRET_NAME } from "@/core/vault/crypto";
+import { redactSecrets, resolveTemplate } from "@/core/variables/resolver";
 import { getPolicy } from "./context";
+import { audit } from "./audit";
+import { loadVaultForExecution } from "./vault";
 import { getDb, schema } from "./db";
 import type { WebhookDeliveryRow, WebhookRow } from "./db/schema";
 import { newId } from "./defaults";
@@ -54,6 +69,19 @@ export const webhookInput = z
       .refine((list) => list.every((type) => SUBSCRIBABLE_EVENTS.includes(type)), "Unknown event type")
       .transform((list) => [...new Set(list)]),
     enabled: z.boolean().optional(),
+    /** How the event is formatted: Postbox JSON, or a chat / incident tool. */
+    format: z.enum(WEBHOOK_FORMATS).optional(),
+    /** Take the signing key from this vault secret instead of generating one. */
+    signingKeyRef: z.string().regex(SECRET_NAME).nullish(),
+    /** PagerDuty: the vault secret holding the Events API routing key. */
+    routingKeyRef: z.string().regex(SECRET_NAME).nullish(),
+    /** Extra request headers. Values may be {{vault:name}}; they are never returned. */
+    headers: z
+      .array(z.object({ name: z.string().min(1).max(100), value: z.string().max(4096) }).strict())
+      .max(10)
+      .optional(),
+    /** Pause after this many deliveries in a row fail for good; 0 never pauses. */
+    pauseAfterFailures: z.number().int().min(0).max(1000).optional(),
   })
   .strict();
 export const webhookPatch = webhookInput.partial();
@@ -65,32 +93,88 @@ export interface WebhookView {
   url: string;
   events: string[];
   enabled: boolean;
+  format: WebhookFormat;
+  /** Vault secret names (references, not values). */
+  signingKeyRef: string | null;
+  routingKeyRef: string | null;
+  /** Names only: header values are write-only. */
+  headers: { name: string; hasValue: boolean }[];
+  pauseAfterFailures: number;
+  failureStreak: number;
+  pausedAt: number | null;
+  pauseReason: string | null;
   createdAt: number;
   updatedAt: number;
   /** Pending deliveries and the share that failed, for a quick health read. */
   pending?: number;
 }
 
+const VAULT_URL = /^\{\{\s*vault:([A-Za-z0-9][A-Za-z0-9_.-]{0,63})\s*\}\}$/;
+
 const view = (row: WebhookRow): WebhookView => ({
   id: row.id,
   workspaceId: row.workspaceId,
   name: row.name,
+  // A credential-bearing URL lives in the vault, so this is the reference, never a token.
   url: row.url,
   events: JSON.parse(row.events) as string[],
   enabled: row.enabled,
+  format: row.format as WebhookFormat,
+  signingKeyRef: row.secretRef || null,
+  routingKeyRef: row.routingKeyRef || null,
+  headers: (JSON.parse(row.headers) as { name: string; value: string }[]).map((h) => ({
+    name: h.name,
+    hasValue: h.value !== "",
+  })),
+  pauseAfterFailures: row.pauseAfterFailures,
+  failureStreak: row.failureStreak,
+  pausedAt: row.pausedAt,
+  pauseReason: row.pauseReason || null,
   createdAt: row.createdAt,
   updatedAt: row.updatedAt,
 });
 
 const newSecret = () => SECRET_PREFIX + randomBytes(32).toString("base64url");
 
-/** Refuses an address the instance's host policy blocks, before anything is saved. */
-function assertTarget(value: string) {
+/** Refuses an address the instance's host policy blocks, before anything is saved. A vault reference is checked when sent. */
+function assertTarget(value: string, format: WebhookFormat) {
+  if (VAULT_URL.test(value)) return;
+  if (URL_IS_CREDENTIAL.includes(format))
+    throw new HttpError(
+      400,
+      `A ${format} webhook URL is a credential. Store it in the secrets vault and enter {{vault:name}} here.`,
+    );
   const problem = checkTargetUrl(value);
   if (problem) throw new HttpError(400, problem);
   const blocked = getPolicy().check(new URL(value).hostname);
   if (blocked)
     throw new HttpError(400, `This server's outbound policy does not allow that address. ${blocked}`);
+}
+
+/** The vault secrets webhooks may use: workspace-wide and enabled (no collection scope, no personal secrets). */
+function assertVaultNames(workspaceId: string, names: (string | null | undefined)[]) {
+  const usable = loadVaultForExecution(workspaceId, null, { unattended: true }).values;
+  for (const name of names)
+    if (name && !Object.hasOwn(usable, name))
+      throw new HttpError(
+        400,
+        `The vault secret "${name}" is not available to webhooks. It must exist, be enabled and apply to the whole workspace.`,
+      );
+}
+
+function checkExtras(
+  input: {
+    headers?: { name: string; value: string }[];
+    format?: WebhookFormat;
+    routingKeyRef?: string | null;
+  },
+  format: WebhookFormat,
+  routingKeyRef: string | null | undefined,
+) {
+  const problem = checkCustomHeaders(input.headers ?? []);
+  if (problem) throw new HttpError(400, problem);
+  if (format === "pagerduty" && !routingKeyRef)
+    throw new HttpError(400, "A PagerDuty webhook needs a routing key stored in the vault (routingKeyRef)");
 }
 
 function row(id: string): WebhookRow {
@@ -125,7 +209,15 @@ export function getWebhook(id: string): WebhookView {
 
 /** The only response that includes the signing secret. */
 export function createWebhook(workspaceId: string, input: z.infer<typeof webhookInput>) {
-  assertTarget(input.url);
+  const format = input.format ?? "postbox";
+  const url = input.url || (format === "pagerduty" ? PAGERDUTY_URL : "");
+  assertTarget(url, format);
+  checkExtras(input, format, input.routingKeyRef);
+  assertVaultNames(workspaceId, [
+    input.signingKeyRef,
+    input.routingKeyRef,
+    ...vaultNamesIn([url, ...(input.headers ?? []).map((h) => h.value)]),
+  ]);
   const db = getDb();
   const existing = db
     .select({ n: count() })
@@ -135,43 +227,90 @@ export function createWebhook(workspaceId: string, input: z.infer<typeof webhook
   if ((existing?.n ?? 0) >= MAX_WEBHOOKS_PER_WORKSPACE)
     throw new HttpError(400, `A workspace can have at most ${MAX_WEBHOOKS_PER_WORKSPACE} webhooks`);
   const now = Date.now();
-  const secret = newSecret();
+  const secret = input.signingKeyRef ? "" : newSecret();
   const created: WebhookRow = {
     id: newId(),
     workspaceId,
     name: input.name,
-    url: input.url,
+    url,
     secret,
     events: JSON.stringify(input.events),
     enabled: input.enabled ?? true,
+    format,
+    secretRef: input.signingKeyRef ?? "",
+    routingKeyRef: input.routingKeyRef ?? "",
+    headers: JSON.stringify(input.headers ?? []),
+    pauseAfterFailures: input.pauseAfterFailures ?? 0,
+    failureStreak: 0,
+    pausedAt: null,
+    pauseReason: "",
     createdBy: actorId() ?? null,
     createdAt: now,
     updatedAt: now,
   };
   db.insert(webhooks).values(created).run();
-  return { ...view(created), secret };
+  return { ...view(created), secret: input.signingKeyRef ? null : secret };
 }
 
 export function updateWebhook(id: string, patch: z.infer<typeof webhookPatch>): WebhookView {
   const current = row(id);
-  if (patch.url !== undefined && patch.url !== current.url) assertTarget(patch.url);
-  getDb()
-    .update(webhooks)
+  const format = patch.format ?? (current.format as WebhookFormat);
+  const url = patch.url ?? current.url;
+  if (patch.url !== undefined && patch.url !== current.url) assertTarget(patch.url, format);
+  else if (patch.format !== undefined && !VAULT_URL.test(url) && URL_IS_CREDENTIAL.includes(format))
+    assertTarget(url, format);
+  const routingKeyRef =
+    patch.routingKeyRef === undefined ? current.routingKeyRef : (patch.routingKeyRef ?? "");
+  checkExtras(patch, format, routingKeyRef);
+  const secretRef = patch.signingKeyRef === undefined ? current.secretRef : (patch.signingKeyRef ?? "");
+  const headers = patch.headers ?? (JSON.parse(current.headers) as { name: string; value: string }[]);
+  assertVaultNames(current.workspaceId, [
+    patch.signingKeyRef,
+    patch.routingKeyRef,
+    ...vaultNamesIn([url, ...(patch.headers ?? []).map((h) => h.value)]),
+  ]);
+  const db = getDb();
+  // Switching to a vault key drops the stored one; switching back needs a fresh one.
+  const secret = secretRef ? "" : current.secret || newSecret();
+  const resumed = patch.enabled === true && current.pausedAt !== null;
+  db.update(webhooks)
     .set({
       ...(patch.name !== undefined ? { name: patch.name } : {}),
       ...(patch.url !== undefined ? { url: patch.url } : {}),
       ...(patch.events !== undefined ? { events: JSON.stringify(patch.events) } : {}),
       ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
+      ...(patch.format !== undefined ? { format } : {}),
+      ...(patch.headers !== undefined ? { headers: JSON.stringify(headers) } : {}),
+      ...(patch.pauseAfterFailures !== undefined ? { pauseAfterFailures: patch.pauseAfterFailures } : {}),
+      ...(resumed ? { pausedAt: null, pauseReason: "", failureStreak: 0 } : {}),
+      secret,
+      secretRef,
+      routingKeyRef,
       updatedAt: Date.now(),
     })
     .where(eq(webhooks.id, id))
     .run();
-  return view(row(id));
+  return {
+    ...view(row(id)),
+    ...(secretRef !== current.secretRef && !secretRef ? { secret } : {}),
+  } as WebhookView;
+}
+
+/** Vault secret names referenced as {{vault:name}} in the given texts. */
+function vaultNamesIn(texts: string[]): string[] {
+  const names = new Set<string>();
+  for (const t of texts)
+    for (const m of t.matchAll(/\{\{\s*vault:([A-Za-z0-9][A-Za-z0-9_.-]{0,63})\s*\}\}/g)) names.add(m[1]);
+  return [...names];
 }
 
 /** Replaces the signing secret; deliveries already queued are signed with the new one. */
 export function rotateWebhookSecret(id: string) {
-  row(id);
+  if (row(id).secretRef)
+    throw new HttpError(
+      409,
+      "This webhook signs with a vault secret. Replace that secret in the vault to rotate it.",
+    );
   const secret = newSecret();
   getDb().update(webhooks).set({ secret, updatedAt: Date.now() }).where(eq(webhooks.id, id)).run();
   return { ...view(row(id)), secret };
@@ -481,24 +620,70 @@ async function attemptSend(
   entry: WebhookDeliveryRow,
   now: number,
 ): Promise<{ outcome: Outcome; status?: number; error?: string }> {
-  // Targets are checked again on every attempt: the policy or the DNS answer may have changed.
-  const problem = checkTargetUrl(hook.url);
-  if (problem) return { outcome: { kind: "fatal" }, error: problem };
-  const body = entry.payload;
+  // Vault values are read at send time, so they are never stored with the delivery or visible in any record.
+  const vault = loadVaultForExecution(hook.workspaceId, null, { unattended: true });
+  const scopes = { vault: vault.values, vaultDomains: vault.domains } as const;
+  const resolve = (value: string) =>
+    resolveTemplate(value, { globals: {}, collection: {}, environment: {}, data: {}, local: {}, ...scopes });
+  const fail = (message: string): { outcome: Outcome; error: string } => ({
+    outcome: { kind: "fatal" },
+    error: clip(message),
+  });
+
+  const target = resolve(hook.url);
+  if (target.unresolved.length)
+    return fail(
+      `The vault secret "${target.unresolved[0].replace(/^vault:/, "")}" for the URL is not available to webhooks`,
+    );
+  const problem = checkTargetUrl(target.value);
+  if (problem) return fail(problem);
+
+  const signingKey = hook.secretRef ? vault.values[hook.secretRef] : hook.secret;
+  if (!signingKey)
+    return fail(`The vault secret "${hook.secretRef}" for signing is not available to webhooks`);
+
+  const stored = JSON.parse(entry.payload) as WebhookEvent;
+  let rendered;
+  try {
+    const routingKey = hook.routingKeyRef ? vault.values[hook.routingKeyRef] : undefined;
+    if (hook.routingKeyRef && !routingKey)
+      return fail(
+        `The vault secret "${hook.routingKeyRef}" for the routing key is not available to webhooks`,
+      );
+    rendered = renderAdapter(hook.format as WebhookFormat, stored, entry.payload, { routingKey });
+  } catch (error) {
+    if (error instanceof AdapterError) return fail(error.message);
+    throw error;
+  }
+
+  const custom: [string, string][] = [];
+  for (const header of JSON.parse(hook.headers) as { name: string; value: string }[]) {
+    const value = resolve(header.value);
+    if (value.unresolved.length)
+      return fail(
+        `The vault secret "${value.unresolved[0].replace(/^vault:/, "")}" in the ${header.name} header is not available to webhooks`,
+      );
+    custom.push([header.name, value.value]);
+  }
+
+  const body = rendered.body;
   const headers: [string, string][] = [
-    ["Content-Type", "application/json"],
+    ["Content-Type", rendered.contentType],
     ["User-Agent", "Postbox-Webhooks/1"],
     ["Postbox-Event", entry.eventType],
     ["Postbox-Event-Id", entry.eventId],
     ["Postbox-Delivery", entry.id],
     ["Postbox-Delivery-Attempt", String(entry.attempts + 1)],
-    ["Postbox-Signature", signPayload(hook.secret, body, now)],
+    // The signature covers exactly the bytes sent, whatever the format.
+    ["Postbox-Signature", signPayload(signingKey, body, now)],
+    ...custom,
   ];
+  const guarded = guardedSecrets(scopes);
   try {
     const response = await sendRequest(
       {
         method: "POST",
-        url: hook.url,
+        url: target.value,
         headers,
         body: Buffer.from(body),
         settings: {
@@ -508,7 +693,12 @@ async function attemptSend(
           useCookieJar: false,
         },
       },
-      { policy: getPolicy(), maxBodyBytes: 64 * 1024 },
+      {
+        policy: getPolicy(),
+        maxBodyBytes: 64 * 1024,
+        // A vault secret restricted to certain hosts is not sent anywhere else, even by a webhook.
+        guard: guarded.length ? (message) => checkVaultDomains(guarded, message) : undefined,
+      },
     );
     const retryAfter = response.headers.find(([name]) => name.toLowerCase() === "retry-after")?.[1];
     const outcome = classifyStatus(response.status, retryAfter, now);
@@ -526,7 +716,10 @@ async function attemptSend(
     if (error instanceof HostPolicyError)
       return { outcome: { kind: "fatal" }, error: clip(`Blocked by outbound policy: ${error.message}`) };
     const message = error instanceof RequestError ? error.message : (error as Error).message;
-    return { outcome: { kind: "retry" }, error: clip(message) };
+    // A vault secret that would have gone to the wrong host is a configuration error, not worth retrying.
+    if (error instanceof RequestError && error.code === "EVAULTDOMAIN") return fail(message);
+    // Errors never quote a secret, but redact anyway in case a server echoes one in a message.
+    return { outcome: { kind: "retry" }, error: clip(redactSecrets(message, vault.secrets)) };
   }
 }
 
@@ -566,9 +759,11 @@ async function deliver(entry: WebhookDeliveryRow, now: number): Promise<void> {
   const common = { attempts, lastStatus: result.status ?? null, lastError: result.error ?? null };
   if (result.outcome.kind === "delivered") {
     finish({ ...common, status: "delivered", nextAttemptAt: null, finishedAt: at, lastError: null });
+    if (hook.failureStreak)
+      db.update(webhooks).set({ failureStreak: 0 }).where(eq(webhooks.id, hook.id)).run();
   } else if (result.outcome.kind === "retry") {
     const delay = nextDelay(attempts, result.outcome.retryAfterMs);
-    if (delay === null)
+    if (delay === null) {
       finish({
         ...common,
         status: "failed",
@@ -576,6 +771,39 @@ async function deliver(entry: WebhookDeliveryRow, now: number): Promise<void> {
         finishedAt: at,
         lastError: clip(`Gave up after ${MAX_ATTEMPTS} attempts. ${result.error ?? ""}`.trim()),
       });
-    else finish({ ...common, nextAttemptAt: at + delay });
-  } else finish({ ...common, status: "failed", nextAttemptAt: null, finishedAt: at });
+      recordFailure(hook, result.error);
+    } else finish({ ...common, nextAttemptAt: at + delay });
+  } else {
+    finish({ ...common, status: "failed", nextAttemptAt: null, finishedAt: at });
+    recordFailure(hook, result.error);
+  }
+}
+
+/** Counts a delivery that failed for good, and pauses the webhook once the configured streak is reached. */
+function recordFailure(hook: WebhookRow, reason?: string) {
+  const db = getDb();
+  const current = db.select().from(webhooks).where(eq(webhooks.id, hook.id)).get();
+  if (!current) return;
+  const streak = current.failureStreak + 1;
+  const pause = current.pauseAfterFailures > 0 && streak >= current.pauseAfterFailures && current.enabled;
+  const note = `Paused after ${streak} deliveries failed in a row. Last error: ${clip(reason ?? "unknown")}`;
+  db.update(webhooks)
+    .set({
+      failureStreak: streak,
+      ...(pause ? { enabled: false, pausedAt: Date.now(), pauseReason: note } : {}),
+    })
+    .where(eq(webhooks.id, hook.id))
+    .run();
+  if (pause)
+    audit({
+      action: "webhook.auto-pause",
+      entityKind: "webhook",
+      entityId: hook.id,
+      entityName: hook.name,
+      workspaceId: hook.workspaceId,
+      changes: [
+        { field: "enabled", before: true, after: false },
+        { field: "failureStreak", before: 0, after: streak },
+      ],
+    });
 }

@@ -2886,6 +2886,55 @@
                   "enabled": {
                     "type": "boolean"
                   },
+                  "format": {
+                    "type": "string",
+                    "enum": [
+                      "postbox",
+                      "slack",
+                      "discord",
+                      "teams",
+                      "pagerduty"
+                    ]
+                  },
+                  "signingKeyRef": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "routingKeyRef": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "headers": {
+                    "maxItems": 10,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 100
+                        },
+                        "value": {
+                          "type": "string",
+                          "maxLength": 4096
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "value"
+                      ]
+                    }
+                  },
+                  "pauseAfterFailures": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000
+                  },
                   "workspaceId": {
                     "type": "string"
                   }
@@ -3064,6 +3113,55 @@
                   },
                   "enabled": {
                     "type": "boolean"
+                  },
+                  "format": {
+                    "type": "string",
+                    "enum": [
+                      "postbox",
+                      "slack",
+                      "discord",
+                      "teams",
+                      "pagerduty"
+                    ]
+                  },
+                  "signingKeyRef": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "routingKeyRef": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "headers": {
+                    "maxItems": 10,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 100
+                        },
+                        "value": {
+                          "type": "string",
+                          "maxLength": 4096
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "value"
+                      ]
+                    }
+                  },
+                  "pauseAfterFailures": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000
                   }
                 }
               }
@@ -4487,6 +4585,77 @@
           "enabled": {
             "type": "boolean"
           },
+          "format": {
+            "type": "string",
+            "enum": [
+              "postbox",
+              "slack",
+              "discord",
+              "teams",
+              "pagerduty"
+            ]
+          },
+          "signingKeyRef": {
+            "description": "Vault secret used to sign (a name, never a value).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "routingKeyRef": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "headers": {
+            "description": "Custom header names; values are write-only.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "hasValue": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "name",
+                "hasValue"
+              ]
+            }
+          },
+          "pauseAfterFailures": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "failureStreak": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "pausedAt": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991,
+                "description": "Unix time in milliseconds."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pauseReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "createdAt": {
             "type": "integer",
             "minimum": -9007199254740991,
@@ -4546,6 +4715,77 @@
           "enabled": {
             "type": "boolean"
           },
+          "format": {
+            "type": "string",
+            "enum": [
+              "postbox",
+              "slack",
+              "discord",
+              "teams",
+              "pagerduty"
+            ]
+          },
+          "signingKeyRef": {
+            "description": "Vault secret used to sign (a name, never a value).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "routingKeyRef": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "headers": {
+            "description": "Custom header names; values are write-only.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "hasValue": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "name",
+                "hasValue"
+              ]
+            }
+          },
+          "pauseAfterFailures": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "failureStreak": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "pausedAt": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991,
+                "description": "Unix time in milliseconds."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pauseReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "createdAt": {
             "type": "integer",
             "minimum": -9007199254740991,
@@ -4564,8 +4804,11 @@
             "maximum": 9007199254740991
           },
           "secret": {
-            "type": "string",
-            "description": "Signing secret, shown only in this response."
+            "description": "Signing secret, shown only in this response; null when a vault secret signs.",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -4603,6 +4846,55 @@
           },
           "enabled": {
             "type": "boolean"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "postbox",
+              "slack",
+              "discord",
+              "teams",
+              "pagerduty"
+            ]
+          },
+          "signingKeyRef": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "routingKeyRef": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "headers": {
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100
+                },
+                "value": {
+                  "type": "string",
+                  "maxLength": 4096
+                }
+              },
+              "required": [
+                "name",
+                "value"
+              ]
+            }
+          },
+          "pauseAfterFailures": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
           }
         },
         "required": [

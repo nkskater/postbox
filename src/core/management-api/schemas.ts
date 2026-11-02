@@ -189,6 +189,21 @@ export const webhookSchema = z
     url: z.string(),
     events: z.array(z.string()),
     enabled: z.boolean(),
+    format: z.enum(["postbox", "slack", "discord", "teams", "pagerduty"]).optional(),
+    signingKeyRef: z
+      .string()
+      .nullable()
+      .optional()
+      .meta({ description: "Vault secret used to sign (a name, never a value)." }),
+    routingKeyRef: z.string().nullable().optional(),
+    headers: z
+      .array(z.object({ name: z.string(), hasValue: z.boolean() }))
+      .optional()
+      .meta({ description: "Custom header names; values are write-only." }),
+    pauseAfterFailures: z.number().int().optional(),
+    failureStreak: z.number().int().optional(),
+    pausedAt: timestamp.nullable().optional(),
+    pauseReason: z.string().nullable().optional(),
     createdAt: timestamp,
     updatedAt: timestamp,
     pending: z.number().int().optional(),
@@ -196,7 +211,12 @@ export const webhookSchema = z
   .meta({ id: "Webhook", description: "A webhook as listed. The signing secret is never included." });
 
 export const webhookWithSecretSchema = webhookSchema
-  .extend({ secret: z.string().meta({ description: "Signing secret, shown only in this response." }) })
+  .extend({
+    secret: z
+      .string()
+      .nullable()
+      .meta({ description: "Signing secret, shown only in this response; null when a vault secret signs." }),
+  })
   .meta({ id: "WebhookWithSecret" });
 
 export const webhookInputSchema = z
@@ -205,6 +225,14 @@ export const webhookInputSchema = z
     url: z.string().max(2000),
     events: z.array(z.string()).min(1).max(20),
     enabled: z.boolean().optional(),
+    format: z.enum(["postbox", "slack", "discord", "teams", "pagerduty"]).optional(),
+    signingKeyRef: z.string().nullish(),
+    routingKeyRef: z.string().nullish(),
+    headers: z
+      .array(z.object({ name: z.string().min(1).max(100), value: z.string().max(4096) }))
+      .max(10)
+      .optional(),
+    pauseAfterFailures: z.number().int().min(0).max(1000).optional(),
   })
   .meta({ id: "WebhookInput" });
 
