@@ -133,6 +133,7 @@ describe("contract and access policy", () => {
       "/api/merge-requests",
       "/api/environments/[id]/releases",
       "/api/notifications",
+      "/api/scim/",
     ];
     const documented = new Set(OPERATIONS.map(policyKey));
     const unclassified = Object.keys(REST_POLICIES).filter((key) => {
