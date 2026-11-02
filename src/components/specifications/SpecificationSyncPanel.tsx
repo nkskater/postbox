@@ -19,11 +19,13 @@ export function SyncReview({
   folderId,
   disabled = false,
   onSynced,
+  onBusyChange,
 }: {
   specificationId: string;
   folderId: string;
   disabled?: boolean;
   onSynced: () => Promise<void>;
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const [direction, setDirection] = useState<"collection" | "specification">("collection"),
     [preview, setPreview] = useState<Preview | null>(null),
@@ -32,6 +34,7 @@ export function SyncReview({
     [error, setError] = useState("");
   async function inspect() {
     setBusy(true);
+    onBusyChange?.(true);
     setError("");
     setChoices({});
     try {
@@ -41,11 +44,13 @@ export function SyncReview({
       setPreview(null);
     } finally {
       setBusy(false);
+      onBusyChange?.(false);
     }
   }
   async function apply() {
     if (!preview) return;
     setBusy(true);
+    onBusyChange?.(true);
     setError("");
     try {
       await api.specificationSync.apply(specificationId, {
@@ -63,6 +68,7 @@ export function SyncReview({
       setPreview(null);
     } finally {
       setBusy(false);
+      onBusyChange?.(false);
     }
   }
   return (
@@ -174,10 +180,12 @@ export function CollectionSpecificationPanel({
   folderId,
   disabled = false,
   onChanged,
+  onBusyChange,
 }: {
   folderId: string;
   disabled?: boolean;
   onChanged: () => Promise<void>;
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const [link, setLink] = useState<ReturnType<typeof getCollectionSpecification> | undefined>(),
     [busy, setBusy] = useState(false),
@@ -231,6 +239,7 @@ export function CollectionSpecificationPanel({
             specificationId={link.specificationId}
             folderId={folderId}
             disabled={disabled || busy}
+            onBusyChange={onBusyChange}
             onSynced={refresh}
           />
           <Button
@@ -240,12 +249,16 @@ export function CollectionSpecificationPanel({
             onClick={() => {
               if (!window.confirm("Unlink this collection? Both documents will be kept.")) return;
               setBusy(true);
+              onBusyChange?.(true);
               setError("");
               api.specificationSync
                 .unlink(folderId)
                 .then(refresh)
                 .catch((e) => setError(e.message))
-                .finally(() => setBusy(false));
+                .finally(() => {
+                  setBusy(false);
+                  onBusyChange?.(false);
+                });
             }}
           >
             Unlink specification
@@ -257,6 +270,7 @@ export function CollectionSpecificationPanel({
           disabled={disabled || busy}
           onClick={() => {
             setBusy(true);
+            onBusyChange?.(true);
             setError("");
             api.specificationSync
               .generateSpecification(folderId)
@@ -265,7 +279,10 @@ export function CollectionSpecificationPanel({
                 await refresh();
               })
               .catch((e) => setError(e.message))
-              .finally(() => setBusy(false));
+              .finally(() => {
+                setBusy(false);
+                onBusyChange?.(false);
+              });
           }}
         >
           Generate OpenAPI specification
@@ -279,11 +296,13 @@ export function SpecificationCollectionsPanel({
   version,
   disabled = false,
   onChanged,
+  onBusyChange,
 }: {
   specificationId: string;
   version: number;
   disabled?: boolean;
   onChanged: () => Promise<void>;
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const [collections, setCollections] = useState<ReturnType<typeof listSpecificationCollections>>([]),
     [selected, setSelected] = useState(""),
@@ -315,6 +334,7 @@ export function SpecificationCollectionsPanel({
   }, [specificationId]);
   async function generated() {
     setBusy(true);
+    onBusyChange?.(true);
     setError("");
     try {
       const value = await api.specificationSync.generateCollection(specificationId, {
@@ -330,6 +350,7 @@ export function SpecificationCollectionsPanel({
       setError((e as Error).message);
     } finally {
       setBusy(false);
+      onBusyChange?.(false);
     }
   }
   return (
@@ -409,6 +430,7 @@ export function SpecificationCollectionsPanel({
               specificationId={specificationId}
               folderId={selected}
               disabled={disabled || busy}
+              onBusyChange={onBusyChange}
               onSynced={async () => {
                 await refresh();
                 await onChanged();

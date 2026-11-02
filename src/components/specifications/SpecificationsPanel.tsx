@@ -403,6 +403,7 @@ function WorkspaceSpecifications({ workspaceId }: { workspaceId: string }) {
               key={doc.specificationId}
               specificationId={doc.specificationId}
               version={doc.version}
+              onBusyChange={setBusy}
               disabled={busy || dirty}
               onChanged={async () => {
                 load(await api.specifications.get(doc.specificationId));

@@ -28,6 +28,7 @@ export function FolderEditor({ folderId }: { folderId: string }) {
   const openTab = useApp((s) => s.openTab);
   const [data, setData] = useState<Editable | null>(null);
   const [saved, setSaved] = useState("");
+  const [syncBusy, setSyncBusy] = useState(false);
 
   useEffect(() => {
     api.folders
@@ -60,6 +61,7 @@ export function FolderEditor({ folderId }: { folderId: string }) {
   return (
     <div
       className="flex h-full min-h-0 flex-col"
+      inert={syncBusy}
       onKeyDown={(e) => {
         if ((e.ctrlKey || e.metaKey) && e.key === "s") {
           e.preventDefault();
@@ -135,6 +137,7 @@ export function FolderEditor({ folderId }: { folderId: string }) {
                 key={folderId}
                 folderId={folderId}
                 disabled={dirty}
+                onBusyChange={setSyncBusy}
                 onChanged={async () => {
                   const f = await api.folders.get(folderId);
                   const d: Editable = { ...f, variables: f.variables ?? [] };
