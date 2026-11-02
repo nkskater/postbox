@@ -176,6 +176,13 @@
       "when": 1793576799987,
       "tag": "0024_steep_hannibal_king",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1793581582967,
+      "tag": "0025_large_stone_men",
+      "breakpoints": true
     }
   ]
 }

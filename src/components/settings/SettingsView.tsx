@@ -46,6 +46,7 @@ import { SettingControl } from "./SettingControl";
 import { UsersSettings } from "./UsersSettings";
 import { AuditLog } from "./AuditLog";
 import { QuotaEditor, UsagePanel } from "./UsagePanel";
+import { VaultPanel } from "./VaultPanel";
 import { useIdentity } from "./useIdentity";
 import { WorkspaceSharing } from "./WorkspaceSharing";
 import { AppearancePreview } from "./AppearancePreview";
@@ -267,6 +268,7 @@ export function SettingsView() {
               {section === "keyboard" && <ShortcutsSettings />}
               {section === "notifications" && <NotificationsPanel />}
               {section === "appearance" && <ColorSettings />}
+              {section === "variables" && <VaultPanel isAdmin={!!identity?.isAdmin} />}
               {section === "execution" && <OutboundPanel isAdmin={!!identity?.isAdmin} />}
               {section === "data" && <DataManagement isAdmin={!!identity?.isAdmin} />}
               {section === "integrations" && <IntegrationsPanel isAdmin={!!identity?.isAdmin} />}

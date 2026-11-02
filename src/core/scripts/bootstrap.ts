@@ -236,8 +236,16 @@ function __serializeRequest(r) {
 function __recordTest(name, passed, error, skipped) { __state.tests.push({ name: String(name), passed: passed, error: error, skipped: !!skipped }); }
 function __errMsg(e) { return e && e.message !== undefined ? (e.name && e.name !== "Error" && e.name !== "AssertionError" ? e.name + ": " : "") + e.message : String(e); }
 
+var __vault = __ctx.vault || {};
 var pm = {
   info: __ctx.info,
+  // Secrets vault: only secrets an administrator marked for script access are present.
+  vault: Object.freeze({
+    get: function (name) { return Object.prototype.hasOwnProperty.call(__vault, name) ? __vault[name] : undefined; },
+    has: function (name) { return Object.prototype.hasOwnProperty.call(__vault, name); },
+    set: __unsupported("pm.vault.set (manage vault secrets in Postbox settings)"),
+    unset: __unsupported("pm.vault.unset (manage vault secrets in Postbox settings)"),
+  }),
   environment: new VariableScope("environment"),
   globals: new VariableScope("globals"),
   collectionVariables: new VariableScope("collection"),
@@ -265,7 +273,6 @@ var pm = {
       }); return values; }
     };
   })(),
-  vault: { get: __unsupported("pm.vault"), set: __unsupported("pm.vault"), unset: __unsupported("pm.vault") },
   visualizer: {
     set: function(template, data, options) {
       if(typeof template!=="string")throw new Error("pm.visualizer.set expects a template string");

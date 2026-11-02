@@ -84,6 +84,8 @@ beforeAll(async () => {
   }).id;
   const { createListener, listenerInput } = await import("@/server/hook-listeners");
   ids.hookListener = createListener(workspaceId, listenerInput.parse({ name: "Access listener" })).id;
+  const { createSecret } = await import("@/server/vault");
+  ids.vaultSecret = createSecret(workspaceId, { name: "access-secret", value: "access-secret-value" }).id;
   ids.loadRun = "access-load-run";
   getDb()
     .insert(schema.loadRuns)

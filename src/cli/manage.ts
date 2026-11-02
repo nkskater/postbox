@@ -784,6 +784,124 @@ export function registerManagement(program: Command) {
       }),
     );
 
+  // ------------------------------------------------------------ secrets vault
+  const vaultCmd = group(program, "vault", "Manage the workspace secrets vault (values are write-only)");
+  const secretByName = async (ctx: Ctx, nameOrId: string) => {
+    const list = await ctx.api.request<Row[]>("GET", "/api/vault", {
+      query: { workspaceId: await ctx.workspace() },
+    });
+    return list.find((item) => item.name === nameOrId || item.id === nameOrId);
+  };
+  withWorkspace(
+    withList(vaultCmd.command("list").description("List secrets (names and settings, never values)")),
+  ).action(
+    act(async (ctx) =>
+      ctx.list(
+        await ctx.api.request<Row[]>("GET", "/api/vault", { query: { workspaceId: await ctx.workspace() } }),
+        [name, column("STATE", "state"), column("SCRIPTS", "scriptAccess"), column("REFERENCE", "reference")],
+      ),
+    ),
+  );
+  withWorkspace(
+    vaultCmd
+      .command("set <name>")
+      .description(
+        "Store or replace a secret. The value is read from a file or standard input, never from arguments.",
+      )
+      .option(
+        "--value-file <path>",
+        'File holding the value, or "-" for standard input (default when input is piped)',
+      )
+      .option("--description <text>", "What the secret is for")
+      .option("--script-access", "Let scripts read it with pm.vault.get")
+      .option("--no-script-access", "Do not let scripts read it")
+      .option(
+        "--collection <id>",
+        "Only available in this collection (repeatable)",
+        (v: string, p: string[]) => [...p, v],
+        [],
+      ),
+  ).action(
+    act(async (ctx, [secretName], command) => {
+      const o = command.opts<{
+        valueFile?: string;
+        description?: string;
+        scriptAccess?: boolean;
+        collection: string[];
+      }>();
+      const source = o.valueFile ?? (process.stdin.isTTY ? undefined : "-");
+      if (!source)
+        throw new CliError("Provide the value with --value-file <path> or pipe it in.", EXIT.usage);
+      let value: string;
+      try {
+        value = source === "-" ? await readStdin() : await readFile(source, "utf8");
+      } catch (error) {
+        throw new CliError(`Cannot read ${source}: ${(error as Error).message}`, EXIT.usage);
+      }
+      value = value.replace(/\r?\n$/, "");
+      const existing = await secretByName(ctx, secretName);
+      const settings = {
+        ...(o.description !== undefined ? { description: o.description } : {}),
+        ...(o.scriptAccess !== undefined ? { scriptAccess: o.scriptAccess } : {}),
+        ...(o.collection.length ? { collectionIds: o.collection } : {}),
+      };
+      ctx.show(
+        existing
+          ? await ctx.api.request("PATCH", `/api/vault/${enc(String(existing.id))}`, {
+              body: { value, ...settings },
+            })
+          : await ctx.api.request("POST", "/api/vault", {
+              body: { workspaceId: await ctx.workspace(), name: secretName, value, ...settings },
+            }),
+      );
+    }),
+  );
+  withWorkspace(vaultCmd.command("delete <name>").description("Delete a secret")).action(
+    act(async (ctx, [secretName]) => {
+      const existing = await secretByName(ctx, secretName);
+      if (!existing) throw new CliError(`No secret "${secretName}" in this workspace.`, EXIT.notFound);
+      await ctx.confirm(`Delete secret ${secretName}?`);
+      await ctx.api.request("DELETE", `/api/vault/${enc(String(existing.id))}`);
+      out(`Deleted secret ${secretName}`);
+    }),
+  );
+  withWorkspace(
+    vaultCmd
+      .command("migrate")
+      .description("Move secret variables into the vault, leaving {{vault:name}} references")
+      .option("--script-access", "Let scripts read the moved values with pm.vault.get"),
+  ).action(
+    act(async (ctx, _args, command) =>
+      ctx.show(
+        await ctx.api.request("POST", "/api/vault/migrate", {
+          body: {
+            workspaceId: await ctx.workspace(),
+            ...(command.opts<{ scriptAccess?: boolean }>().scriptAccess ? { scriptAccess: true } : {}),
+          },
+        }),
+      ),
+    ),
+  );
+  vaultCmd
+    .command("status")
+    .description("Show where the vault key comes from and how many secrets use each key (administrators)")
+    .action(act(async (ctx) => ctx.show(await ctx.api.request("GET", "/api/admin/vault"))));
+  vaultCmd
+    .command("rotate")
+    .description("Re-encrypt every secret under the current key (administrators)")
+    .option("--new-key", "Generate a new key first (key-file setups)")
+    .option("--prune", "Remove keys no secret uses any more from the key file")
+    .action(
+      act(async (ctx, _args, command) => {
+        const o = command.opts<{ newKey?: boolean; prune?: boolean }>();
+        ctx.show(
+          await ctx.api.request("POST", "/api/admin/vault/rotate", {
+            body: { ...(o.newKey ? { newKey: true } : {}), ...(o.prune ? { prune: true } : {}) },
+          }),
+        );
+      }),
+    );
+
   // ------------------------------------------------------------ environments and globals
   const env = group(program, "env", "Manage environments");
   withWorkspace(withList(env.command("list").description("List environments"))).action(

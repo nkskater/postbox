@@ -52,6 +52,7 @@ import { describeCaller } from "./caller";
 import { workspaceRole } from "./authorize";
 import * as runs from "./runs";
 import * as load from "./load";
+import * as vault from "./vault";
 import { profileSchema } from "@/core/load/profile";
 import { thresholdsSchema } from "@/core/load/thresholds";
 import { renderLoadReport, type LoadReportFormat } from "@/core/load/report";
@@ -1573,6 +1574,43 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
       try {
         load.deleteLoadRun(loadRunId);
         return okJson({ deleted: true, loadRunId });
+      } catch (err) {
+        return errResult(err);
+      }
+    },
+  );
+
+  // ================================================================ SECRETS VAULT
+  // Values are deliberately not accepted or returned here: they would pass through the model's context.
+
+  server.registerTool(
+    "list_vault_secrets",
+    {
+      title: "List Vault Secrets",
+      description:
+        "List the workspace's vault secrets (names, descriptions, scope and state, never values). Reference one in a request as {{vault:name}}.",
+      inputSchema: { workspaceId: z.string().optional() },
+    },
+    async ({ workspaceId }) => {
+      try {
+        return okJson({ secrets: vault.listSecrets(resolveWorkspaceId(workspaceId)) });
+      } catch (err) {
+        return errResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "delete_vault_secret",
+    {
+      title: "Delete Vault Secret",
+      description: "Delete a vault secret. Requests that reference it will no longer resolve.",
+      inputSchema: { secretId: z.string().min(1) },
+    },
+    async ({ secretId }) => {
+      try {
+        vault.deleteSecret(secretId);
+        return okJson({ deleted: true, secretId });
       } catch (err) {
         return errResult(err);
       }

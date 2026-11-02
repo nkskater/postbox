@@ -305,6 +305,12 @@ async function executeInternal(
     location: [...opts.ancestors.map((folder) => folder.name), request.name],
   });
 
+  // Scopes that come back from a script lack the vault; host calls made on its behalf need it again.
+  const withVault = (current?: VariableScopes): VariableScopes | undefined =>
+    current && opts.scopes.vault
+      ? { ...current, vault: opts.scopes.vault, vaultScripts: opts.scopes.vaultScripts }
+      : current;
+
   // pm.sendRequest implementation: resolve variables, send through the same engine/policy.
   const host = {
     runRequest: opts.resolveRequest
@@ -312,8 +318,9 @@ async function executeInternal(
           requestId: string,
           options: { variables?: Record<string, unknown> },
           signal?: AbortSignal,
-          currentScopes?: VariableScopes,
+          givenScopes?: VariableScopes,
         ) => {
+          const currentScopes = withVault(givenScopes);
           if (context.depth >= 5)
             throw new Error("pm.execution.runRequest exceeded the recursion limit of 5");
           if (--context.budget.remaining < 0)
@@ -380,8 +387,9 @@ async function executeInternal(
     sendRequest: async (
       spec: SendRequestSpec,
       signal?: AbortSignal,
-      currentScopes?: VariableScopes,
+      givenScopes?: VariableScopes,
     ): Promise<SandboxResponse> => {
+      const currentScopes = withVault(givenScopes);
       const hostEngine = {
         ...engine,
         signal:

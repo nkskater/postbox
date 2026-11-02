@@ -118,6 +118,28 @@ function handler(req: http.IncomingMessage, res: http.ServerResponse) {
       }
       case "DELETE /api/mocks/m1":
         return reply(200, { ok: true });
+      case "GET /api/vault":
+        return reply(200, [
+          { id: "s1", name: "api", state: "ok", scriptAccess: false, reference: "{{vault:api}}" },
+        ]);
+      case "POST /api/vault":
+        return reply(201, { id: "s2", ...JSON.parse(body), value: undefined });
+      case "PATCH /api/vault/s1":
+        return reply(200, { id: "s1", name: "api", patched: Object.keys(JSON.parse(body)) });
+      case "DELETE /api/vault/s1":
+        return reply(200, { deleted: true });
+      case "POST /api/vault/migrate":
+        return reply(200, { moved: [{ key: "token", name: "environment.Prod.token" }], skipped: [] });
+      case "GET /api/admin/vault":
+        return reply(200, { keySource: "file", currentKeyId: "abcd1234", secrets: 1 });
+      case "POST /api/admin/vault/rotate":
+        return reply(200, {
+          currentKeyId: "ffff0000",
+          reencrypted: 1,
+          unreadable: [],
+          removedKeys: [],
+          sent: JSON.parse(body),
+        });
       case "GET /api/limited":
         return reply(429, { error: "Rate limit exceeded" });
     }
@@ -413,6 +435,60 @@ describe("postbox management commands", () => {
       ),
     ).toEqual(["keep"]);
     expect((await invoke(["mock", "handler", "delete", "m1", "nope"], authed())).code).toBe(4);
+  });
+
+  it("manages vault secrets without ever putting a value in arguments or output", async () => {
+    seen.length = 0;
+    const list = JSON.parse((await invoke(["vault", "list", "-w", "w1", "-o", "json"], authed())).stdout);
+    expect(list.items[0]).toMatchObject({ name: "api", reference: "{{vault:api}}" });
+    // A new secret: the value comes from standard input, one trailing newline is dropped.
+    const created = await invoke(
+      ["vault", "set", "stripe", "-w", "w1", "--script-access", "--collection", "c1", "-o", "json"],
+      authed(),
+      "sk_live_value\n",
+    );
+    expect(created.code, created.stderr).toBe(0);
+    expect(created.stdout).not.toContain("sk_live_value");
+    expect(JSON.parse(seen.find((e) => e.method === "POST" && e.url === "/api/vault")!.body)).toEqual({
+      workspaceId: "w1",
+      name: "stripe",
+      value: "sk_live_value",
+      scriptAccess: true,
+      collectionIds: ["c1"],
+    });
+    // An existing name is replaced in place, and settings left unmentioned are not sent.
+    const file = path.join(directory, "secret.txt");
+    await writeFile(file, "from-a-file");
+    await invoke(["vault", "set", "api", "-w", "w1", "--value-file", file, "-o", "json"], authed());
+    expect(JSON.parse(seen.find((e) => e.method === "PATCH" && e.url === "/api/vault/s1")!.body)).toEqual({
+      value: "from-a-file",
+    });
+    expect(
+      (
+        await invoke(
+          ["vault", "set", "api", "-w", "w1", "--value-file", path.join(directory, "none.txt")],
+          authed(),
+        )
+      ).code,
+    ).toBe(2);
+    expect((await invoke(["vault", "delete", "ghost", "-w", "w1", "-y"], authed())).code).toBe(4);
+    expect((await invoke(["vault", "delete", "api", "-w", "w1"], authed())).code).toBe(2);
+    expect((await invoke(["vault", "delete", "api", "-w", "w1", "-y"], authed())).code).toBe(0);
+    const migrated = JSON.parse(
+      (await invoke(["vault", "migrate", "-w", "w1", "--script-access", "-o", "json"], authed())).stdout,
+    );
+    expect(migrated.moved[0].name).toBe("environment.Prod.token");
+    expect(JSON.parse(seen.filter((e) => e.url === "/api/vault/migrate").at(-1)!.body)).toEqual({
+      workspaceId: "w1",
+      scriptAccess: true,
+    });
+    expect(JSON.parse((await invoke(["vault", "status", "-o", "json"], authed())).stdout)).toMatchObject({
+      currentKeyId: "abcd1234",
+    });
+    const rotated = JSON.parse(
+      (await invoke(["vault", "rotate", "--new-key", "--prune", "-o", "json"], authed())).stdout,
+    );
+    expect(rotated.sent).toEqual({ newKey: true, prune: true });
   });
 
   it("stores profiles privately and masks tokens when listing", async () => {

@@ -18,7 +18,17 @@ export interface VariableScopes {
   environment: Record<string, string>;
   data: Record<string, string>;
   local: Record<string, string>;
+  /**
+   * Secrets vault values this execution may reference as {{vault:name}} (the server decrypts only what the
+   * collection is scoped for). Never sent to scripts as a variable scope and never persisted.
+   */
+  vault?: Record<string, string>;
+  /** Names from `vault` that scripts may read with pm.vault.get(). */
+  vaultScripts?: string[];
 }
+
+/** Prefix of a vault reference inside {{ }}. */
+export const VAULT_PREFIX = "vault:";
 
 export const MAX_RESOLVE_DEPTH = 10;
 
@@ -42,7 +52,14 @@ export function variablesToRecord(vars: Variable[] | undefined): Record<string, 
 export function lookupVariable(
   scopes: VariableScopes,
   name: string,
-): { value: string; scope: ScopeName } | undefined {
+): { value: string; scope: ScopeName | "vault" } | undefined {
+  if (name.startsWith(VAULT_PREFIX)) {
+    const key = name.slice(VAULT_PREFIX.length);
+    const vault = scopes.vault;
+    return vault && Object.prototype.hasOwnProperty.call(vault, key)
+      ? { value: String(vault[key]), scope: "vault" }
+      : undefined;
+  }
   for (const scope of SCOPE_PRECEDENCE) {
     const bag = scopes[scope];
     if (bag && Object.prototype.hasOwnProperty.call(bag, name)) return { value: String(bag[name]), scope };
@@ -73,7 +90,8 @@ function resolveInner(input: string, scopes: VariableScopes, unresolved: Set<str
     const name = rawName.trim();
     const found = lookupVariable(scopes, name);
     if (found) {
-      if (depth >= MAX_RESOLVE_DEPTH) return found.value;
+      // A vault value is data, not a template: braces inside a secret must survive untouched.
+      if (found.scope === "vault" || depth >= MAX_RESOLVE_DEPTH) return found.value;
       return resolveInner(found.value, scopes, unresolved, depth + 1);
     }
     if (isDynamicVariable(name)) return generateDynamic(name)!;

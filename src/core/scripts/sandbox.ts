@@ -150,6 +150,16 @@ export async function runScript(
   opts: RunScriptOptions = {},
 ): Promise<ScriptResult> {
   const limits = { ...DEFAULT_LIMITS, ...opts.limits };
+  // Vault values never enter the guest as a scope: scripts get only the names marked for script access.
+  const { vault, vaultScripts, ...guestScopes } = ctx.scopes;
+  const scriptVault: Record<string, string> = {};
+  for (const name of vaultScripts ?? [])
+    if (vault && Object.hasOwn(vault, name)) scriptVault[name] = vault[name];
+  const withVault = (scopes: VariableScopes): VariableScopes => ({
+    ...scopes,
+    ...(vault ? { vault } : {}),
+    ...(vaultScripts ? { vaultScripts } : {}),
+  });
   const source = opts.source ?? ctx.info.eventName;
   const logs: ConsoleEntry[] = [];
   const secrets = opts.secrets ?? [];
@@ -355,7 +365,8 @@ export async function runScript(
       JSON.stringify({
         visualization: ctx.visualization,
         scriptModules: ctx.scriptModules,
-        scopes: ctx.scopes,
+        scopes: guestScopes,
+        vault: scriptVault,
         request: ctx.request,
         response: ctx.response,
         info: ctx.info,
@@ -446,7 +457,7 @@ export async function runScript(
     return {
       visualization: state.visualization,
       visualizationSet: state.visualizationSet,
-      scopes: state.scopes,
+      scopes: withVault(state.scopes),
       request: { ...ctx.request, ...state.request },
       tests: state.tests,
       logs,
