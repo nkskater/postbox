@@ -18,6 +18,7 @@ import { DEFAULT_RUN_OPTIONS, type Variable } from "../core/types";
 import { emptyScopes, redactSecrets, variablesToRecord } from "../core/variables/resolver";
 import { CliError, EXIT } from "./errors";
 import { registerSdk } from "./sdk";
+import { registerAppTest } from "./app-test";
 import { registerManagement } from "./manage";
 import { consoleReporter } from "./reporter";
 
@@ -245,6 +246,7 @@ program
 
 registerManagement(program);
 registerSdk(program);
+registerAppTest(program);
 
 await program.parseAsync().catch((error: unknown) => {
   const { code } = error as { code?: unknown; exitCode?: number };
