@@ -123,6 +123,32 @@ describe("governance versions, assignments, reports and workspace access", () =>
     expect((await request("GET", "reports", specId, outsider)).status).toBe(404);
     expect((await request("DELETE", "binding", specId, viewer)).status).toBe(403);
   });
+  it("marks retained reports stale after removing and recreating an assignment with changed overrides", () =>
+    withCaller(caller(owner), () => {
+      const original = specs.getSpecification(specId);
+      const separate = specs.createSpecification({
+        workspaceId: ws,
+        name: "Reassigned",
+        format: original.format,
+        entrypoint: original.entrypoint,
+        files: original.files,
+      });
+      const policy = governance.createRuleSet({ workspaceId: ws, config: DEFAULT_GOVERNANCE });
+      governance.bindGovernance(separate.id, { ruleSetId: policy.id, expectedRevision: 0 });
+      governance.saveGovernanceReport(separate.id);
+      expect(governance.getSpecificationGovernance(separate.id).stale).toBe(false);
+      governance.unbindGovernance(separate.id);
+      governance.bindGovernance(separate.id, {
+        ruleSetId: policy.id,
+        expectedRevision: 0,
+        overrides: { "operation-security": "off" },
+      });
+      expect(governance.getSpecificationGovernance(separate.id).stale).toBe(true);
+      governance.saveGovernanceReport(separate.id);
+      expect(governance.getSpecificationGovernance(separate.id).stale).toBe(false);
+      specs.deleteSpecification(separate.id);
+      governance.deleteRuleSet(policy.id);
+    }));
   it("retains immutable policies, supports version pinning and reports freshness for source/policy changes", () =>
     withCaller(caller(owner), () => {
       const policy = governance.createRuleSet({ workspaceId: ws, config: DEFAULT_GOVERNANCE }),

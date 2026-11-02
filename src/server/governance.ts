@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { stableJson } from "@/core/specifications/merge";
 import { and, desc, eq, notInArray } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -183,7 +185,9 @@ export function getSpecificationGovernance(specificationId: string) {
       latest.specVersion !== spec.revision ||
       latest.ruleSetId !== rule.id ||
       latest.ruleVersion !== rule.version ||
-      latest.bindingRevision !== binding.revision,
+      latest.bindingRevision !== binding.revision ||
+      (config !== null &&
+        latest.report.rulesHash !== createHash("sha256").update(stableJson(config)).digest("hex")),
   };
 }
 export function bindGovernance(specificationId: string, raw: z.input<typeof bindGovernanceInput>) {
