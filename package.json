@@ -15,6 +15,7 @@
     "dev": "next dev",
     "build": "next build && npm run build:cli",
     "build:cli": "node scripts/build-cli.mjs",
+    "check:memory": "node scripts/check-startup-memory.mjs",
     "start": "next start",
     "start:local": "node scripts/local-server.mjs",
     "build:windows": "node scripts/build-windows.mjs",

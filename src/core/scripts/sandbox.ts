@@ -18,7 +18,15 @@ import { redactSecrets } from "../variables/resolver";
 import { generateDynamic } from "../variables/dynamic";
 import { CONSOLE_LEVELS, describeIssues, sandboxStateSchema, sendRequestSpecSchema } from "../schemas";
 import { BOOTSTRAP_SOURCE } from "./bootstrap";
-import { LIBRARIES_SOURCE } from "./libraries.generated";
+
+/**
+ * The bundled sandbox libraries are about 1.7 MB of source. Imported statically, the bundler copied
+ * them into every route chunk that reaches the executor and the server loaded every copy at startup;
+ * a dynamic import keeps one shared chunk that is read only when a script first runs.
+ */
+let librariesSource: Promise<string> | undefined;
+const loadLibraries = () =>
+  (librariesSource ??= import("./libraries.generated").then((m) => m.LIBRARIES_SOURCE));
 
 export type ScriptEvent = "prerequest" | "test";
 
@@ -257,7 +265,7 @@ export async function runScript(
         throw new Error("Invalid random byte count");
       return vm.newString(randomBytes(length).toString("hex"));
     });
-    const libraries = vm.evalCode(LIBRARIES_SOURCE, "postbox-libraries.js");
+    const libraries = vm.evalCode(await loadLibraries(), "postbox-libraries.js");
     if (libraries.error) {
       const message = describeError(vm, libraries.error);
       libraries.error.dispose();

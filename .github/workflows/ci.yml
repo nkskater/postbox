@@ -35,6 +35,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - name: Check startup memory
+        run: npm run check:memory
 
   windows-package:
     name: Build and smoke test portable Windows package
