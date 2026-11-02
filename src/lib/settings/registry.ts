@@ -948,6 +948,20 @@ export const SETTINGS: SettingDef[] = [
     keywords: ["webhook", "delivery", "retention", "log"],
   },
   {
+    key: "monitors.retentionDays",
+    category: "data",
+    label: "Keep monitor history for",
+    description:
+      "Remove older monitor samples, resolved incidents and finished emails. Per-monitor limits still apply. Pending deliveries and open incidents are retained.",
+    type: "number",
+    scope: "server",
+    default: 90,
+    min: 0,
+    max: 3650,
+    unit: "days",
+    keywords: ["monitor", "history", "retention"],
+  },
+  {
     key: "hooks.retentionDays",
     category: "data",
     label: "Keep received webhook requests for",

@@ -251,6 +251,7 @@ export function deleteSchedule(id: string) {
 
 /** Return once a run has started; keep the overlap lock until it fully finishes. */
 export async function runSchedule(id: string): Promise<{ runId: string }> {
+  const monitoring = await import("./monitors");
   let schedule: ScheduleRow;
   try {
     schedule = row(id);
@@ -272,6 +273,9 @@ export async function runSchedule(id: string): Promise<{ runId: string }> {
     throw error;
   }
   const controller = new AbortController();
+  const monitorConfig = monitoring.monitorExecution(id);
+  let monitorTimedOut = false;
+  let deadline: ReturnType<typeof setTimeout> | null = null;
   state.active.set(id, controller);
   const monitor = setInterval(() => {
     try {
@@ -289,7 +293,16 @@ export async function runSchedule(id: string): Promise<{ runId: string }> {
         workspaceId: schedule.workspaceId,
         folderId: schedule.folderId,
         environmentId: schedule.environmentId,
-        options: schedule.options,
+        options: monitorConfig
+          ? {
+              ...schedule.options,
+              iterations: 1,
+              delayMs: 0,
+              timeoutMs: monitorConfig.timeoutMs,
+              stopOnFailure: false,
+              persistVariables: false,
+            }
+          : schedule.options,
         dataset: schedule.datasetId
           ? { id: schedule.datasetId, version: schedule.datasetVersion ?? undefined }
           : null,
@@ -298,6 +311,13 @@ export async function runSchedule(id: string): Promise<{ runId: string }> {
         signal: controller.signal,
         onEvent: (event) => {
           if (event.type !== "start" && event.type !== "queued") return;
+          if (event.type === "start" && monitorConfig && !deadline) {
+            deadline = setTimeout(() => {
+              monitorTimedOut = true;
+              controller.abort();
+            }, monitorConfig.maxDurationMs);
+            deadline.unref?.();
+          }
           getDb()
             .update(schedules)
             .set({ lastRunId: event.runId, lastRunAt: event.type === "start" ? event.startedAt : Date.now() })
@@ -307,14 +327,26 @@ export async function runSchedule(id: string): Promise<{ runId: string }> {
         },
       }),
     )
+      .then(({ runId, summary }) => {
+        monitoring.recordMonitorRun(id, runId, summary, monitorTimedOut);
+      })
       .catch((error: unknown) => {
         reject(error);
         if (isRunQueueFullError(error)) console.warn(`[postbox] schedule ${id} skipped: ${error.message}`);
         else console.error(`[postbox] scheduled run ${id} failed: ${(error as Error).message}`);
       })
       .finally(() => {
+        if (deadline) clearTimeout(deadline);
         clearInterval(monitor);
         state.active.delete(id);
       });
   });
+}
+
+export function cancelScheduleExecution(id: string) {
+  state.active.get(id)?.abort();
+}
+
+export function hasActiveSchedules() {
+  return state.active.size > 0;
 }

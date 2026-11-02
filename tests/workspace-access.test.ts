@@ -149,6 +149,19 @@ beforeAll(async () => {
       enabled: false,
     }),
   ).id;
+  ids.monitor = "access-monitor";
+  getDb()
+    .insert(schema.monitors)
+    .values({
+      id: ids.monitor,
+      workspaceId,
+      scheduleId: ids.schedule,
+      rules: (await import("@/core/monitoring/model")).monitorRulesSchema.parse({}),
+      emails: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    })
+    .run();
   ids.run = "saved-run";
   getDb()
     .insert(schema.runs)

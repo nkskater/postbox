@@ -11,6 +11,7 @@ import { DatasetList } from "./DatasetList";
 import { HistoryList } from "./HistoryList";
 
 const VIEWS = [
+  { id: "monitors", label: "Monitors", icon: Server },
   { id: "mcp-client", label: "MCP client", icon: Server },
   { id: "catalog", label: "Catalog", icon: Library },
   { id: "packages", label: "Packages", icon: Library },
@@ -42,6 +43,8 @@ export function Sidebar() {
             title={v.label}
             onClick={() => {
               setView(v.id);
+              if (v.id === "monitors")
+                useApp.getState().openTab({ id: "api-monitors", type: "monitors", name: "API monitors" });
               if (v.id === "mcp-client")
                 useApp.getState().openTab({ id: "mcp-client", type: "mcp-client", name: "MCP client" });
               if (v.id === "catalog")
@@ -59,6 +62,20 @@ export function Sidebar() {
         ))}
       </nav>
       <div className="min-w-0 flex-1">
+        {view === "monitors" && (
+          <div className="p-3 space-y-3 text-xs">
+            <h2 className="font-medium">API monitors</h2>
+            <p>Scheduled collection checks with threshold history, incidents and recovery notifications.</p>
+            <button
+              className="underline text-primary"
+              onClick={() =>
+                useApp.getState().openTab({ id: "api-monitors", type: "monitors", name: "API monitors" })
+              }
+            >
+              Open monitors
+            </button>
+          </div>
+        )}
         {view === "mcp-client" && (
           <div className="p-3 space-y-3 text-xs">
             <h2 className="font-medium">MCP client</h2>

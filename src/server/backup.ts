@@ -20,6 +20,7 @@ import { inArray, sql } from "drizzle-orm";
 import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import type Database from "better-sqlite3";
 import { z } from "zod";
+import { monitorRulesSchema } from "@/core/monitoring/model";
 import { OutboundNetwork } from "@/core/http/outbound";
 import { withoutAuthCredentials } from "@/core/retention";
 import { sanitizeSettings } from "@/lib/settings/registry";
@@ -40,6 +41,7 @@ const TABLES = {
   datasets: schema.datasets,
   datasetVersions: schema.datasetVersions,
   schedules: schema.schedules,
+  monitors: schema.monitors,
   mockServers: schema.mockServers,
   scriptPackages: schema.scriptPackages,
   scriptPackageVersions: schema.scriptPackageVersions,
@@ -65,6 +67,7 @@ const ORDER: TableName[] = [
   "datasets",
   "datasetVersions",
   "schedules",
+  "monitors",
   "mockServers",
   "scriptPackages",
   "scriptPackageVersions",
@@ -262,7 +265,26 @@ export function restoreBackup(db: DB, sqlite: Database.Database, input: unknown)
     grpcDefinitions: withCreator(tables.grpcDefinitions),
     datasets: withCreator(tables.datasets),
     datasetVersions: withCreator(tables.datasetVersions),
-    schedules: withCreator(tables.schedules),
+    schedules: withCreator(tables.schedules).map((row) =>
+      tables.monitors.some((m) => m.scheduleId === row.id)
+        ? { ...row, enabled: false, lastRunId: null, lastRunAt: null }
+        : row,
+    ),
+    monitors: tables.monitors.map((row) => {
+      const policy = monitorRulesSchema.safeParse(row.rules),
+        emails = z.array(z.email().max(254)).max(10).safeParse(row.emails);
+      if (!policy.success || !emails.success)
+        throw new BackupError("Invalid monitor configuration in backup");
+      return {
+        ...row,
+        rules: policy.data,
+        emails: emails.data,
+        state: "unknown",
+        failures: 0,
+        successes: 0,
+        openIncidentId: null,
+      };
+    }),
     scriptPackageVersions: withCreator(tables.scriptPackageVersions).map((version) => ({
       ...version,
       approved: false,

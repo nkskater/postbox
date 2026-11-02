@@ -43,6 +43,13 @@ export const REST_POLICIES: Record<string, Policy> = {
   "POST /api/mcp-client/sessions": p("body", "run"),
   "POST /api/mcp-client/sessions/[id]": p("account"),
   "DELETE /api/mcp-client/sessions/[id]": p("account"),
+  "GET /api/monitors": p("query", "read"),
+  "POST /api/monitors": p("body", "write"),
+  "GET /api/monitors/[id]": p("resource", "read", "monitor"),
+  "PATCH /api/monitors/[id]": p("resource", "write", "monitor"),
+  "DELETE /api/monitors/[id]": p("resource", "write", "monitor"),
+  "POST /api/monitors/[id]/run": p("resource", "run", "monitor"),
+  "POST /api/monitors/[id]/retry-email": p("resource", "write", "monitor"),
   "GET /api/health": p("public"),
   "GET /api/openapi.json": p("public"),
   "POST /api/auth/invite": p("public"),
@@ -323,6 +330,12 @@ export async function authorizeRest(
 }
 
 export const MCP_POLICIES: Record<string, WorkspaceAction | "list" | "create" | "identity"> = {
+  list_monitors: "read",
+  get_monitor: "read",
+  create_monitor: "write",
+  update_monitor: "write",
+  delete_monitor: "write",
+  run_monitor: "run",
   get_collection_documentation: "read",
   publish_collection_documentation: "manage",
   revoke_collection_documentation: "manage",
@@ -437,6 +450,7 @@ export function authorizeTool(caller: Caller, name: string, input: Record<string
   const ids = new Set<string>();
   if (input.workspaceId) ids.add(stringId(input.workspaceId));
   for (const [field, kind] of [
+    ["monitorId", "monitor"],
     ["datasetId", "dataset"],
     ["mockId", "mock"],
     ["packageId", "scriptPackage"],
