@@ -71,6 +71,7 @@ export function generateOpenApi(
       else {
         const finalHeaders = new Map(ownHeaders);
         for (const h of child.headers) finalHeaders.set(h.key.toLowerCase(), h);
+        if (contexts.size >= 1000) throw Error("OpenAPI generation supports at most 1,000 requests");
         contexts.set(child.id, {
           auth: child.auth.type === "inherit" ? currentAuth : child.auth,
           headers: [...finalHeaders.values()],
@@ -166,7 +167,10 @@ export function generateOpenApi(
       for (const match of server.matchAll(/\{([^{}]+)\}/g))
         serverVariables[match[1]] = { default: clean(values.get(match[1]) ?? "") };
       op.servers = [
-        { url: clean(server), ...(Object.keys(serverVariables).length ? { variables: serverVariables } : {}) },
+        {
+          url: clean(server),
+          ...(Object.keys(serverVariables).length ? { variables: serverVariables } : {}),
+        },
       ];
     }
     const parameters = new Map<string, Obj>();
@@ -245,6 +249,14 @@ export function generateOpenApi(
           (req.body.mode === "formdata" ? "multipart/form-data" : "application/x-www-form-urlencoded")]: {
             schema: clean(req.contract?.requestBody ?? { type: "object", properties }),
             example,
+          },
+        },
+      };
+    } else if (req.body.mode === "binary") {
+      op.requestBody = {
+        content: {
+          [contentType ?? req.body.binary?.contentType ?? "application/octet-stream"]: {
+            schema: { type: "string", format: "binary" },
           },
         },
       };

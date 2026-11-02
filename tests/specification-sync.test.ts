@@ -416,6 +416,36 @@ describe("linked source lifecycle and round-trip edge cases", () => {
 });
 
 describe("bounded schema projections and additions", () => {
+  it("describes binary request bodies without exporting uploaded bytes", () => {
+    const root: FolderNode = {
+      ...defaultFolder({ name: "Upload" }),
+      kind: "folder",
+      children: [
+        {
+          ...defaultRequest({
+            method: "POST",
+            url: "https://example.test/upload",
+            body: {
+              mode: "binary",
+              binary: {
+                fileName: "secret.bin",
+                contentType: "application/octet-stream",
+                data: "private-upload-bytes",
+              },
+            },
+          }),
+          kind: "request",
+        },
+      ],
+    };
+    const result = generateOpenApi(root);
+    expect(JSON.stringify(result.document)).not.toContain("private-upload-bytes");
+    expect(
+      (result.document.paths as Record<string, Record<string, Record<string, unknown>>>)["/upload"].post
+        .requestBody,
+    ).toEqual({ content: { "application/octet-stream": { schema: { type: "string", format: "binary" } } } });
+  });
+
   it("bounds repeated reference expansion while retaining the original source", async () => {
     const shapes: Record<string, unknown> = { S0: { type: "string" } };
     for (let i = 1; i <= 15; i++)
