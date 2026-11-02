@@ -122,6 +122,8 @@ beforeAll(async () => {
   }).id;
   const { createListener, listenerInput } = await import("@/server/hook-listeners");
   ids.hookListener = createListener(workspaceId, listenerInput.parse({ name: "Access listener" })).id;
+  const { createSession, sessionInput } = await import("@/server/capture");
+  ids.captureSession = createSession(workspaceId, sessionInput.parse({ name: "Access capture" })).id;
   const { createSecret } = await import("@/server/vault");
   ids.vaultSecret = createSecret(workspaceId, { name: "access-secret", value: "access-secret-value" }).id;
   const { createApi, requestAccess } = await import("@/server/broker");

@@ -24,6 +24,7 @@ export type AuditEntityKind =
   | "grpcDefinition"
   | "webhook"
   | "hookListener"
+  | "captureSession"
   | "member"
   | "user"
   | "key"
@@ -69,6 +70,7 @@ export const SAFE_FIELDS: Partial<Record<AuditEntityKind, readonly string[]>> = 
     "paused_at",
   ],
   hookListener: ["name", "status", "forward_url", "rate_per_minute"],
+  captureSession: ["name", "status", "allow_https", "capture_cookies", "hosts"],
   grpcDefinition: ["name"],
   cookie: ["domain", "path", "name"],
   user: ["username", "display_name", "is_admin", "disabled", "is_service"],

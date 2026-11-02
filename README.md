@@ -414,6 +414,8 @@ Existing secret variables can be moved in with one action, and keys rotate witho
 
 The [credential broker](docs/credential-broker.md) goes further: register an API once and let people, service accounts and agents call it through Postbox with an approved, revocable, consumer-bound reference, without ever holding the credential.
 
+[Traffic capture](docs/traffic-capture.md) records the requests a client or script makes through a relay URL, with credentials removed before storage, and turns the ones you pick into requests.
+
 ### Load testing
 
 Run a collection with virtual users under a constant, ramp or spike profile and read throughput, error rate and

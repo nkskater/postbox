@@ -1,6 +1,7 @@
 import { resolveSettings } from "@/lib/settings/registry";
 import { pruneAudit } from "./audit";
 import { pruneUsage } from "./usage";
+import { pruneCaptures } from "./capture";
 import { pruneHookEvents } from "./hook-listeners";
 import { pruneMonitorHistory } from "./monitors";
 import { pruneWebhooks } from "./webhooks";
@@ -21,5 +22,6 @@ export function pruneAuditIfDue(at = Date.now()): number {
   pruneUsage(values["usage.retentionDays"] as number, at);
   pruneWebhooks(values["webhooks.retentionDays"] as number, at);
   pruneHookEvents(values["hooks.retentionDays"] as number, at);
+  pruneCaptures(values["capture.retentionDays"] as number, at);
   return pruneAudit(values["audit.retentionDays"] as number, at);
 }

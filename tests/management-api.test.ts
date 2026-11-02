@@ -80,6 +80,7 @@ describe("contract and access policy", () => {
       "/api/backup",
       "/api/documentation/",
       "/api/catalog",
+      "/api/capture",
       "/api/proxy",
       "/api/oauth2/",
       "/api/ws",

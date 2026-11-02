@@ -966,6 +966,68 @@ export const hookEvents = sqliteTable(
   (t) => [index("hook_events_listener_idx").on(t.listenerId, t.receivedAt)],
 );
 
+/**
+ * A recording session. Requests sent to `/capture/<token>/<absolute URL>` are relayed and
+ * recorded. The token is the credential and is stored hashed; HTTPS recording and cookie
+ * capture are separate opt-ins.
+ */
+export const captureSessions = sqliteTable(
+  "capture_sessions",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** recording | paused | stopped */
+    status: text("status").notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    tokenHint: text("token_hint").notNull(),
+    /** Explicit consent to record https:// targets (and who gave it, when). */
+    allowHttps: integer("allow_https", { mode: "boolean" }).notNull().default(false),
+    httpsConsentBy: text("https_consent_by"),
+    httpsConsentAt: integer("https_consent_at"),
+    /** Keep non-credential cookie values instead of masking every cookie. */
+    captureCookies: integer("capture_cookies", { mode: "boolean" }).notNull().default(false),
+    /** JSON array of host filters; empty records any host the outbound policy allows. */
+    hosts: text("hosts").notNull().default("[]"),
+    entryCount: integer("entry_count").notNull().default(0),
+    lastCapturedAt: integer("last_captured_at"),
+    createdBy: text("created_by"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [index("capture_sessions_workspace_idx").on(t.workspaceId)],
+);
+
+/** One recorded exchange, stored with credentials already removed. */
+export const captureEntries = sqliteTable(
+  "capture_entries",
+  {
+    id: text("id").primaryKey(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => captureSessions.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id").notNull(),
+    startedAt: integer("started_at").notNull(),
+    method: text("method").notNull(),
+    url: text("url").notNull(),
+    requestHeaders: text("request_headers").notNull(),
+    /** JSON CapturedBody. */
+    requestBody: text("request_body").notNull(),
+    status: integer("status"),
+    statusText: text("status_text").notNull().default(""),
+    responseHeaders: text("response_headers").notNull().default("[]"),
+    responseBody: text("response_body").notNull(),
+    durationMs: integer("duration_ms"),
+    error: text("error"),
+    /** How many credential values were removed, so reviewers know it happened. */
+    redactions: integer("redactions").notNull().default(0),
+    importedAt: integer("imported_at"),
+  },
+  (t) => [index("capture_entries_session_idx").on(t.sessionId, t.startedAt)],
+);
+
 /** The single outbound proxy (id "default"). Credentials are write-only through the API. */
 export const outboundProxy = sqliteTable("outbound_proxy", {
   id: text("id").primaryKey(),
@@ -994,6 +1056,8 @@ export const tlsProfiles = sqliteTable("tls_profiles", {
 
 export type HookListenerRow = typeof hookListeners.$inferSelect;
 export type HookEventRow = typeof hookEvents.$inferSelect;
+export type CaptureSessionRow = typeof captureSessions.$inferSelect;
+export type CaptureEntryRow = typeof captureEntries.$inferSelect;
 
 /** Workspace-scoped external MCP call templates; credentials are variable references. */
 export const mcpCalls = sqliteTable(
