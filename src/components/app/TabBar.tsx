@@ -59,6 +59,13 @@ function TabTitle({ tab }: { tab: Tab }) {
           <span>Cookies</span>
         </>
       );
+    case "governance":
+      return (
+        <>
+          <Library className="size-3.5 shrink-0" />
+          <span>API governance</span>
+        </>
+      );
     case "specifications":
       return (
         <>

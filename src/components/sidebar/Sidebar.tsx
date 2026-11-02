@@ -11,6 +11,7 @@ import { DatasetList } from "./DatasetList";
 import { HistoryList } from "./HistoryList";
 
 const VIEWS = [
+  { id: "governance", label: "Governance", icon: Library },
   { id: "specifications", label: "Specifications", icon: Library },
   { id: "monitors", label: "Monitors", icon: Server },
   { id: "mcp-client", label: "MCP client", icon: Server },
@@ -44,6 +45,10 @@ export function Sidebar() {
             title={v.label}
             onClick={() => {
               setView(v.id);
+              if (v.id === "governance")
+                useApp
+                  .getState()
+                  .openTab({ id: "api-governance", type: "governance", name: "API governance" });
               if (v.id === "specifications")
                 useApp
                   .getState()
@@ -67,6 +72,22 @@ export function Sidebar() {
         ))}
       </nav>
       <div className="min-w-0 flex-1">
+        {view === "governance" && (
+          <div className="p-3 space-y-3 text-xs">
+            <h2 className="font-medium">API governance</h2>
+            <p>Versioned API style/security rules with severity overrides, exclusions and CI reports.</p>
+            <button
+              className="underline text-primary"
+              onClick={() =>
+                useApp
+                  .getState()
+                  .openTab({ id: "api-governance", type: "governance", name: "API governance" })
+              }
+            >
+              Open governance
+            </button>
+          </div>
+        )}
         {view === "specifications" && (
           <div className="p-3 space-y-3 text-xs">
             <h2 className="font-medium">API specifications</h2>

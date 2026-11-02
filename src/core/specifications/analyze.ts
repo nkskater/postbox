@@ -32,10 +32,24 @@ export function analyzeSpecification(raw: SpecificationSource): SpecificationAna
   const files = new Map<string, string>(),
     values = new Map<string, unknown>(),
     locations = new Map<string, Map<string, SourceLocation>>();
+  const lineOffsets = new Map<string, number[]>();
   const locate = (file: string, offset = 0): SourceLocation => {
-    const prefix = (files.get(file) ?? "").slice(0, offset),
-      lines = prefix.split("\n");
-    return { file, line: lines.length, column: lines.at(-1)!.length + 1 };
+    let starts = lineOffsets.get(file);
+    if (!starts) {
+      starts = [0];
+      const text = files.get(file) ?? "";
+      for (let index = text.indexOf("\n"); index >= 0; index = text.indexOf("\n", index + 1))
+        starts.push(index + 1);
+      lineOffsets.set(file, starts);
+    }
+    let low = 0,
+      high = starts.length;
+    while (low + 1 < high) {
+      const middle = (low + high) >>> 1;
+      if (starts[middle] <= offset) low = middle;
+      else high = middle;
+    }
+    return { file, line: low + 1, column: offset - starts[low] + 1 };
   };
   const at = (file: string, pointer = "") => locations.get(file)?.get(pointer) ?? locate(file);
   const issue = (

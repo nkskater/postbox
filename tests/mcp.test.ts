@@ -1,3 +1,4 @@
+import { DEFAULT_GOVERNANCE } from "@/core/governance/model";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
@@ -109,6 +110,66 @@ describe("MCP server (/api/mcp)", () => {
     ).toHaveLength(2);
     expect(
       (await client.callTool({ name: "unlink_collection_specification", arguments: { folderId: folder.id } }))
+        .isError,
+    ).toBeFalsy();
+  });
+  it("versions governance policies, assigns them and persists located reports through MCP", async () => {
+    const ws = parseToolJson<{ id: string }>(
+      await client.callTool({ name: "create_workspace", arguments: { name: "Governance MCP" } }),
+    );
+    const policyResult = await client.callTool({
+      name: "create_governance_rule_set",
+      arguments: { workspaceId: ws.id, config: DEFAULT_GOVERNANCE },
+    });
+    expect(policyResult.isError).toBeFalsy();
+    const policy = parseToolJson<{ id: string }>(policyResult);
+    const source = {
+      format: "openapi",
+      entrypoint: "api.yaml",
+      files: [{ path: "api.yaml", content: 'openapi: 3.0.3\ninfo: {title: API, version: "1"}\npaths: {}' }],
+    };
+    const spec = parseToolJson<{ id: string }>(
+      await client.callTool({
+        name: "create_specification",
+        arguments: { ...source, workspaceId: ws.id, name: "Governed" },
+      }),
+    );
+    expect(
+      (
+        await client.callTool({
+          name: "bind_specification_governance",
+          arguments: { specificationId: spec.id, ruleSetId: policy.id, expectedRevision: 0 },
+        })
+      ).isError,
+    ).toBeFalsy();
+    const preview = parseToolJson<{ sourceHash: string }>(
+      await client.callTool({
+        name: "preview_specification_governance",
+        arguments: { specificationId: spec.id },
+      }),
+    );
+    const saved = await client.callTool({
+      name: "save_governance_report",
+      arguments: { specificationId: spec.id },
+    });
+    expect(saved.isError).toBeFalsy();
+    const report = parseToolJson<{ id: string; report: { sourceHash: string } }>(saved);
+    expect(report.report.sourceHash).toBe(preview.sourceHash);
+    expect(
+      (
+        await client.callTool({
+          name: "get_governance_report",
+          arguments: { specificationId: spec.id, reportId: report.id },
+        })
+      ).isError,
+    ).toBeFalsy();
+    expect(
+      parseToolJson<unknown[]>(
+        await client.callTool({ name: "list_governance_reports", arguments: { specificationId: spec.id } }),
+      ),
+    ).toHaveLength(1);
+    expect(
+      (await client.callTool({ name: "delete_governance_rule_set", arguments: { ruleSetId: policy.id } }))
         .isError,
     ).toBeFalsy();
   });

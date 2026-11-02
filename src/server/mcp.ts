@@ -1,3 +1,4 @@
+import * as governance from "./governance";
 import * as specificationSync from "./specification-sync";
 import * as specifications from "./specifications";
 import { generateCatalogSdk } from "./sdk";
@@ -384,6 +385,189 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
     async ({ specificationId, ...input }) => {
       try {
         return okJson(await specificationSync.applySpecificationSync(specificationId, input));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "list_governance_rule_sets",
+    {
+      description: "List versioned governance rule sets in a workspace.",
+      inputSchema: { workspaceId: z.string().min(1) },
+    },
+    async ({ workspaceId }) => {
+      try {
+        return okJson(governance.listRuleSets(workspaceId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "get_governance_rule_set",
+    {
+      description: "Read a governance rule set version and its immutable history.",
+      inputSchema: { ruleSetId: z.string().min(1), version: z.number().int().positive().optional() },
+    },
+    async ({ ruleSetId, version }) => {
+      try {
+        return okJson(governance.getRuleSet(ruleSetId, version));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "create_governance_rule_set",
+    {
+      description: "Create a bounded declarative governance rule set.",
+      inputSchema: governance.createRuleSetInput.shape,
+    },
+    async (input) => {
+      try {
+        return okJson(governance.createRuleSet(input));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "save_governance_rule_set",
+    {
+      description: "Save a new immutable governance policy version with an expected revision.",
+      inputSchema: { ruleSetId: z.string().min(1), patch: governance.saveRuleSetInput },
+    },
+    async ({ ruleSetId, patch }) => {
+      try {
+        return okJson(governance.saveRuleSet(ruleSetId, patch));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "delete_governance_rule_set",
+    {
+      description: "Delete a rule set, bindings and retained reports.",
+      inputSchema: { ruleSetId: z.string().min(1) },
+    },
+    async ({ ruleSetId }) => {
+      try {
+        return okJson(governance.deleteRuleSet(ruleSetId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "get_specification_governance",
+    {
+      description: "Inspect the assigned policy, overrides and latest report freshness.",
+      inputSchema: { specificationId: z.string().min(1) },
+    },
+    async ({ specificationId }) => {
+      try {
+        return okJson(governance.getSpecificationGovernance(specificationId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "bind_specification_governance",
+    {
+      description:
+        "Assign latest or pinned governance policy with per-specification overrides and exclusions.",
+      inputSchema: { specificationId: z.string().min(1), ...governance.bindGovernanceInput.shape },
+    },
+    async ({ specificationId, ...input }) => {
+      try {
+        return okJson(governance.bindGovernance(specificationId, input));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "unbind_specification_governance",
+    {
+      description: "Remove a specification's policy assignment.",
+      inputSchema: { specificationId: z.string().min(1) },
+    },
+    async ({ specificationId }) => {
+      try {
+        return okJson(governance.unbindGovernance(specificationId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "lint_governance_draft",
+    {
+      description: "Lint an unsaved source and declarative policy without persistence or network access.",
+      inputSchema: governance.lintDraftInput.shape,
+    },
+    async (input) => {
+      try {
+        return okJson(governance.lintDraft(input));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "preview_specification_governance",
+    {
+      description: "Evaluate assigned governance rules without saving a report.",
+      inputSchema: { specificationId: z.string().min(1), ...governance.checkGovernanceInput.shape },
+    },
+    async ({ specificationId, ...input }) => {
+      try {
+        return okJson(governance.previewGovernance(specificationId, input));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "save_governance_report",
+    {
+      description: "Evaluate governance and retain a versioned, hash-addressed report.",
+      inputSchema: { specificationId: z.string().min(1), ...governance.checkGovernanceInput.shape },
+    },
+    async ({ specificationId, ...input }) => {
+      try {
+        return okJson(governance.saveGovernanceReport(specificationId, input));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "list_governance_reports",
+    {
+      description: "List retained policy reports for a specification.",
+      inputSchema: { specificationId: z.string().min(1) },
+    },
+    async ({ specificationId }) => {
+      try {
+        return okJson(governance.listGovernanceReports(specificationId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "get_governance_report",
+    {
+      description: "Read a retained governance report with located diagnostics.",
+      inputSchema: { specificationId: z.string().min(1), reportId: z.string().min(1) },
+    },
+    async ({ specificationId, reportId }) => {
+      try {
+        return okJson(governance.getGovernanceReport(specificationId, reportId));
       } catch (error) {
         return errResult(error);
       }

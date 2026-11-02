@@ -50,6 +50,19 @@ export const REST_POLICIES: Record<string, Policy> = {
   "POST /api/specifications/[id]/collections": p("resource", "write", "specification"),
   "POST /api/specifications/[id]/sync/preview": p("resource", "read", "specification"),
   "POST /api/specifications/[id]/sync/apply": p("resource", "write", "specification"),
+  "GET /api/governance/rulesets": p("query", "read"),
+  "POST /api/governance/rulesets": p("body", "write"),
+  "GET /api/governance/rulesets/[id]": p("resource", "read", "governanceRuleSet"),
+  "PATCH /api/governance/rulesets/[id]": p("resource", "write", "governanceRuleSet"),
+  "DELETE /api/governance/rulesets/[id]": p("resource", "write", "governanceRuleSet"),
+  "POST /api/governance/lint": p("body", "read"),
+  "GET /api/specifications/[id]/governance": p("resource", "read", "specification"),
+  "PUT /api/specifications/[id]/governance": p("resource", "write", "specification"),
+  "DELETE /api/specifications/[id]/governance": p("resource", "write", "specification"),
+  "POST /api/specifications/[id]/governance/lint": p("resource", "read", "specification"),
+  "GET /api/specifications/[id]/governance/reports": p("resource", "read", "specification"),
+  "POST /api/specifications/[id]/governance/reports": p("resource", "write", "specification"),
+  "GET /api/specifications/[id]/governance/reports/[reportId]": p("resource", "read", "specification"),
   "GET /api/specifications": p("query", "read"),
   "POST /api/specifications": p("body", "write"),
   "POST /api/specifications/validate": p("body", "read"),
@@ -300,7 +313,7 @@ export function restPolicy(method: string, pathname: string) {
   for (const [key, policy] of Object.entries(REST_POLICIES)) {
     const [verb, path] = key.split(" ");
     if (verb !== method) continue;
-    const match = new RegExp(`^${path.replaceAll("[id]", "([^/]+)")}/?$`).exec(pathname);
+    const match = new RegExp(`^${path.replace(/\[[A-Za-z][A-Za-z0-9]*\]/g, "([^/]+)")}/?$`).exec(pathname);
     if (match) return { ...policy, pattern: path, id: match[1] ? decodeURIComponent(match[1]) : undefined };
   }
   return null;
@@ -362,6 +375,19 @@ export const MCP_POLICIES: Record<string, WorkspaceAction | "list" | "create" | 
   generate_specification_collection: "write",
   preview_specification_sync: "read",
   apply_specification_sync: "write",
+  list_governance_rule_sets: "read",
+  get_governance_rule_set: "read",
+  create_governance_rule_set: "write",
+  save_governance_rule_set: "write",
+  delete_governance_rule_set: "write",
+  get_specification_governance: "read",
+  bind_specification_governance: "write",
+  unbind_specification_governance: "write",
+  lint_governance_draft: "read",
+  preview_specification_governance: "read",
+  save_governance_report: "write",
+  list_governance_reports: "read",
+  get_governance_report: "read",
   list_specifications: "read",
   get_specification: "read",
   create_specification: "write",
@@ -493,6 +519,7 @@ export function authorizeTool(caller: Caller, name: string, input: Record<string
   for (const [field, kind] of [
     ["monitorId", "monitor"],
     ["specificationId", "specification"],
+    ["ruleSetId", "governanceRuleSet"],
     ["datasetId", "dataset"],
     ["mockId", "mock"],
     ["packageId", "scriptPackage"],

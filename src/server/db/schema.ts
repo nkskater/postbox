@@ -1202,3 +1202,73 @@ export const specificationLinks = sqliteTable("specification_links", {
     .notNull(),
   ...timestamps,
 });
+
+export const governanceRuleSets = sqliteTable("governance_rule_sets", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  revision: integer("revision").notNull().default(1),
+  ...timestamps,
+});
+export const governanceRuleVersions = sqliteTable(
+  "governance_rule_versions",
+  {
+    ruleSetId: text("rule_set_id")
+      .notNull()
+      .references(() => governanceRuleSets.id, { onDelete: "cascade" }),
+    version: integer("version").notNull(),
+    config: text("config", { mode: "json" })
+      .$type<import("@/core/governance/model").GovernanceConfig>()
+      .notNull(),
+    label: text("label").notNull().default(""),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.ruleSetId, t.version] })],
+);
+export const governanceBindings = sqliteTable("governance_bindings", {
+  specificationId: text("specification_id")
+    .primaryKey()
+    .references(() => specifications.id, { onDelete: "cascade" }),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  ruleSetId: text("rule_set_id")
+    .notNull()
+    .references(() => governanceRuleSets.id, { onDelete: "cascade" }),
+  ruleVersion: integer("rule_version"),
+  overrides: text("overrides", { mode: "json" })
+    .$type<Record<string, import("@/core/governance/model").GovernanceSeverity>>()
+    .notNull()
+    .default({}),
+  exclusions: text("exclusions", { mode: "json" })
+    .$type<import("@/core/governance/model").GovernanceExclusion[]>()
+    .notNull()
+    .default([]),
+  revision: integer("revision").notNull().default(1),
+  ...timestamps,
+});
+export const governanceReports = sqliteTable(
+  "governance_reports",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    specificationId: text("specification_id")
+      .notNull()
+      .references(() => specifications.id, { onDelete: "cascade" }),
+    specVersion: integer("spec_version").notNull(),
+    ruleSetId: text("rule_set_id")
+      .notNull()
+      .references(() => governanceRuleSets.id, { onDelete: "cascade" }),
+    ruleVersion: integer("rule_version").notNull(),
+    bindingRevision: integer("binding_revision").notNull(),
+    report: text("report", { mode: "json" })
+      .$type<import("@/core/governance/model").GovernanceReport>()
+      .notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("governance_reports_spec_time").on(t.specificationId, t.createdAt)],
+);

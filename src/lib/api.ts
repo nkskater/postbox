@@ -1,3 +1,4 @@
+import type * as governance from "@/server/governance";
 import type * as specificationSync from "@/server/specification-sync";
 import type * as specifications from "@/server/specifications";
 import type { SpecificationAnalysis } from "@/core/specifications/model";
@@ -93,6 +94,59 @@ const q = (params: Record<string, string | null | undefined>) =>
   new URLSearchParams(Object.entries(params).filter(([, v]) => v != null) as [string, string][]).toString();
 
 export const api = {
+  governance: {
+    list: (workspaceId: string) =>
+      call<ReturnType<typeof governance.listRuleSets>>(
+        "GET",
+        `/api/governance/rulesets?workspaceId=${encodeURIComponent(workspaceId)}`,
+      ),
+    get: (id: string, version?: number) =>
+      call<ReturnType<typeof governance.getRuleSet>>(
+        "GET",
+        `/api/governance/rulesets/${id}${version ? `?version=${version}` : ""}`,
+      ),
+    create: (input: Parameters<typeof governance.createRuleSet>[0]) =>
+      call<ReturnType<typeof governance.getRuleSet>>("POST", "/api/governance/rulesets", input),
+    save: (id: string, input: Parameters<typeof governance.saveRuleSet>[1]) =>
+      call<ReturnType<typeof governance.getRuleSet>>("PATCH", `/api/governance/rulesets/${id}`, input),
+    delete: (id: string) => call<{ ok: boolean }>("DELETE", `/api/governance/rulesets/${id}`),
+    lint: (input: Parameters<typeof governance.lintDraft>[0]) =>
+      call<ReturnType<typeof governance.lintDraft>>("POST", "/api/governance/lint", input),
+    binding: (id: string) =>
+      call<ReturnType<typeof governance.getSpecificationGovernance>>(
+        "GET",
+        `/api/specifications/${id}/governance`,
+      ),
+    bind: (id: string, input: Parameters<typeof governance.bindGovernance>[1]) =>
+      call<ReturnType<typeof governance.getSpecificationGovernance>>(
+        "PUT",
+        `/api/specifications/${id}/governance`,
+        input,
+      ),
+    unbind: (id: string) => call<{ ok: boolean }>("DELETE", `/api/specifications/${id}/governance`),
+    preview: (id: string, version?: number) =>
+      call<ReturnType<typeof governance.previewGovernance>>(
+        "POST",
+        `/api/specifications/${id}/governance/lint`,
+        version ? { version } : {},
+      ),
+    run: (id: string, version?: number) =>
+      call<ReturnType<typeof governance.saveGovernanceReport>>(
+        "POST",
+        `/api/specifications/${id}/governance/reports`,
+        version ? { version } : {},
+      ),
+    reports: (id: string) =>
+      call<ReturnType<typeof governance.listGovernanceReports>>(
+        "GET",
+        `/api/specifications/${id}/governance/reports`,
+      ),
+    report: (id: string, reportId: string) =>
+      call<ReturnType<typeof governance.getGovernanceReport>>(
+        "GET",
+        `/api/specifications/${id}/governance/reports/${reportId}`,
+      ),
+  },
   specificationSync: {
     link: (folderId: string) =>
       call<ReturnType<typeof specificationSync.getCollectionSpecification>>(

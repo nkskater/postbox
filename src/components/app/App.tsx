@@ -1,4 +1,5 @@
 "use client";
+import { GovernancePanel } from "@/components/governance/GovernancePanel";
 import { SpecificationsPanel } from "@/components/specifications/SpecificationsPanel";
 /**
  * Application shell: header, resizable sidebar / main area / console layout,
@@ -71,6 +72,8 @@ function MainArea() {
       return <RunnerTabs key={tab.folderId} folderId={tab.folderId} />;
     case "cookies":
       return <CookiesView />;
+    case "governance":
+      return <GovernancePanel />;
     case "specifications":
       return <SpecificationsPanel />;
     case "monitors":

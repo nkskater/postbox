@@ -661,3 +661,5 @@ Share pinned helpers across collections using **Packages** and `pm.require`. See
 - [API specification workspace](docs/specifications.md): versioned definitions, diagnostics, references and documentation preview.
 
 - [Linked OpenAPI collections](docs/specification-sync.md): generation, reviewed synchronization and drift/conflict detection.
+
+- [API governance and CI checks](docs/governance.md): versioned declarative policies, source diagnostics, exclusions and deterministic CLI reports.
