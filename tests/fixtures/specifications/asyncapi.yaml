@@ -1,0 +1,17 @@
+asyncapi: 3.0.0
+info:
+  title: Pet events
+  version: 1.0.0
+channels:
+  pets:
+    address: pets.created
+operations:
+  receivePet:
+    action: receive
+    channel:
+      $ref: '#/channels/pets'
+components:
+  messages:
+    PetCreated:
+      contentType: application/json
+      description: A new pet

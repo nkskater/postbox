@@ -49,6 +49,61 @@ afterAll(async () => {
 });
 
 describe("MCP server (/api/mcp)", () => {
+  it("creates, versions, validates and exports specifications through MCP", async () => {
+    const ws = parseToolJson<{ id: string }>(
+      await client.callTool({ name: "create_workspace", arguments: { name: "Specification MCP" } }),
+    );
+    const source = {
+      format: "graphql",
+      entrypoint: "schema.graphql",
+      files: [{ path: "schema.graphql", content: "type Query { health: String }" }],
+    };
+    const created = await client.callTool({
+      name: "create_specification",
+      arguments: { ...source, workspaceId: ws.id, name: "MCP schema" },
+    });
+    expect(created.isError).toBeFalsy();
+    const doc = parseToolJson<{ id: string; revision: number }>(created);
+    expect(
+      parseToolJson<unknown[]>(
+        await client.callTool({ name: "list_specifications", arguments: { workspaceId: ws.id } }),
+      ),
+    ).toHaveLength(1);
+    const saved = await client.callTool({
+      name: "save_specification",
+      arguments: {
+        specificationId: doc.id,
+        patch: {
+          expectedRevision: 1,
+          entrypoint: source.entrypoint,
+          files: [{ path: source.entrypoint, content: "type Query { health: Boolean }" }],
+          label: "v2",
+        },
+      },
+    });
+    expect(saved.isError).toBeFalsy();
+    expect(parseToolJson<{ revision: number }>(saved).revision).toBe(2);
+    expect(
+      parseToolJson<{ files: unknown }>(
+        await client.callTool({
+          name: "get_specification",
+          arguments: { specificationId: doc.id, version: 1 },
+        }),
+      ).files,
+    ).toEqual(source.files);
+    expect(
+      parseToolJson<{ valid: boolean }>(
+        await client.callTool({
+          name: "validate_specification",
+          arguments: { ...source, workspaceId: ws.id },
+        }),
+      ).valid,
+    ).toBe(true);
+    expect(
+      (await client.callTool({ name: "delete_specification", arguments: { specificationId: doc.id } }))
+        .isError,
+    ).toBeFalsy();
+  });
   it("creates, runs, inspects and updates a monitor through MCP", async () => {
     const workspace = parseToolJson<{ id: string }>(
       await client.callTool({ name: "create_workspace", arguments: { name: "Monitor MCP" } }),

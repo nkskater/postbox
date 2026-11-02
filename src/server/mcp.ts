@@ -1,3 +1,4 @@
+import * as specifications from "./specifications";
 import { generateCatalogSdk } from "./sdk";
 import { sdkOptionsSchema } from "@/core/sdk/model";
 import * as catalog from "./catalog";
@@ -278,6 +279,91 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
     },
   );
 
+  server.registerTool(
+    "list_specifications",
+    {
+      description: "List retained API specifications in a workspace.",
+      inputSchema: { workspaceId: z.string().min(1) },
+    },
+    async ({ workspaceId }) => {
+      try {
+        return okJson(specifications.listSpecifications(workspaceId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "get_specification",
+    {
+      description: "Read a saved specification version, diagnostics, references and documentation outline.",
+      inputSchema: { specificationId: z.string().min(1), version: z.number().int().positive().optional() },
+    },
+    async ({ specificationId, version }) => {
+      try {
+        return okJson(specifications.getSpecification(specificationId, version));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "create_specification",
+    {
+      description:
+        "Retain an API specification file bundle and first immutable version, including invalid drafts.",
+      inputSchema: specifications.createSpecificationInput.shape,
+    },
+    async (input) => {
+      try {
+        return okJson(specifications.createSpecification(input));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "save_specification",
+    {
+      description: "Save a new immutable specification version using expectedRevision.",
+      inputSchema: { specificationId: z.string().min(1), patch: specifications.saveSpecificationInput },
+    },
+    async ({ specificationId, patch }) => {
+      try {
+        return okJson(specifications.saveSpecification(specificationId, patch));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "delete_specification",
+    {
+      description: "Delete a specification and every saved version.",
+      inputSchema: { specificationId: z.string().min(1) },
+    },
+    async ({ specificationId }) => {
+      try {
+        return okJson(specifications.deleteSpecification(specificationId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "validate_specification",
+    {
+      description: "Analyze an unsaved specification bundle without fetching references or changing storage.",
+      inputSchema: specifications.validateSpecificationInput.shape,
+    },
+    async (input) => {
+      try {
+        return okJson(specifications.validateSpecification(input));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
   server.registerTool(
     "list_monitors",
     {

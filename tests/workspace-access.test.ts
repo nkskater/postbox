@@ -35,6 +35,28 @@ beforeAll(async () => {
     setMember(workspaceId, viewer.username, "viewer");
     setMember(workspaceId, editor.username, "editor");
   });
+  ids.specification = "access-specification";
+  getDb()
+    .insert(schema.specifications)
+    .values({
+      id: ids.specification,
+      workspaceId,
+      name: "Access spec",
+      format: "graphql",
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    .run();
+  getDb()
+    .insert(schema.specificationVersions)
+    .values({
+      specificationId: ids.specification,
+      version: 1,
+      entrypoint: "schema.graphql",
+      files: [{ path: "schema.graphql", content: "type Query { name: String }" }],
+      createdAt: 1,
+    })
+    .run();
   ids.workspace = workspaceId;
   ids.folder = repo.createFolder(workspaceId, null).id;
   ids.request = repo.createRequest(workspaceId, ids.folder, { url: "http://127.0.0.1:1/" }).id;

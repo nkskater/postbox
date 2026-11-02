@@ -1,3 +1,5 @@
+import type * as specifications from "@/server/specifications";
+import type { SpecificationAnalysis } from "@/core/specifications/model";
 import type { listMonitors, getMonitor, monitorInput, monitorPatch } from "@/server/monitors";
 import type { getFolderCatalog, searchCatalog, getCatalogEntry, publishCatalog } from "@/server/catalog";
 import type { CatalogPublishInput, CatalogMetadataInput, CatalogSearchInput } from "@/core/catalog/model";
@@ -90,6 +92,25 @@ const q = (params: Record<string, string | null | undefined>) =>
   new URLSearchParams(Object.entries(params).filter(([, v]) => v != null) as [string, string][]).toString();
 
 export const api = {
+  specifications: {
+    list: (workspaceId: string) =>
+      call<ReturnType<typeof specifications.listSpecifications>>(
+        "GET",
+        `/api/specifications?workspaceId=${encodeURIComponent(workspaceId)}`,
+      ),
+    get: (id: string, version?: number) =>
+      call<ReturnType<typeof specifications.getSpecification>>(
+        "GET",
+        `/api/specifications/${id}${version ? `?version=${version}` : ""}`,
+      ),
+    create: (input: Parameters<typeof specifications.createSpecification>[0]) =>
+      call<ReturnType<typeof specifications.getSpecification>>("POST", "/api/specifications", input),
+    save: (id: string, input: Parameters<typeof specifications.saveSpecification>[1]) =>
+      call<ReturnType<typeof specifications.getSpecification>>("PATCH", `/api/specifications/${id}`, input),
+    delete: (id: string) => call<{ ok: boolean }>("DELETE", `/api/specifications/${id}`),
+    validate: (input: Parameters<typeof specifications.validateSpecification>[0]) =>
+      call<SpecificationAnalysis>("POST", "/api/specifications/validate", input),
+  },
   monitors: {
     list: (workspaceId: string, signal?: AbortSignal) =>
       call<ReturnType<typeof listMonitors>>(

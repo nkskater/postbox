@@ -218,6 +218,13 @@
       "when": 1793624332944,
       "tag": "0030_far_jackpot",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1793627611049,
+      "tag": "0031_vengeful_chat",
+      "breakpoints": true
     }
   ]
 }

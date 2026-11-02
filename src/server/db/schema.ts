@@ -1093,3 +1093,30 @@ export const monitorEmails = sqliteTable(
     index("monitor_email_due_idx").on(t.status, t.nextAttemptAt),
   ],
 );
+
+export const specifications = sqliteTable("specifications", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  format: text("format").$type<import("@/core/specifications/model").SpecificationFormat>().notNull(),
+  revision: integer("revision").notNull().default(1),
+  ...timestamps,
+});
+export const specificationVersions = sqliteTable(
+  "specification_versions",
+  {
+    specificationId: text("specification_id")
+      .notNull()
+      .references(() => specifications.id, { onDelete: "cascade" }),
+    version: integer("version").notNull(),
+    entrypoint: text("entrypoint").notNull(),
+    files: text("files", { mode: "json" })
+      .$type<import("@/core/specifications/model").SpecificationSource["files"]>()
+      .notNull(),
+    label: text("label").notNull().default(""),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.specificationId, t.version] })],
+);

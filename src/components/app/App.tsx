@@ -1,4 +1,5 @@
 "use client";
+import { SpecificationsPanel } from "@/components/specifications/SpecificationsPanel";
 /**
  * Application shell: header, resizable sidebar / main area / console layout,
  * global dialogs and keyboard shortcuts.
@@ -70,6 +71,8 @@ function MainArea() {
       return <RunnerTabs key={tab.folderId} folderId={tab.folderId} />;
     case "cookies":
       return <CookiesView />;
+    case "specifications":
+      return <SpecificationsPanel />;
     case "monitors":
       return <MonitorsPanel />;
     case "mcp-client":
