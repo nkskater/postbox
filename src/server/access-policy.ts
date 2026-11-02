@@ -43,6 +43,12 @@ export const REST_POLICIES: Record<string, Policy> = {
   "POST /api/mcp-client/sessions": p("body", "run"),
   "POST /api/mcp-client/sessions/[id]": p("account"),
   "DELETE /api/mcp-client/sessions/[id]": p("account"),
+  "GET /api/specifications": p("query", "read"),
+  "POST /api/specifications": p("body", "write"),
+  "POST /api/specifications/validate": p("body", "read"),
+  "GET /api/specifications/[id]": p("resource", "read", "specification"),
+  "PATCH /api/specifications/[id]": p("resource", "write", "specification"),
+  "DELETE /api/specifications/[id]": p("resource", "write", "specification"),
   "GET /api/monitors": p("query", "read"),
   "POST /api/monitors": p("body", "write"),
   "GET /api/monitors/[id]": p("resource", "read", "monitor"),
@@ -330,6 +336,12 @@ export async function authorizeRest(
 }
 
 export const MCP_POLICIES: Record<string, WorkspaceAction | "list" | "create" | "identity"> = {
+  list_specifications: "read",
+  get_specification: "read",
+  create_specification: "write",
+  save_specification: "write",
+  delete_specification: "write",
+  validate_specification: "read",
   list_monitors: "read",
   get_monitor: "read",
   create_monitor: "write",
@@ -451,6 +463,7 @@ export function authorizeTool(caller: Caller, name: string, input: Record<string
   if (input.workspaceId) ids.add(stringId(input.workspaceId));
   for (const [field, kind] of [
     ["monitorId", "monitor"],
+    ["specificationId", "specification"],
     ["datasetId", "dataset"],
     ["mockId", "mock"],
     ["packageId", "scriptPackage"],

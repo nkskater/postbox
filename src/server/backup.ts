@@ -1,3 +1,5 @@
+import { specificationSource } from "@/core/specifications/model";
+import { analyzeSpecification } from "@/core/specifications/analyze";
 import { createHash, randomBytes } from "node:crypto";
 import { sanitizeExample } from "@/core/examples";
 import { credentialRedactionValues, sensitiveFieldValues } from "@/core/retention";
@@ -42,6 +44,8 @@ const TABLES = {
   datasetVersions: schema.datasetVersions,
   schedules: schema.schedules,
   monitors: schema.monitors,
+  specifications: schema.specifications,
+  specificationVersions: schema.specificationVersions,
   mockServers: schema.mockServers,
   scriptPackages: schema.scriptPackages,
   scriptPackageVersions: schema.scriptPackageVersions,
@@ -68,6 +72,8 @@ const ORDER: TableName[] = [
   "datasetVersions",
   "schedules",
   "monitors",
+  "specifications",
+  "specificationVersions",
   "mockServers",
   "scriptPackages",
   "scriptPackageVersions",
@@ -270,6 +276,20 @@ export function restoreBackup(db: DB, sqlite: Database.Database, input: unknown)
         ? { ...row, enabled: false, lastRunId: null, lastRunAt: null }
         : row,
     ),
+    specificationVersions: tables.specificationVersions.map((row) => {
+      const parent = tables.specifications.find((s) => s.id === row.specificationId);
+      const parsed = specificationSource.safeParse({
+        format: parent?.format,
+        entrypoint: row.entrypoint,
+        files: row.files,
+      });
+      if (
+        !parsed.success ||
+        analyzeSpecification(parsed.data).diagnostics.some((d) => d.code === "limit" || d.code === "file")
+      )
+        throw new BackupError("Invalid specification bundle in backup");
+      return { ...row, entrypoint: parsed.data.entrypoint, files: parsed.data.files };
+    }),
     monitors: tables.monitors.map((row) => {
       const policy = monitorRulesSchema.safeParse(row.rules),
         emails = z.array(z.email().max(254)).max(10).safeParse(row.emails);

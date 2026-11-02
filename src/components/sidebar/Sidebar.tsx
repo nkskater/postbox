@@ -11,6 +11,7 @@ import { DatasetList } from "./DatasetList";
 import { HistoryList } from "./HistoryList";
 
 const VIEWS = [
+  { id: "specifications", label: "Specifications", icon: Library },
   { id: "monitors", label: "Monitors", icon: Server },
   { id: "mcp-client", label: "MCP client", icon: Server },
   { id: "catalog", label: "Catalog", icon: Library },
@@ -43,6 +44,10 @@ export function Sidebar() {
             title={v.label}
             onClick={() => {
               setView(v.id);
+              if (v.id === "specifications")
+                useApp
+                  .getState()
+                  .openTab({ id: "api-specifications", type: "specifications", name: "API specifications" });
               if (v.id === "monitors")
                 useApp.getState().openTab({ id: "api-monitors", type: "monitors", name: "API monitors" });
               if (v.id === "mcp-client")
@@ -62,6 +67,22 @@ export function Sidebar() {
         ))}
       </nav>
       <div className="min-w-0 flex-1">
+        {view === "specifications" && (
+          <div className="p-3 space-y-3 text-xs">
+            <h2 className="font-medium">API specifications</h2>
+            <p>Versioned definitions with diagnostics, references and documentation preview.</p>
+            <button
+              className="underline text-primary"
+              onClick={() =>
+                useApp
+                  .getState()
+                  .openTab({ id: "api-specifications", type: "specifications", name: "API specifications" })
+              }
+            >
+              Open specifications
+            </button>
+          </div>
+        )}
         {view === "monitors" && (
           <div className="p-3 space-y-3 text-xs">
             <h2 className="font-medium">API monitors</h2>

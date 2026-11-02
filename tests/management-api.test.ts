@@ -100,6 +100,7 @@ describe("contract and access policy", () => {
       "/api/cookies",
       "/api/mcp",
       "/api/monitors",
+      "/api/specifications",
       "/api/hook-listeners",
       "/api/load-runs",
       "/api/vault",

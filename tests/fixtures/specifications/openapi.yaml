@@ -1,0 +1,18 @@
+openapi: 3.1.0
+info:
+  title: Pets
+  version: 1.0.0
+paths:
+  /pets:
+    get:
+      summary: List pets
+      responses:
+        '200':
+          description: Pets returned
+components:
+  schemas:
+    Pet:
+      type: object
+      properties:
+        name:
+          type: string
