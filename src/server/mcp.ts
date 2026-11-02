@@ -51,6 +51,10 @@ import { currentCaller } from "./access-context";
 import { describeCaller } from "./caller";
 import { workspaceRole } from "./authorize";
 import * as runs from "./runs";
+import * as load from "./load";
+import { profileSchema } from "@/core/load/profile";
+import { thresholdsSchema } from "@/core/load/thresholds";
+import { renderLoadReport, type LoadReportFormat } from "@/core/load/report";
 import { executionSettings } from "./execution-settings";
 import { isReadOnlyTool } from "./access-policy";
 
@@ -1430,6 +1434,145 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
       try {
         runs.deleteRun(runId);
         return okJson({ deleted: true, runId });
+      } catch (err) {
+        return errResult(err);
+      }
+    },
+  );
+
+  // ================================================================ LOAD TESTS
+
+  server.registerTool(
+    "start_load_test",
+    {
+      title: "Start Load Test",
+      description:
+        "Start a load test of a collection or folder with virtual users (constant, ramp or spike profile), optional thresholds and think time. Runs in the background and returns its id; poll get_load_run. Limited by the server's virtual-user, duration and request ceilings and the shared run queue.",
+      inputSchema: {
+        folderId: z.string().min(1),
+        environmentId: z.string().nullable().optional(),
+        profile: profileSchema,
+        thresholds: thresholdsSchema.optional(),
+        thinkMs: z.number().int().min(0).max(60_000).optional(),
+        timeoutMs: z.number().int().min(100).max(120_000).optional(),
+        verifySsl: z.boolean().optional(),
+        selectedRequestIds: z.array(z.string()).optional(),
+        dataset: datasetRefSchema.optional(),
+      },
+    },
+    async (input) => {
+      try {
+        const folder = repo.getFolder(input.folderId);
+        if (!folder) throw new Error(`Folder not found: ${input.folderId}`);
+        const admitted = load.admitLoadTest({ ...input, workspaceId: folder.workspaceId });
+        let runId = "";
+        const started = new Promise<string>((resolve, reject) => {
+          void load
+            .startLoadTest(admitted, {
+              source: "mcp",
+              onEvent: (e) => {
+                if (!runId) {
+                  runId = e.runId;
+                  resolve(runId);
+                }
+              },
+            })
+            .then((r) => resolve(r.runId), reject);
+        });
+        return okJson({ runId: await started, status: "started" });
+      } catch (err) {
+        return errResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "list_load_runs",
+    {
+      title: "List Load Tests",
+      description: "List recent load tests of a workspace with their headline numbers.",
+      inputSchema: { workspaceId: z.string().optional(), folderId: z.string().optional() },
+    },
+    async ({ workspaceId, folderId }) => {
+      try {
+        const wsId = folderId
+          ? (repo.getFolder(folderId)?.workspaceId ?? resolveWorkspaceId(workspaceId))
+          : resolveWorkspaceId(workspaceId);
+        return okJson({ loadRuns: load.listLoadRuns(wsId, folderId) });
+      } catch (err) {
+        return errResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "get_load_run",
+    {
+      title: "Get Load Test",
+      description:
+        "Get a load test: profile, status and, once finished, throughput, error rate, latency percentiles, per-request breakdown, time series and threshold results. format csv or junit renders a report.",
+      inputSchema: {
+        loadRunId: z.string().min(1),
+        format: z.enum(["json", "csv", "junit"]).default("json"),
+      },
+    },
+    async ({ loadRunId, format }) => {
+      try {
+        const run = load.getLoadRun(loadRunId);
+        if (format === "json" || !run.result) return okJson(run);
+        return {
+          content: [
+            {
+              type: "text",
+              text: renderLoadReport(
+                {
+                  id: run.id,
+                  name: run.name,
+                  status: run.status,
+                  profile: run.profile,
+                  startedAt: run.startedAt,
+                  finishedAt: run.finishedAt ?? run.startedAt,
+                  ...run.result,
+                },
+                format as LoadReportFormat,
+              ).body,
+            },
+          ],
+        };
+      } catch (err) {
+        return errResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "cancel_load_test",
+    {
+      title: "Cancel Load Test",
+      description: "Stop a running or queued load test; it keeps the numbers gathered so far.",
+      inputSchema: { loadRunId: z.string().min(1) },
+    },
+    async ({ loadRunId }) => {
+      try {
+        load.getLoadRun(loadRunId);
+        return okJson({ cancelled: runs.cancelRun(loadRunId) });
+      } catch (err) {
+        return errResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "delete_load_run",
+    {
+      title: "Delete Load Test",
+      description: "Delete a stored load test.",
+      inputSchema: { loadRunId: z.string().min(1) },
+    },
+    async ({ loadRunId }) => {
+      try {
+        load.deleteLoadRun(loadRunId);
+        return okJson({ deleted: true, loadRunId });
       } catch (err) {
         return errResult(err);
       }

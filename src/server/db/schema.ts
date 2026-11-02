@@ -1,6 +1,9 @@
 import type { DocumentationSnapshot } from "@/core/documentation/model";
 import type { RequestContract } from "@/core/contracts/model";
 import type { MockRoute } from "@/core/mocks/model";
+import type { LoadProfile } from "@/core/load/profile";
+import type { LoadSnapshot } from "@/core/load/metrics";
+import type { Threshold, ThresholdResult } from "@/core/load/thresholds";
 import type { MockHandler } from "@/core/mocks/handlers";
 import type { Scenario } from "@/core/mocks/scenarios";
 import type { ExecutionDetails } from "@/core/runner/details";
@@ -191,6 +194,42 @@ export const runs = sqliteTable(
     finishedAt: integer("finished_at"),
   },
   (t) => [index("runs_workspace_idx").on(t.workspaceId, t.startedAt)],
+);
+
+/** The outcome of a load test, kept as one document: metrics, the time series and threshold results. */
+export interface LoadResultDoc {
+  stoppedBy: "cancelled" | "maxRequests" | null;
+  snapshot: LoadSnapshot;
+  thresholds: ThresholdResult[];
+  warnings: string[];
+}
+
+export const loadRuns = sqliteTable(
+  "load_runs",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    folderId: text("folder_id"),
+    name: text("name").notNull(),
+    status: text("status")
+      .$type<"queued" | "running" | "passed" | "failed" | "cancelled" | "error">()
+      .notNull(),
+    profile: text("profile", { mode: "json" }).$type<LoadProfile>().notNull(),
+    thresholds: text("thresholds", { mode: "json" }).$type<Threshold[]>().notNull().default([]),
+    thinkMs: integer("think_ms").notNull().default(0),
+    environmentId: text("environment_id"),
+    datasetId: text("dataset_id"),
+    datasetVersion: integer("dataset_version"),
+    result: text("result", { mode: "json" }).$type<LoadResultDoc>(),
+    source: text("source").notNull().default("manual"),
+    createdBy: text("created_by").references(() => users.id),
+    error: text("error"),
+    startedAt: integer("started_at").notNull(),
+    finishedAt: integer("finished_at"),
+  },
+  (t) => [index("load_runs_workspace_idx").on(t.workspaceId, t.startedAt)],
 );
 
 export const runResults = sqliteTable(

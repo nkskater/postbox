@@ -12,7 +12,7 @@ export interface RequestOptions {
 export class ApiClient {
   constructor(
     readonly base: string,
-    private readonly token?: string,
+    readonly token?: string,
     private readonly fetchImpl: Fetch = fetch,
     private readonly timeoutMs = 30_000,
   ) {}
@@ -48,6 +48,49 @@ export class ApiClient {
       throw new CliError("The server returned a response that is not JSON.", EXIT.server);
     }
   }
+}
+
+/** POST and read the newline-delimited JSON events the server streams back (no overall timeout: tests run long). */
+export async function* streamEvents(
+  client: ApiClient,
+  token: string | undefined,
+  path: string,
+  body: unknown,
+  fetchImpl: Fetch = fetch,
+): AsyncGenerator<unknown> {
+  let response: Response;
+  try {
+    response = await fetchImpl(new URL(client.base + path), {
+      method: "POST",
+      headers: {
+        Accept: "application/x-ndjson",
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(body),
+      redirect: "error",
+    });
+  } catch (error) {
+    throw new CliError(`Cannot reach ${client.base}: ${(error as Error).message}`, EXIT.network);
+  }
+  if (!response.ok)
+    throw new CliError(
+      describeFailure(response.status, await response.text()),
+      exitCodeForStatus(response.status),
+    );
+  if (!response.body) return;
+  const decoder = new TextDecoder();
+  let buffered = "";
+  for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
+    buffered += decoder.decode(chunk, { stream: true });
+    let newline: number;
+    while ((newline = buffered.indexOf("\n")) >= 0) {
+      const line = buffered.slice(0, newline).trim();
+      buffered = buffered.slice(newline + 1);
+      if (line) yield JSON.parse(line);
+    }
+  }
+  if (buffered.trim()) yield JSON.parse(buffered);
 }
 
 function describeFailure(status: number, text: string): string {

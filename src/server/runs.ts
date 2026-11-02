@@ -360,7 +360,12 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
 }
 
 /** Account a finished run's time and requests. Failing to record never fails the run. */
-function recordRunUsage(workspaceId: string, runId: string, durationMs: number, totalRequests: number) {
+export function recordRunUsage(
+  workspaceId: string,
+  runId: string,
+  durationMs: number,
+  totalRequests: number,
+) {
   try {
     if (durationMs > 0)
       reserveUsage({ workspaceId, metric: "run_ms", amount: Math.round(durationMs), key: `run_ms:${runId}` });
@@ -369,6 +374,17 @@ function recordRunUsage(workspaceId: string, runId: string, durationMs: number, 
   } catch (error) {
     console.error("[postbox] could not record run usage:", error);
   }
+}
+
+/** Let cancelRun() reach other long-running jobs (load tests) that follow the same lifecycle. */
+export function trackActive(id: string, ctrl: AbortController) {
+  active.set(id, ctrl);
+}
+export function untrackActive(id: string) {
+  active.delete(id);
+}
+export function isActive(id: string) {
+  return active.has(id);
 }
 
 export function cancelRun(runId: string): boolean {

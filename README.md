@@ -404,6 +404,15 @@ DNS dot. An empty setting disables that list; malformed entries, empty comma-sep
 entries, URLs, ports and invalid CIDR prefixes reject the policy when it is loaded.
 Deny rules win, and hostnames and resolved addresses are checked at every redirect hop.
 
+### Load testing
+
+Run a collection with virtual users under a constant, ramp or spike profile and read throughput, error rate and
+latency percentiles (p50 to p99) overall and per request. Thresholds such as `p95<500` or `errorRate<0.01` decide pass
+or fail; results export as JSON, CSV or JUnit, and two tests can be compared. Use the **Load test** tab of a collection's
+runner, `postbox load collection.json --vus 20 --duration 1m --threshold 'p95<400'` (exit code 1 when a threshold fails),
+the REST API or MCP. Ceilings on users, duration and requests apply, and tests share the run queue. See
+[docs/load-testing.md](docs/load-testing.md).
+
 ### Outbound proxy, custom CAs and client certificates
 
 Administrators can route requests, SSE, WebSocket and Socket.IO through an HTTP(S) proxy (with a bypass
