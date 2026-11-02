@@ -416,6 +416,36 @@ describe("linked source lifecycle and round-trip edge cases", () => {
 });
 
 describe("bounded schema projections and additions", () => {
+  it("bounds repeated reference expansion while retaining the original source", async () => {
+    const shapes: Record<string, unknown> = { S0: { type: "string" } };
+    for (let i = 1; i <= 15; i++)
+      shapes["S" + i] = {
+        type: "object",
+        properties: {
+          left: { $ref: "#/components/schemas/S" + (i - 1) },
+          right: { $ref: "#/components/schemas/S" + (i - 1) },
+        },
+      };
+    const d = definition() as Record<string, unknown>;
+    d.components = { schemas: shapes };
+    d.paths = {
+      "/pets": {
+        get: {
+          responses: {
+            "200": {
+              description: "OK",
+              content: { "application/json": { schema: { $ref: "#/components/schemas/S15" } } },
+            },
+          },
+        },
+      },
+    };
+    const spec = create(d),
+      col = await sync.generateCollection(spec.id);
+    expect(col.warnings.some((w) => w.includes("2,048"))).toBe(true);
+    expect(JSON.parse(specs.getSpecification(spec.id).files[0].content).components.schemas.S15).toBeTruthy();
+  });
+
   it("redacts sensitive query credentials in server variable defaults", () => {
     const root: FolderNode = {
       ...defaultFolder({ name: "Server query" }),

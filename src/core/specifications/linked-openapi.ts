@@ -41,7 +41,9 @@ function inlineSchema(
   seen = new Set<unknown>(),
   depth = 0,
   warnings: string[] = [],
+  budget = { left: 2048 },
 ): unknown {
+  if (--budget.left < 0) throw Error("Contract schema expansion exceeds 2,048 nodes");
   if (depth > 30) {
     warnings.push(
       "Contract schema expansion was bounded at 30 levels; complete schemas remain in the source.",
@@ -56,13 +58,14 @@ function inlineSchema(
     return {};
   }
   const resolved = localReferenceValue(spec, value);
-  if (resolved !== value) return inlineSchema(spec, resolved, new Set([...seen, value]), depth + 1, warnings);
+  if (resolved !== value)
+    return inlineSchema(spec, resolved, new Set([...seen, value]), depth + 1, warnings, budget);
   if (Array.isArray(value))
-    return value.map((v) => inlineSchema(spec, v, new Set([...seen, value]), depth + 1, warnings));
+    return value.map((v) => inlineSchema(spec, v, new Set([...seen, value]), depth + 1, warnings, budget));
   return Object.fromEntries(
     Object.entries(value).map(([k, v]) => [
       k,
-      inlineSchema(spec, v, new Set([...seen, value]), depth + 1, warnings),
+      inlineSchema(spec, v, new Set([...seen, value]), depth + 1, warnings, budget),
     ]),
   );
 }
@@ -104,7 +107,14 @@ export function importLinkedOpenApi(spec: Obj, sourceUrl?: string): LinkedOpenAp
     if (value.nullable === true && typeof out.type === "string") out.type = [out.type, "null"];
     return out;
   };
-  const schema = (value: unknown) => projectSchema(inlineSchema(spec, value, new Set(), 0, warnings));
+  const schema = (value: unknown) => {
+    try {
+      return projectSchema(inlineSchema(spec, value, new Set(), 0, warnings));
+    } catch (error) {
+      warnings.push((error as Error).message + "; complete source schema is retained.");
+      return {};
+    }
+  };
   const collection = importOpenApi(spec, {
     sourceUrl,
     onOperation: (request, { method, path, value: operation }) => {
