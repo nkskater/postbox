@@ -91,7 +91,16 @@ export function generateOpenApi(
       ...sensitiveFieldValues(contexts.get(r.id)!.headers),
       ...(r.examples ?? []).flatMap((e) => sensitiveFieldValues(e.body)),
     ]),
-    ...variables.filter((v) => v.type === "secret").map((v) => v.value),
+    ...variables
+      .filter(
+        (v) => v.type === "secret" || /token|password|secret|api[-_]?key|session|credential/i.test(v.key),
+      )
+      .map((v) => v.value),
+    ...variables.flatMap((v) =>
+      Array.from(new URLSearchParams(v.value.split("?")[1] ?? ""))
+        .filter(([key]) => /token|password|secret|api[-_]?key|session|credential/i.test(key))
+        .map(([, value]) => value),
+    ),
     ...(options.secrets ?? []),
   ].filter(Boolean);
   const clean = (v: unknown) => redactStoredValue(redactSensitiveFields(v), secrets);
@@ -155,9 +164,9 @@ export function generateOpenApi(
         throw Error("Remove credentials from the request URL before generating OpenAPI");
       const serverVariables: Obj = Object.create(null);
       for (const match of server.matchAll(/\{([^{}]+)\}/g))
-        serverVariables[match[1]] = { default: values.get(match[1]) ?? "" };
+        serverVariables[match[1]] = { default: clean(values.get(match[1]) ?? "") };
       op.servers = [
-        { url: server, ...(Object.keys(serverVariables).length ? { variables: serverVariables } : {}) },
+        { url: clean(server), ...(Object.keys(serverVariables).length ? { variables: serverVariables } : {}) },
       ];
     }
     const parameters = new Map<string, Obj>();

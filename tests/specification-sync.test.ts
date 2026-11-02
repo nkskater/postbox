@@ -416,6 +416,23 @@ describe("linked source lifecycle and round-trip edge cases", () => {
 });
 
 describe("bounded schema projections and additions", () => {
+  it("redacts sensitive query credentials in server variable defaults", () => {
+    const root: FolderNode = {
+      ...defaultFolder({ name: "Server query" }),
+      kind: "folder",
+      children: [{ ...defaultRequest({ url: "{{baseUrl}}/health" }), kind: "request" }],
+    };
+    const result = generateOpenApi(root, [
+      {
+        key: "baseUrl",
+        value: "https://example.test/api?token=server-query-secret",
+        enabled: true,
+        type: "default",
+      },
+    ]);
+    expect(JSON.stringify(result.document)).not.toContain("server-query-secret");
+  });
+
   it("imports recursive schemas and unsupported formats with explicit warnings", async () => {
     const d = definition() as Record<string, unknown>;
     d.components = {
