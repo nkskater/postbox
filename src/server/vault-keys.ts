@@ -33,6 +33,11 @@ export interface LoadedKeys {
 
 const holder = globalThis as unknown as { __postboxVaultKeys?: { fingerprint: string; keys: LoadedKeys } };
 
+/*
+ * The key file lives outside the app (an operator-chosen path, or beside the database), so the filesystem calls below
+ * carry `turbopackIgnore`: without it the bundler cannot prove where the path points and traces the whole project
+ * into the standalone output.
+ */
 function keyFilePath(): string {
   return (
     process.env.POSTBOX_VAULT_KEY_FILE?.trim() ||
@@ -82,7 +87,7 @@ function fingerprint(): string {
   const file = keyFilePath();
   let stamp = "";
   try {
-    const stat = fs.statSync(file);
+    const stat = fs.statSync(/*turbopackIgnore: true*/ file);
     stamp = `${stat.mtimeMs}:${stat.size}`;
   } catch {
     /* not created yet */
@@ -97,7 +102,7 @@ function fingerprint(): string {
 
 /** True once keys exist or are configured; reading status must not create a key file as a side effect. */
 export function keysExist(): boolean {
-  return !!process.env.POSTBOX_VAULT_KEY?.trim() || fs.existsSync(keyFilePath());
+  return !!process.env.POSTBOX_VAULT_KEY?.trim() || fs.existsSync(/*turbopackIgnore: true*/ keyFilePath());
 }
 
 /** The active keys. Creates a key file on first use when no key is configured. */
@@ -118,7 +123,7 @@ export function getKeys(): LoadedKeys {
     };
   } else {
     const file = keyFilePath();
-    if (!fs.existsSync(file)) {
+    if (!fs.existsSync(/*turbopackIgnore: true*/ file)) {
       const key = generateKey();
       writeKeyFile(file, { current: keyIdOf(key), keys: { [keyIdOf(key)]: encodeKey(key) } });
     }
