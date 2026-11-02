@@ -396,6 +396,7 @@ const scopeValues = z.record(z.string(), z.string());
 
 /** What __finalize() hands back. User code can replace it, so nothing is trusted. */
 export const sandboxStateSchema = z.object({
+  vaultSet: z.record(z.string(), z.string()).optional(),
   visualization: visualizationSchema.nullable().optional(),
   visualizationSet: z.boolean().optional(),
   scopes: z.object({

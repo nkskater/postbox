@@ -18,7 +18,7 @@ export const BOOTSTRAP_SOURCE = String.raw`
 "use strict";
 var __ctx = JSON.parse(__ctx_json);
 var __skipSignal = {};
-var __state = { visualization: __ctx.visualization, tests: [], nextRequest: undefined, nextRequestSet: false, skip: false, pending: [], timers: {}, nextTimerId: 0, runRequestCount: 0, testCount: 0, asyncErrors: [], activeDone: undefined };
+var __state = { visualization: __ctx.visualization, tests: [], nextRequest: undefined, nextRequestSet: false, skip: false, pending: [], vaultSet: {}, timers: {}, nextTimerId: 0, runRequestCount: 0, testCount: 0, asyncErrors: [], activeDone: undefined };
 
 // ---------------------------------------------------------------- utilities
 function __isObj(v) { return v !== null && typeof v === "object"; }
@@ -243,8 +243,16 @@ var pm = {
   vault: Object.freeze({
     get: function (name) { return Object.prototype.hasOwnProperty.call(__vault, name) ? __vault[name] : undefined; },
     has: function (name) { return Object.prototype.hasOwnProperty.call(__vault, name); },
-    set: __unsupported("pm.vault.set (manage vault secrets in Postbox settings)"),
-    unset: __unsupported("pm.vault.unset (manage vault secrets in Postbox settings)"),
+    // Replaces the value of a secret that allows script access (it cannot create or delete secrets).
+    set: function (name, value) {
+      if (!Object.prototype.hasOwnProperty.call(__vault, name))
+        throw new Error("pm.vault.set can only change an existing secret that allows script access: " + String(name));
+      var text = value === undefined || value === null ? "" : typeof value === "string" ? value : String(value);
+      if (!text) throw new Error("pm.vault.set needs a value");
+      __vault[name] = text;
+      __state.vaultSet[name] = text;
+    },
+    unset: __unsupported("pm.vault.unset (delete secrets in Postbox settings)"),
   }),
   environment: new VariableScope("environment"),
   globals: new VariableScope("globals"),
@@ -438,6 +446,7 @@ function __finalize() {
     nextRequest: __state.nextRequest,
     nextRequestSet: __state.nextRequestSet,
     skip: __state.skip,
+    vaultSet: __state.vaultSet,
     request: __serializeRequest(r)
   });
 }

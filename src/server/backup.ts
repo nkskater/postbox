@@ -268,7 +268,10 @@ export function restoreBackup(db: DB, sqlite: Database.Database, input: unknown)
     })),
     workspaceMembers: tables.workspaceMembers.filter((m) => known(m.userId)),
     appSettings: settings,
-    vaultSecrets: withCreator(tables.vaultSecrets),
+    // A personal secret whose owner is not an account here could never be used or removed by anyone.
+    vaultSecrets: withCreator(tables.vaultSecrets).filter(
+      (v) => !v.ownerId || v.ownerId === "open" || v.ownerId === "env" || known(v.ownerId),
+    ),
     outboundProxy: tables.outboundProxy.filter((p) => validProxyRow(p)),
     // A client certificate without its key (scrubbed backup) cannot be used; keep the CA part only.
     tlsProfiles: tables.tlsProfiles

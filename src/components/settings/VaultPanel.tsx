@@ -1,6 +1,6 @@
 "use client";
-/** The workspace's secrets vault: store, scope, replace and delete secrets. Values are write-only. */
-import { useCallback, useEffect, useState } from "react";
+/** The workspace's secrets vault: store, scope, restrict, reveal, export and import secrets. */
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,9 @@ interface Secret {
   keyId: string;
   scriptAccess: boolean;
   collectionIds: string[];
+  domains: string[];
+  enabled: boolean;
+  personal: boolean;
   state: "ok" | "needs-value" | "unreadable";
   updatedAt: number;
   rotatedAt: number | null;
@@ -46,6 +49,12 @@ const STATE_TEXT: Record<Secret["state"], string> = {
   unreadable: "Unreadable: its encryption key is not available",
 };
 
+const splitList = (text: string) =>
+  text
+    .split(",")
+    .map((d) => d.trim())
+    .filter(Boolean);
+
 export function VaultPanel({ isAdmin }: { isAdmin: boolean }) {
   const workspaceId = useApp((s) => s.workspaceId);
   const folders = useApp((s) => s.folders);
@@ -58,9 +67,18 @@ export function VaultPanel({ isAdmin }: { isAdmin: boolean }) {
   const [description, setDescription] = useState("");
   const [scriptAccess, setScriptAccess] = useState(false);
   const [scope, setScope] = useState<string[]>([]);
+  const [domains, setDomains] = useState("");
+  const [personal, setPersonal] = useState(false);
+  const [editingDomains, setEditingDomains] = useState<{ id: string; text: string } | null>(null);
+  const [revealed, setRevealed] = useState<{ id: string; value: string } | null>(null);
   const [replacing, setReplacing] = useState<string | null>(null);
   const [newValue, setNewValue] = useState("");
+  const [exportPass, setExportPass] = useState("");
+  const [importPass, setImportPass] = useState("");
+  const [conflict, setConflict] = useState("skip");
   const [busy, setBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(() => {
     call<Secret[]>(`/api/vault?workspaceId=${workspaceId}`)
@@ -77,6 +95,12 @@ export function VaultPanel({ isAdmin }: { isAdmin: boolean }) {
   useEffect(() => {
     load();
   }, [load]);
+  useEffect(
+    () => () => {
+      if (hideTimer.current) clearTimeout(hideTimer.current);
+    },
+    [],
+  );
 
   const run = async (work: () => Promise<unknown>, done: string) => {
     setBusy(true);
@@ -100,23 +124,97 @@ export function VaultPanel({ isAdmin }: { isAdmin: boolean }) {
         description,
         scriptAccess,
         collectionIds: scope,
+        personal,
+        ...(domains.trim() ? { domains: splitList(domains) } : {}),
       });
       setName("");
       setValue("");
       setDescription("");
       setScriptAccess(false);
       setScope([]);
+      setDomains("");
+      setPersonal(false);
     }, "Secret stored");
 
+  const reveal = async (id: string) => {
+    if (revealed?.id === id) {
+      setRevealed(null);
+      return;
+    }
+    try {
+      const r = await call<{ value: string }>(`/api/vault/${id}/reveal`, "POST");
+      setRevealed({ id, value: r.value });
+      // A revealed value does not stay on screen.
+      if (hideTimer.current) clearTimeout(hideTimer.current);
+      hideTimer.current = setTimeout(() => setRevealed(null), 15_000);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  };
+
+  const download = async () => {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/vault/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workspaceId, passphrase: exportPass, includePersonal: true }),
+      });
+      if (!res.ok)
+        throw new Error(
+          ((await res.json().catch(() => ({}))) as { error?: string }).error ??
+            `Request failed (${res.status})`,
+        );
+      const blob = await res.blob();
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `postbox-vault-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+      setExportPass("");
+      toast.success("Encrypted export downloaded");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const importFile = async (file: File) => {
+    setBusy(true);
+    try {
+      const parsed = JSON.parse(await file.text());
+      const r = await call<{ created: string[]; replaced: string[]; skipped: string[]; warnings: string[] }>(
+        "/api/vault/import",
+        "POST",
+        { workspaceId, file: parsed, passphrase: importPass || undefined, onConflict: conflict },
+      );
+      toast.success(
+        `Imported ${r.created.length}, replaced ${r.replaced.length}, skipped ${r.skipped.length}`,
+      );
+      for (const w of r.warnings) toast.message(w);
+      setImportPass("");
+      load();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
   const collectionName = (id: string) => collections.find((c) => c.id === id)?.name ?? "a deleted collection";
+  const patch = (id: string, body: unknown, done = "Updated") =>
+    run(() => call(`/api/vault/${id}`, "PATCH", body), done);
 
   return (
     <section className="space-y-4 rounded-lg border p-4" aria-label="Secrets vault">
       <div>
         <h3 className="font-medium">Secrets vault</h3>
         <p className="text-sm text-muted-foreground">
-          Values are encrypted at rest and never shown again. Use <code>{"{{vault:name}}"}</code> in URLs,
-          headers, bodies and auth. They are masked in history, results and logs.
+          Values are encrypted at rest. Use <code>{"{{vault:name}}"}</code> in URLs, headers, bodies and auth;
+          they are masked in history, results and logs. You can also move a value out of any password field
+          with its lock button.
         </p>
       </div>
 
@@ -130,13 +228,33 @@ export function VaultPanel({ isAdmin }: { isAdmin: boolean }) {
       ) : (
         <ul className="divide-y rounded-md border">
           {secrets.map((s) => (
-            <li key={s.id} className="space-y-1 p-3 text-sm">
+            <li key={s.id} className={`space-y-1 p-3 text-sm ${s.enabled ? "" : "opacity-60"}`}>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="min-w-0">
+                  <label className="mr-2 inline-flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={s.enabled}
+                      disabled={busy}
+                      aria-label={`Enable ${s.name}`}
+                      onChange={() => void patch(s.id, { enabled: !s.enabled })}
+                    />
+                  </label>
                   <span className="font-medium">{s.name}</span>{" "}
                   <code className="text-xs text-muted-foreground">{s.reference}</code>
+                  {s.personal && (
+                    <span className="ml-2 rounded border px-1 text-xs text-muted-foreground">only you</span>
+                  )}
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy || s.state !== "ok"}
+                    onClick={() => void reveal(s.id)}
+                  >
+                    {revealed?.id === s.id ? "Hide" : "Show value"}
+                  </Button>
                   <Button
                     size="sm"
                     variant="outline"
@@ -158,25 +276,61 @@ export function VaultPanel({ isAdmin }: { isAdmin: boolean }) {
                   </Button>
                 </div>
               </div>
+              {revealed?.id === s.id && (
+                <code
+                  className="block break-all rounded border bg-muted/40 p-2 text-xs"
+                  aria-label="Revealed value"
+                >
+                  {revealed.value}
+                </code>
+              )}
               {s.description && <div className="text-xs text-muted-foreground">{s.description}</div>}
               <div className="text-xs text-muted-foreground">
                 {s.collectionIds.length
                   ? `Only in ${s.collectionIds.map(collectionName).join(", ")}`
                   : "Whole workspace"}{" "}
                 ·{" "}
+                {editingDomains?.id === s.id ? (
+                  <span className="inline-flex items-center gap-1">
+                    <Input
+                      className="h-6 w-56"
+                      aria-label={`Allowed domains for ${s.name}`}
+                      value={editingDomains.text}
+                      onChange={(e) => setEditingDomains({ id: s.id, text: e.target.value })}
+                      placeholder="api.example.com, *.example.org"
+                    />
+                    <Button
+                      size="sm"
+                      className="h-6"
+                      disabled={busy}
+                      onClick={() =>
+                        void patch(s.id, { domains: splitList(editingDomains.text) }, "Domains saved").then(
+                          () => setEditingDomains(null),
+                        )
+                      }
+                    >
+                      Save
+                    </Button>
+                  </span>
+                ) : (
+                  <button
+                    className="underline-offset-2 hover:underline"
+                    onClick={() => setEditingDomains({ id: s.id, text: s.domains.join(", ") })}
+                  >
+                    {s.domains.length
+                      ? `Only sent to ${s.domains.join(", ")}`
+                      : "Can be sent to any host (set domains)"}
+                  </button>
+                )}{" "}
+                ·{" "}
                 <label className="inline-flex items-center gap-1">
                   <input
                     type="checkbox"
                     checked={s.scriptAccess}
                     disabled={busy}
-                    onChange={() =>
-                      void run(
-                        () => call(`/api/vault/${s.id}`, "PATCH", { scriptAccess: !s.scriptAccess }),
-                        "Updated",
-                      )
-                    }
+                    onChange={() => void patch(s.id, { scriptAccess: !s.scriptAccess })}
                   />
-                  scripts may read it (pm.vault.get)
+                  scripts may read and replace it
                 </label>{" "}
                 · updated {formatDateTime(s.rotatedAt ?? s.updatedAt)}
               </div>
@@ -243,6 +397,19 @@ export function VaultPanel({ isAdmin }: { isAdmin: boolean }) {
             aria-label="Secret value"
           />
         </label>
+        <label className="block space-y-1 text-sm">
+          <span>Allowed domains (optional)</span>
+          <Input
+            value={domains}
+            onChange={(e) => setDomains(e.target.value)}
+            placeholder="api.example.com, *.example.org"
+            aria-label="Allowed domains"
+          />
+          <span className="text-xs text-muted-foreground">
+            The secret is only sent to these hosts; a request to any other host is refused before it leaves.
+            Leave empty to allow any host.
+          </span>
+        </label>
         <fieldset className="space-y-1 text-sm">
           <legend>Available in</legend>
           <p className="text-xs text-muted-foreground">Leave all unchecked for the whole workspace.</p>
@@ -261,10 +428,20 @@ export function VaultPanel({ isAdmin }: { isAdmin: boolean }) {
             ))}
           </div>
         </fieldset>
-        <label className="inline-flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={scriptAccess} onChange={(e) => setScriptAccess(e.target.checked)} />
-          Let scripts read it with <code>pm.vault.get</code>
-        </label>
+        <div className="flex flex-wrap gap-4 text-sm">
+          <label className="inline-flex items-center gap-2">
+            <input type="checkbox" checked={personal} onChange={(e) => setPersonal(e.target.checked)} />
+            Only me (personal secret)
+          </label>
+          <label className="inline-flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={scriptAccess}
+              onChange={(e) => setScriptAccess(e.target.checked)}
+            />
+            Let scripts read and replace it with <code>pm.vault</code>
+          </label>
+        </div>
         <div>
           <Button size="sm" disabled={busy || !name.trim() || !value} onClick={() => void add()}>
             Store secret
@@ -272,24 +449,81 @@ export function VaultPanel({ isAdmin }: { isAdmin: boolean }) {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={busy}
-          onClick={() =>
-            void run(async () => {
-              const r = await call<{ moved: unknown[] }>("/api/vault/migrate", "POST", { workspaceId });
-              toast.message(`${r.moved.length} secret variables moved into the vault`);
-            }, "Migration finished")
-          }
-        >
-          Move secret variables into the vault
-        </Button>
-        <span className="text-xs text-muted-foreground">
-          Replaces each secret variable&apos;s value with a vault reference. Scripts then read the reference,
-          not the value.
-        </span>
+      <div className="space-y-2 rounded-md border p-3 text-sm" aria-label="Move secrets">
+        <h4 className="font-medium">Move secrets</h4>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy}
+            onClick={() =>
+              void run(async () => {
+                const r = await call<{ moved: unknown[] }>("/api/vault/migrate", "POST", { workspaceId });
+                toast.message(`${r.moved.length} secret variables moved into the vault`);
+              }, "Migration finished")
+            }
+          >
+            Move secret variables into the vault
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            Replaces each secret variable&apos;s value with a vault reference.
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            type="password"
+            className="h-8 w-56"
+            placeholder="Passphrase (8+ characters)"
+            autoComplete="new-password"
+            aria-label="Export passphrase"
+            value={exportPass}
+            onChange={(e) => setExportPass(e.target.value)}
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy || exportPass.length < 8}
+            onClick={() => void download()}
+          >
+            Export encrypted file
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            Workspace owners. Includes your personal secrets.
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            ref={fileRef}
+            type="file"
+            accept="application/json,.json"
+            className="text-xs"
+            aria-label="Vault export file"
+            disabled={busy}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void importFile(f);
+            }}
+          />
+          <Input
+            type="password"
+            className="h-8 w-44"
+            placeholder="File passphrase"
+            autoComplete="off"
+            aria-label="Import passphrase"
+            value={importPass}
+            onChange={(e) => setImportPass(e.target.value)}
+          />
+          <select
+            className="h-8 rounded-md border bg-transparent px-2 text-xs"
+            aria-label="When a name already exists"
+            value={conflict}
+            onChange={(e) => setConflict(e.target.value)}
+          >
+            <option value="skip">Skip existing names</option>
+            <option value="replace">Replace existing</option>
+            <option value="rename">Keep both (rename)</option>
+          </select>
+        </div>
       </div>
 
       {isAdmin && status && (

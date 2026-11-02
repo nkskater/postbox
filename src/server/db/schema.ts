@@ -247,6 +247,12 @@ export const vaultSecrets = sqliteTable(
     description: text("description").notNull().default(""),
     ciphertext: text("ciphertext").notNull().default(""),
     keyId: text("key_id").notNull().default(""),
+    /** Off: references stay unresolved without deleting the secret. */
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    /** Hosts it may be sent to (`host`, `*.domain`); empty means any host. */
+    domains: text("domains", { mode: "json" }).$type<string[]>().notNull().default([]),
+    /** A user id for a personal secret that only that user's executions can use; empty for workspace secrets. */
+    ownerId: text("owner_id").notNull().default(""),
     /** May scripts read it with pm.vault.get()? References in requests do not need this. */
     scriptAccess: integer("script_access", { mode: "boolean" }).notNull().default(false),
     /** Collections (folder ids) that may reference it; empty means the whole workspace. */
@@ -257,7 +263,7 @@ export const vaultSecrets = sqliteTable(
     /** When the value was last replaced (or re-encrypted under a new key). */
     rotatedAt: integer("rotated_at"),
   },
-  (t) => [uniqueIndex("vault_secrets_name_unique").on(t.workspaceId, t.name)],
+  (t) => [uniqueIndex("vault_secrets_name_unique").on(t.workspaceId, t.name, t.ownerId)],
 );
 
 export const runResults = sqliteTable(
