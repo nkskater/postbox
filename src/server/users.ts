@@ -141,6 +141,8 @@ export async function prepareUser(input: {
     sessionVersion: 1,
     createdAt: now,
     updatedAt: now,
+    scimProfile: null,
+    deletedAt: null,
   };
   return row;
 }
@@ -343,6 +345,8 @@ export function createServiceAccount(input: { username: string; displayName?: st
     sessionVersion: 1,
     createdAt: now,
     updatedAt: now,
+    scimProfile: null,
+    deletedAt: null,
   };
   getDb().insert(users).values(row).run();
   audit({
