@@ -1,10 +1,13 @@
 /** Offline template rendering: no guest code or executable links reach the browser. */
 import { getQuickJS } from "quickjs-emscripten";
 import { parseHTML } from "linkedom";
-import { VISUALIZER_SOURCE } from "./runtime.generated";
 import { VISUALIZER_LIMITS, visualizationSchema, type Visualization, type VisualizerResult } from "./model";
 import { redactStoredValue, redactSecrets } from "../variables/resolver";
 import { credentialRedactionValues, sensitiveFieldValues, redactSensitiveFields } from "../retention";
+/** Loaded on first use so the 0.5 MB runtime is one shared chunk rather than a copy per route. */
+let visualizerSource: Promise<string> | undefined;
+const loadVisualizerSource = () =>
+  (visualizerSource ??= import("./runtime.generated").then((m) => m.VISUALIZER_SOURCE));
 export const VISUALIZER_CSP =
   "default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'";
 export function inertVisualization(html: string, secrets: Iterable<string> = []): string {
@@ -61,7 +64,7 @@ export async function renderVisualization(
       }
       return result.value;
     };
-    evaluate(VISUALIZER_SOURCE).dispose();
+    evaluate(await loadVisualizerSource()).dispose();
     const result = evaluate(`__renderVisualization(${JSON.stringify(input)})`);
     let html: string;
     try {
