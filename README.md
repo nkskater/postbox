@@ -647,3 +647,5 @@ Use **Visualization** in the response panel for offline tables and SVG charts fr
 Share pinned helpers across collections using **Packages** and `pm.require`. See the [script package guide](docs/script-packages.md) for approval, versioning and automation.
 
 [Application tests](docs/application-tests.md) validate captured UI-test responses against collection assertions without replaying requests, with coverage and JSON/JUnit/HTML reports.
+
+[External MCP client](docs/mcp-client.md) discovers tools, resources and prompts on Streamable HTTP servers, executes operations, and saves variable-driven calls.

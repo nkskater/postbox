@@ -59,6 +59,13 @@ function TabTitle({ tab }: { tab: Tab }) {
           <span>Cookies</span>
         </>
       );
+    case "mcp-client":
+      return (
+        <>
+          <Library className="size-3.5 shrink-0" />
+          <span>MCP client</span>
+        </>
+      );
     case "catalog":
       return (
         <>
