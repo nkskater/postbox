@@ -60,6 +60,22 @@ function MainArea() {
       </div>
     );
   }
+  // Runner tabs stay mounted while open (hidden when another tab is active) so their
+  // data table, excluded requests, options and any run in progress survive tab switches.
+  const runners = tabs.filter((t): t is Extract<typeof t, { type: "runner" }> => t.type === "runner");
+  return (
+    <>
+      {runners.map((r) => (
+        <div key={r.id} className={r.id === tab.id ? "h-full" : "hidden"}>
+          <RunnerTabs folderId={r.folderId} />
+        </div>
+      ))}
+      {tab.type !== "runner" && renderTab(tab)}
+    </>
+  );
+}
+
+function renderTab(tab: Exclude<ReturnType<typeof useApp.getState>["tabs"][number], { type: "runner" }>) {
   switch (tab.type) {
     case "request":
       return <RequestEditor key={tab.id} tab={tab} />;
@@ -69,8 +85,6 @@ function MainArea() {
       return <EnvironmentEditor key={tab.environmentId} environmentId={tab.environmentId} />;
     case "globals":
       return <EnvironmentEditor key="globals" environmentId={null} />;
-    case "runner":
-      return <RunnerTabs key={tab.folderId} folderId={tab.folderId} />;
     case "cookies":
       return <CookiesView />;
     case "governance":
