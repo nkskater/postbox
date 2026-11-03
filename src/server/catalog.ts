@@ -274,6 +274,12 @@ export function searchCatalog(raw: CatalogSearchInput, caller: Caller | null | u
     offset: input.offset,
   };
 }
+/** Internal metadata read using the same visibility policy as published documents. */
+export function getCatalogService(id: string) {
+  const entry = getDb().select().from(entries).where(eq(entries.id, id)).get();
+  if (!entry || !visible(entry, currentCaller())) throw notFound("Catalog entry");
+  return entry;
+}
 export function getCatalogEntry(
   id: string,
   version: number | undefined,

@@ -105,6 +105,7 @@ describe("contract and access policy", () => {
       "/api/monitors",
       "/api/specifications",
       "/api/governance",
+      "/api/scorecards",
       "/api/folders/[id]/specification",
       "/api/hook-listeners",
       "/api/load-runs",

@@ -665,3 +665,5 @@ Share pinned helpers across collections using **Packages** and `pm.require`. See
 - [Linked OpenAPI collections](docs/specification-sync.md): generation, reviewed synchronization and drift/conflict detection.
 
 - [API governance and CI checks](docs/governance.md): versioned declarative policies, source diagnostics, exclusions and deterministic CLI reports.
+
+- [API quality scorecards](docs/scorecards.md): weighted catalog, monitoring and governance quality with freshness, coverage and historical reports.

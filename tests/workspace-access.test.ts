@@ -57,6 +57,20 @@ beforeAll(async () => {
       createdAt: 1,
     })
     .run();
+  ids.qualityScorecard = "access-quality";
+  getDb()
+    .insert(schema.qualityScorecards)
+    .values({ id: ids.qualityScorecard, workspaceId, name: "Access quality", createdAt: 1, updatedAt: 1 })
+    .run();
+  getDb()
+    .insert(schema.qualityScorecardVersions)
+    .values({
+      scorecardId: ids.qualityScorecard,
+      version: 1,
+      config: (await import("@/core/scorecards/model")).DEFAULT_SCORECARD,
+      createdAt: 1,
+    })
+    .run();
   ids.governanceRuleSet = "access-governance";
   getDb()
     .insert(schema.governanceRuleSets)

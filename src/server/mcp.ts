@@ -1,3 +1,4 @@
+import * as scorecards from "./scorecards";
 import * as governance from "./governance";
 import * as specificationSync from "./specification-sync";
 import * as specifications from "./specifications";
@@ -386,6 +387,189 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
     async ({ specificationId, ...input }) => {
       try {
         return okJson(await specificationSync.applySpecificationSync(specificationId, input));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "list_scorecards",
+    { description: "List workspace quality scorecards.", inputSchema: { workspaceId: z.string().min(1) } },
+    async (input) => {
+      try {
+        return okJson(scorecards.listScorecards(input.workspaceId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "get_scorecard",
+    {
+      description: "Read a quality policy and immutable versions.",
+      inputSchema: { scorecardId: z.string().min(1), version: z.number().int().positive().optional() },
+    },
+    async (input) => {
+      try {
+        return okJson(scorecards.getScorecard(input.scorecardId, input.version));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "create_scorecard",
+    {
+      description: "Create a versioned quality scorecard.",
+      inputSchema: scorecards.createScorecardInput.shape,
+    },
+    async (input) => {
+      try {
+        return okJson(scorecards.createScorecard(input));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "save_scorecard",
+    {
+      description: "Append an immutable quality policy version.",
+      inputSchema: { scorecardId: z.string().min(1), patch: scorecards.saveScorecardInput },
+    },
+    async (input) => {
+      try {
+        return okJson(scorecards.saveScorecard(input.scorecardId, input.patch));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "delete_scorecard",
+    {
+      description: "Remove a scorecard and its retained reports.",
+      inputSchema: { scorecardId: z.string().min(1) },
+    },
+    async (input) => {
+      try {
+        return okJson(scorecards.deleteScorecard(input.scorecardId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "list_scorecard_sources",
+    {
+      description: "List permitted catalog services, sources and assignments.",
+      inputSchema: { scorecardId: z.string().min(1) },
+    },
+    async (input) => {
+      try {
+        return okJson(scorecards.scorecardSources(input.scorecardId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "bind_scorecard_service",
+    {
+      description: "Assign a catalog service/environment to existing quality sources.",
+      inputSchema: { scorecardId: z.string().min(1), binding: scorecards.qualityBindingInput },
+    },
+    async (input) => {
+      try {
+        return okJson(scorecards.bindQualityService(input.scorecardId, input.binding));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "remove_scorecard_service",
+    {
+      description: "Remove a quality service assignment.",
+      inputSchema: { scorecardId: z.string().min(1), bindingId: z.string().min(1) },
+    },
+    async (input) => {
+      try {
+        return okJson(scorecards.removeQualityService(input.scorecardId, input.bindingId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "preview_scorecard",
+    {
+      description: "Evaluate quality without saving or executing requests.",
+      inputSchema: { scorecardId: z.string().min(1), check: scorecards.qualityCheckInput.optional() },
+    },
+    async (input) => {
+      try {
+        return okJson(scorecards.previewScorecard(input.scorecardId, input.check));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "save_scorecard_report",
+    {
+      description: "Evaluate and retain a quality snapshot.",
+      inputSchema: { scorecardId: z.string().min(1), check: scorecards.qualityCheckInput.optional() },
+    },
+    async (input) => {
+      try {
+        return okJson(scorecards.saveQualityReport(input.scorecardId, input.check));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "list_scorecard_reports",
+    {
+      description: "List retained visible quality report summaries.",
+      inputSchema: { scorecardId: z.string().min(1), filters: scorecards.qualityFilter.optional() },
+    },
+    async (input) => {
+      try {
+        return okJson(scorecards.listQualityReports(input.scorecardId, input.filters));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "get_scorecard_report",
+    {
+      description: "Read a quality report with current source visibility enforced.",
+      inputSchema: {
+        scorecardId: z.string().min(1),
+        reportId: z.string().min(1),
+        filters: scorecards.qualityFilter.optional(),
+      },
+    },
+    async (input) => {
+      try {
+        return okJson(scorecards.getQualityReport(input.scorecardId, input.reportId, input.filters));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "compare_scorecard_reports",
+    {
+      description: "Compare visible services across historical quality reports.",
+      inputSchema: { scorecardId: z.string().min(1), comparison: scorecards.qualityCompareInput },
+    },
+    async (input) => {
+      try {
+        return okJson(scorecards.compareQualityReports(input.scorecardId, input.comparison));
       } catch (error) {
         return errResult(error);
       }
