@@ -253,6 +253,13 @@
       "when": 1793709226307,
       "tag": "0035_curved_mindworm",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1793710923332,
+      "tag": "0036_hesitant_stranger",
+      "breakpoints": true
     }
   ]
 }
