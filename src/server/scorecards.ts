@@ -309,6 +309,7 @@ export interface QualityReport {
   policyHash: string;
   at: number;
   filters: z.infer<typeof qualityFilter>;
+  viewFilters?: z.infer<typeof qualityFilter>;
   services: QualityService[];
 }
 const unavailable = (reason: string): Fact => ({
@@ -575,6 +576,7 @@ export function getQualityReport(id: string, reportId: string, raw: z.input<type
     createdAt: row.createdAt,
     report: summarize({
       ...row.report,
+      viewFilters: filters,
       services: row.report.services.filter(
         (s) => canSeeEntry(s.entryId, card.workspaceId) && matches(s, filters),
       ),
