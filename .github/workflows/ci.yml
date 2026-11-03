@@ -180,6 +180,7 @@ jobs:
           $env:NO_BROWSER = '1'
           if ($windowExit -eq 0) { throw 'Postbox.cmd --window should fail without a usable browser' }
           if (-not (Test-Path (Join-Path $data 'startup-error.log'))) { throw 'startup-error.log was not written' }
+          $global:LASTEXITCODE = 0
           Write-Host 'Packaged Windows edition OK'
       - uses: actions/upload-artifact@v4
         with:
