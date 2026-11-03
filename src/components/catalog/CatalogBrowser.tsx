@@ -1,11 +1,13 @@
 "use client";
 import { useEffect, useState } from "react";
+import { ScorecardsPanel } from "./ScorecardsPanel";
 import { SdkDownload } from "./SdkDownload";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { getCatalogEntry, searchCatalog } from "@/server/catalog";
 export function CatalogBrowser() {
+  const [quality, setQuality] = useState(false);
   const [query, setQuery] = useState(""),
     [tag, setTag] = useState(""),
     [offset, setOffset] = useState(0),
@@ -42,10 +44,22 @@ export function CatalogBrowser() {
       setError(error instanceof Error ? error.message : "Could not load entry");
     }
   };
+  if (quality)
+    return (
+      <div className="h-full overflow-auto p-4 space-y-4">
+        <Button size="sm" variant="outline" onClick={() => setQuality(false)}>
+          Back to catalog
+        </Button>
+        <ScorecardsPanel />
+      </div>
+    );
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 overflow-auto p-4">
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-lg font-medium">API catalog</h1>
+        <Button size="sm" variant="outline" onClick={() => setQuality(true)}>
+          Quality scorecards
+        </Button>
         <Button
           variant="outline"
           size="sm"

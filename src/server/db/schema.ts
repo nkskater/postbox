@@ -1341,3 +1341,64 @@ export const graphEdges = sqliteTable(
   ],
 );
 export type GraphSourceRow = typeof graphSources.$inferSelect;
+
+export const qualityScorecards = sqliteTable("quality_scorecards", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  revision: integer("revision").notNull().default(1),
+  ...timestamps,
+});
+export const qualityScorecardVersions = sqliteTable(
+  "quality_scorecard_versions",
+  {
+    scorecardId: text("scorecard_id")
+      .notNull()
+      .references(() => qualityScorecards.id, { onDelete: "cascade" }),
+    version: integer("version").notNull(),
+    config: text("config", { mode: "json" })
+      .$type<import("@/core/scorecards/model").ScorecardConfig>()
+      .notNull(),
+    label: text("label").notNull().default(""),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.scorecardId, t.version] })],
+);
+export const qualityBindings = sqliteTable(
+  "quality_bindings",
+  {
+    id: text("id").primaryKey(),
+    scorecardId: text("scorecard_id")
+      .notNull()
+      .references(() => qualityScorecards.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    entryId: text("entry_id")
+      .notNull()
+      .references(() => catalogEntries.id, { onDelete: "cascade" }),
+    environmentId: text("environment_id").notNull().default(""),
+    specificationId: text("specification_id").references(() => specifications.id, { onDelete: "set null" }),
+    monitorId: text("monitor_id").references(() => monitors.id, { onDelete: "set null" }),
+    revision: integer("revision").notNull().default(1),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("quality_bindings_slice_unique").on(t.scorecardId, t.entryId, t.environmentId)],
+);
+export const qualityReports = sqliteTable(
+  "quality_reports",
+  {
+    id: text("id").primaryKey(),
+    scorecardId: text("scorecard_id")
+      .notNull()
+      .references(() => qualityScorecards.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    report: text("report", { mode: "json" }).$type<import("@/server/scorecards").QualityReport>().notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("quality_reports_card_time").on(t.scorecardId, t.createdAt)],
+);

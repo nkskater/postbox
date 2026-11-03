@@ -1,3 +1,4 @@
+import { DEFAULT_SCORECARD } from "@/core/scorecards/model";
 import { DEFAULT_GOVERNANCE } from "@/core/governance/model";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import fs from "node:fs";
@@ -111,6 +112,61 @@ describe("MCP server (/api/mcp)", () => {
     expect(
       (await client.callTool({ name: "unlink_collection_specification", arguments: { folderId: folder.id } }))
         .isError,
+    ).toBeFalsy();
+  });
+  it("creates, evaluates, versions, exports and compares quality policies through MCP", async () => {
+    const ws = parseToolJson<{ id: string }>(
+      await client.callTool({ name: "create_workspace", arguments: { name: "Quality MCP" } }),
+    );
+    const created = await client.callTool({
+      name: "create_scorecard",
+      arguments: { workspaceId: ws.id, config: DEFAULT_SCORECARD },
+    });
+    expect(created.isError).toBeFalsy();
+    const card = parseToolJson<{ id: string }>(created);
+    const sources = await client.callTool({
+      name: "list_scorecard_sources",
+      arguments: { scorecardId: card.id },
+    });
+    expect(sources.isError).toBeFalsy();
+    const preview = parseToolJson<{ summary: { score: null; services: number } }>(
+      await client.callTool({ name: "preview_scorecard", arguments: { scorecardId: card.id } }),
+    );
+    expect(preview.summary).toMatchObject({ score: null, services: 0 });
+    const first = parseToolJson<{ id: string }>(
+      await client.callTool({ name: "save_scorecard_report", arguments: { scorecardId: card.id } }),
+    );
+    expect(
+      (
+        await client.callTool({
+          name: "save_scorecard",
+          arguments: {
+            scorecardId: card.id,
+            patch: { expectedRevision: 1, config: { ...DEFAULT_SCORECARD, name: "Quality v2" } },
+          },
+        })
+      ).isError,
+    ).toBeFalsy();
+    const second = parseToolJson<{ id: string }>(
+      await client.callTool({ name: "save_scorecard_report", arguments: { scorecardId: card.id } }),
+    );
+    const compared = parseToolJson<{ policyChanged: boolean }>(
+      await client.callTool({
+        name: "compare_scorecard_reports",
+        arguments: { scorecardId: card.id, comparison: { beforeId: first.id, afterId: second.id } },
+      }),
+    );
+    expect(compared.policyChanged).toBe(true);
+    expect(
+      (
+        await client.callTool({
+          name: "get_scorecard_report",
+          arguments: { scorecardId: card.id, reportId: first.id },
+        })
+      ).isError,
+    ).toBeFalsy();
+    expect(
+      (await client.callTool({ name: "delete_scorecard", arguments: { scorecardId: card.id } })).isError,
     ).toBeFalsy();
   });
   it("versions governance policies, assigns them and persists located reports through MCP", async () => {

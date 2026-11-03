@@ -1,3 +1,4 @@
+import { scorecardConfig } from "@/core/scorecards/model";
 import { governanceConfig, governanceOverrides, governanceExclusion } from "@/core/governance/model";
 import { specificationSource } from "@/core/specifications/model";
 import { analyzeSpecification } from "@/core/specifications/analyze";
@@ -51,6 +52,9 @@ const TABLES = {
   governanceRuleSets: schema.governanceRuleSets,
   governanceRuleVersions: schema.governanceRuleVersions,
   governanceBindings: schema.governanceBindings,
+  qualityScorecards: schema.qualityScorecards,
+  qualityScorecardVersions: schema.qualityScorecardVersions,
+  qualityBindings: schema.qualityBindings,
   mockServers: schema.mockServers,
   scriptPackages: schema.scriptPackages,
   scriptPackageVersions: schema.scriptPackageVersions,
@@ -83,6 +87,9 @@ const ORDER: TableName[] = [
   "governanceRuleSets",
   "governanceRuleVersions",
   "governanceBindings",
+  "qualityScorecards",
+  "qualityScorecardVersions",
+  "qualityBindings",
   "mockServers",
   "scriptPackages",
   "scriptPackageVersions",
@@ -321,6 +328,35 @@ export function restoreBackup(db: DB, sqlite: Database.Database, input: unknown)
         ? { ...row, enabled: false, lastRunId: null, lastRunAt: null }
         : row,
     ),
+    qualityScorecardVersions: tables.qualityScorecardVersions.map((row) => {
+      const parsed = scorecardConfig.safeParse(row.config);
+      if (!parsed.success) throw new BackupError("Invalid scorecard configuration");
+      return { ...row, config: parsed.data };
+    }),
+    qualityBindings: tables.qualityBindings.map((row) => {
+      const card = tables.qualityScorecards.find((c) => c.id === row.scorecardId),
+        entry = tables.catalogEntries.find((e) => e.id === row.entryId),
+        env = row.environmentId ? tables.environments.find((e) => e.id === row.environmentId) : null,
+        spec = row.specificationId ? tables.specifications.find((s) => s.id === row.specificationId) : null,
+        monitor = row.monitorId ? tables.monitors.find((m) => m.id === row.monitorId) : null,
+        schedule = monitor ? tables.schedules.find((s) => s.id === monitor.scheduleId) : null;
+      if (
+        !card ||
+        !entry ||
+        card.workspaceId !== row.workspaceId ||
+        entry.workspaceId !== row.workspaceId ||
+        (env && env.workspaceId !== row.workspaceId) ||
+        (row.specificationId && (!spec || spec.workspaceId !== row.workspaceId)) ||
+        (row.monitorId &&
+          (!monitor ||
+            monitor.workspaceId !== row.workspaceId ||
+            !schedule ||
+            schedule.folderId !== entry.folderId ||
+            (schedule.environmentId ?? "") !== row.environmentId))
+      )
+        throw new BackupError("Invalid scorecard assignment");
+      return row;
+    }),
     governanceRuleVersions: tables.governanceRuleVersions.map((row) => {
       const parsed = governanceConfig.safeParse(row.config);
       if (!parsed.success) throw new BackupError("Invalid governance policy in backup");

@@ -1,3 +1,4 @@
+import type * as scorecards from "@/server/scorecards";
 import type * as governance from "@/server/governance";
 import type * as specificationSync from "@/server/specification-sync";
 import type * as specifications from "@/server/specifications";
@@ -95,6 +96,49 @@ const q = (params: Record<string, string | null | undefined>) =>
   new URLSearchParams(Object.entries(params).filter(([, v]) => v != null) as [string, string][]).toString();
 
 export const api = {
+  scorecards: {
+    list: (workspaceId: string) =>
+      call<ReturnType<typeof scorecards.listScorecards>>(
+        "GET",
+        `/api/scorecards?workspaceId=${encodeURIComponent(workspaceId)}`,
+      ),
+    create: (body: Parameters<typeof scorecards.createScorecard>[0]) =>
+      call<ReturnType<typeof scorecards.getScorecard>>("POST", "/api/scorecards", body),
+    get: (id: string, version?: number) =>
+      call<ReturnType<typeof scorecards.getScorecard>>(
+        "GET",
+        `/api/scorecards/${id}${version ? `?version=${version}` : ""}`,
+      ),
+    save: (id: string, body: Parameters<typeof scorecards.saveScorecard>[1]) =>
+      call<ReturnType<typeof scorecards.getScorecard>>("PATCH", `/api/scorecards/${id}`, body),
+    delete: (id: string) => call<{ ok: boolean }>("DELETE", `/api/scorecards/${id}`),
+    sources: (id: string) =>
+      call<ReturnType<typeof scorecards.scorecardSources>>("GET", `/api/scorecards/${id}/sources`),
+    bind: (id: string, body: Parameters<typeof scorecards.bindQualityService>[1]) =>
+      call<ReturnType<typeof scorecards.bindQualityService>>("PUT", `/api/scorecards/${id}/bindings`, body),
+    unbind: (id: string, bindingId: string) =>
+      call<{ ok: boolean }>("DELETE", `/api/scorecards/${id}/bindings/${bindingId}`),
+    preview: (id: string, body: Parameters<typeof scorecards.previewScorecard>[1] = {}) =>
+      call<ReturnType<typeof scorecards.previewScorecard>>("POST", `/api/scorecards/${id}/preview`, body),
+    run: (id: string, body: Parameters<typeof scorecards.saveQualityReport>[1] = {}) =>
+      call<ReturnType<typeof scorecards.saveQualityReport>>("POST", `/api/scorecards/${id}/reports`, body),
+    reports: (id: string, filters: Record<string, string> = {}) =>
+      call<ReturnType<typeof scorecards.listQualityReports>>(
+        "GET",
+        `/api/scorecards/${id}/reports?${new URLSearchParams(filters)}`,
+      ),
+    report: (id: string, reportId: string, filters: Record<string, string> = {}) =>
+      call<ReturnType<typeof scorecards.getQualityReport>>(
+        "GET",
+        `/api/scorecards/${id}/reports/${reportId}?${new URLSearchParams(filters)}`,
+      ),
+    compare: (id: string, body: Parameters<typeof scorecards.compareQualityReports>[1]) =>
+      call<ReturnType<typeof scorecards.compareQualityReports>>(
+        "POST",
+        `/api/scorecards/${id}/compare`,
+        body,
+      ),
+  },
   governance: {
     list: (workspaceId: string) =>
       call<ReturnType<typeof governance.listRuleSets>>(

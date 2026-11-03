@@ -260,6 +260,8 @@ export function assertHeadroom(workspaceId: string, metric: UsageMetric, userId?
 const STORAGE_SQL = [
   `SELECT COALESCE(SUM(LENGTH(CAST(v.config AS BLOB))), 0) AS n FROM governance_rule_versions v JOIN governance_rule_sets s ON s.id=v.rule_set_id WHERE s.workspace_id = ?`,
   `SELECT COALESCE(SUM(LENGTH(CAST(report AS BLOB))), 0) AS n FROM governance_reports WHERE workspace_id = ?`,
+  `SELECT COALESCE(SUM(LENGTH(CAST(v.config AS BLOB))), 0) AS n FROM quality_scorecard_versions v JOIN quality_scorecards s ON s.id=v.scorecard_id WHERE s.workspace_id = ?`,
+  `SELECT COALESCE(SUM(LENGTH(CAST(report AS BLOB))), 0) AS n FROM quality_reports WHERE workspace_id = ?`,
   `SELECT COALESCE(SUM(LENGTH(CAST(baseline AS BLOB))), 0) AS n FROM specification_links WHERE workspace_id = ?`,
   `SELECT COALESCE(SUM(LENGTH(CAST(v.files AS BLOB))), 0) AS n FROM specification_versions v JOIN specifications s ON s.id = v.specification_id WHERE s.workspace_id = ?`,
   `SELECT COALESCE(SUM(LENGTH(CAST(v.snapshot AS BLOB))), 0) AS n FROM catalog_versions v JOIN catalog_entries e ON e.id = v.entry_id WHERE e.workspace_id = ?`,

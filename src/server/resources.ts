@@ -24,7 +24,8 @@ export type ResourceKind =
   | "mcpCall"
   | "monitor"
   | "specification"
-  | "governanceRuleSet";
+  | "governanceRuleSet"
+  | "qualityScorecard";
 export const RESOURCE_TABLES: Record<ResourceKind, string> = {
   workspace: "workspaces",
   folder: "folders",
@@ -49,6 +50,7 @@ export const RESOURCE_TABLES: Record<ResourceKind, string> = {
   monitor: "monitors",
   specification: "specifications",
   governanceRuleSet: "governance_rule_sets",
+  qualityScorecard: "quality_scorecards",
 };
 export function resourceWorkspace(kind: ResourceKind, id: string): string {
   const row = getSqlite()
