@@ -418,6 +418,8 @@ The [credential broker](docs/credential-broker.md) goes further: register an API
 
 [AI model requests](docs/ai-requests.md) are a request body mode for OpenAI-compatible and Anthropic endpoints: streamed text, reasoning, tool-call inspection and token usage, with tools never run by Postbox.
 
+[Dependency graph](docs/dependency-graph.md) maps which services, specifications, collections, monitors and mocks depend on each other, answers “what is affected if this changes?”, and filters every answer by workspace access.
+
 ### Load testing
 
 Run a collection with virtual users under a constant, ramp or spike profile and read throughput, error rate and

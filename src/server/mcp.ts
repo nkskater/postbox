@@ -59,6 +59,7 @@ import * as load from "./load";
 import * as vault from "./vault";
 import * as broker from "./broker";
 import * as capture from "./capture";
+import * as graph from "./graph";
 import { profileSchema } from "@/core/load/profile";
 import { thresholdsSchema } from "@/core/load/thresholds";
 import { renderLoadReport, type LoadReportFormat } from "@/core/load/report";
@@ -2227,6 +2228,97 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
         return okJson(
           capture.createRequests(captureSessionId, { entryIds, parentId: folderId ?? null, name }),
         );
+      } catch (err) {
+        return errResult(err);
+      }
+    },
+  );
+
+  // ================================================================ DEPENDENCY GRAPH
+  // Edges read "A depends on B". Dependencies are what a node needs; dependents are what breaks when it changes.
+
+  server.registerTool(
+    "graph_search",
+    {
+      title: "Search Dependency Graph",
+      description:
+        "Find nodes (collections, requests, services, specifications, operations, monitors, mocks, ...) in the API dependency graph by name. Use the returned id with graph_traverse.",
+      inputSchema: {
+        workspaceId: z.string().optional(),
+        query: z.string().max(200).default(""),
+        kind: z
+          .string()
+          .optional()
+          .describe("collection, folder, request, service, specification, operation, ..."),
+        limit: z.number().int().min(1).max(500).default(50),
+      },
+    },
+    async ({ workspaceId, ...rest }) => {
+      try {
+        return okJson(graph.searchGraph({ workspaceId: resolveWorkspaceId(workspaceId), ...rest }));
+      } catch (err) {
+        return errResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "graph_traverse",
+    {
+      title: "Traverse Dependency Graph",
+      description:
+        "Walk the dependency graph from a node. direction=dependents answers 'what breaks if this changes' (impact); direction=dependencies answers 'what does this rely on'. Every edge carries its origin (declared, derived or telemetry) and the source that produced it.",
+      inputSchema: {
+        workspaceId: z.string().optional(),
+        node: z.string().min(1).describe("Node id, e.g. service:api.example.com"),
+        direction: z.enum(["dependencies", "dependents", "both"]).default("dependents"),
+        depth: z.number().int().min(1).max(8).default(3),
+        types: z.array(z.string()).optional().describe("Only follow these edge types"),
+        origins: z.array(z.enum(["declared", "derived", "telemetry"])).optional(),
+        limit: z.number().int().min(1).max(500).default(200),
+      },
+    },
+    async ({ workspaceId, ...rest }) => {
+      try {
+        return okJson(graph.traverseGraph({ workspaceId: resolveWorkspaceId(workspaceId), ...rest }));
+      } catch (err) {
+        return errResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "graph_path",
+    {
+      title: "Find Dependency Path",
+      description: "Shortest chain of relationships between two nodes in the dependency graph.",
+      inputSchema: {
+        workspaceId: z.string().optional(),
+        from: z.string().min(1),
+        to: z.string().min(1),
+        depth: z.number().int().min(1).max(8).default(6),
+      },
+    },
+    async ({ workspaceId, ...rest }) => {
+      try {
+        return okJson(graph.graphPath({ workspaceId: resolveWorkspaceId(workspaceId), ...rest }));
+      } catch (err) {
+        return errResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "graph_refresh",
+    {
+      title: "Refresh Dependency Graph",
+      description:
+        "Re-index the workspace's collections, specifications, mocks, monitors, catalog entries and webhooks into the dependency graph. Only sources that changed are rewritten.",
+      inputSchema: { workspaceId: z.string().optional() },
+    },
+    async ({ workspaceId }) => {
+      try {
+        return okJson(graph.refreshGraph(resolveWorkspaceId(workspaceId)));
       } catch (err) {
         return errResult(err);
       }
