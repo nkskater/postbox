@@ -134,6 +134,11 @@ describe("quality scorecard integration", () => {
     withCaller(caller(owner), () => {
       const f = fixture(),
         result = quality.previewScorecard(f.card.id);
+      const saved = quality.saveQualityReport(f.card.id);
+      const filtered = quality.getQualityReport(f.card.id, saved.id, { tag: "no-match" });
+      expect(filtered.report.filters).toEqual({});
+      expect(filtered.report.viewFilters).toEqual({ tag: "no-match" });
+      expect(filtered.report.summary.services).toBe(0);
       expect(result.summary).toMatchObject({ score: 100, coverage: 100, status: "healthy", services: 1 });
       expect(result.services[0].evaluation.categories[0].metrics[0].source).toMatchObject({
         kind: "monitor",

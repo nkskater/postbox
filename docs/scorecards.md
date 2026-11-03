@@ -179,6 +179,8 @@ OpenAPI inventory. IDs below are opaque strings.
 
 Filters are `{tag?, owner?, environmentId?}`. GET report routes accept them as
 query parameters, intersected with the saved snapshot's original service set.
+Report JSON retains the original `filters` and records any read-time filters in
+`viewFilters`; portfolio summaries describe only the returned visible services.
 Omit `environmentId` for all environments; send an empty string for no environment.
 
 MCP tools are `list_scorecards`, `get_scorecard`, `create_scorecard`,
