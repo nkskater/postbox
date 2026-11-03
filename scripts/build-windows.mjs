@@ -339,6 +339,7 @@ async function main() {
   // Copy launcher scripts and README to the top of the folder with CRLF line endings.
   for (const f of [
     "Postbox.cmd",
+    "Postbox App.vbs",
     "Postbox CLI.cmd",
     "Create desktop shortcut.cmd",
     "READ ME.txt",
