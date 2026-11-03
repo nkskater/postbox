@@ -16,6 +16,7 @@ import { useApp } from "@/stores/app";
 import { useDialogs } from "@/stores/dialogs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Sidebar } from "@/components/sidebar/Sidebar";
+import { GraphPanel } from "@/components/graph/GraphPanel";
 import { MonitorsPanel } from "@/components/monitors/MonitorsPanel";
 import { McpClientPanel } from "@/components/mcp-client/McpClientPanel";
 import { CatalogBrowser } from "@/components/catalog/CatalogBrowser";
@@ -82,6 +83,8 @@ function MainArea() {
       return <McpClientPanel />;
     case "catalog":
       return <CatalogBrowser />;
+    case "graph":
+      return <GraphPanel />;
     case "settings":
       return <SettingsView />;
   }

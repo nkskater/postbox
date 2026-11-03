@@ -51,6 +51,7 @@ export type Tab =
   | { id: string; type: "runner"; folderId: string; name: string }
   | { id: string; type: "cookies"; name: string }
   | { id: string; type: "catalog"; name: string }
+  | { id: string; type: "graph"; name: string }
   | { id: string; type: "mcp-client"; name: string }
   | { id: string; type: "monitors"; name: string }
   | { id: string; type: "specifications"; name: string }
@@ -193,6 +194,7 @@ interface AppState {
     | "mocks"
     | "packages"
     | "catalog"
+    | "graph"
     | "mcp-client"
     | "monitors"
     | "specifications"

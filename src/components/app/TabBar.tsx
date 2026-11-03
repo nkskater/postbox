@@ -87,6 +87,13 @@ function TabTitle({ tab }: { tab: Tab }) {
           <span>MCP client</span>
         </>
       );
+    case "graph":
+      return (
+        <>
+          <Library className="size-3.5 shrink-0" />
+          <span>Dependencies</span>
+        </>
+      );
     case "catalog":
       return (
         <>

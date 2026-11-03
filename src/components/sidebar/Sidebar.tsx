@@ -16,6 +16,7 @@ const VIEWS = [
   { id: "monitors", label: "Monitors", icon: Server },
   { id: "mcp-client", label: "MCP client", icon: Server },
   { id: "catalog", label: "Catalog", icon: Library },
+  { id: "graph", label: "Dependencies", icon: Library },
   { id: "packages", label: "Packages", icon: Library },
   { id: "mocks", label: "Mocks", icon: Server },
   { id: "datasets", label: "Datasets", icon: Database },
@@ -59,6 +60,8 @@ export function Sidebar() {
                 useApp.getState().openTab({ id: "mcp-client", type: "mcp-client", name: "MCP client" });
               if (v.id === "catalog")
                 useApp.getState().openTab({ id: "api-catalog", type: "catalog", name: "API catalog" });
+              if (v.id === "graph")
+                useApp.getState().openTab({ id: "api-graph", type: "graph", name: "Dependencies" });
             }}
             className={cn(
               labels ? "flex w-[68px] flex-col" : "flex w-9 flex-col justify-center",
@@ -148,6 +151,22 @@ export function Sidebar() {
               }
             >
               Browse catalog
+            </button>
+          </div>
+        )}
+        {view === "graph" && (
+          <div className="space-y-3 p-3 text-xs">
+            <h2 className="font-medium">Dependencies</h2>
+            <p>
+              See what each service, specification and collection relies on, and what a change would affect.
+            </p>
+            <button
+              className="text-primary underline"
+              onClick={() =>
+                useApp.getState().openTab({ id: "api-graph", type: "graph", name: "Dependencies" })
+              }
+            >
+              Open dependency graph
             </button>
           </div>
         )}

@@ -1272,3 +1272,72 @@ export const governanceReports = sqliteTable(
   },
   (t) => [index("governance_reports_spec_time").on(t.specificationId, t.createdAt)],
 );
+
+/**
+ * The dependency graph. A source is one thing whose facts were indexed (a collection, a specification, a monitor, ...);
+ * its nodes and edges are replaced together and deleted with it.
+ */
+export const graphSources = sqliteTable(
+  "graph_sources",
+  {
+    /** `<kind>:<ref>` */
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    ref: text("ref").notNull(),
+    label: text("label").notNull(),
+    fingerprint: text("fingerprint").notNull(),
+    state: text("state").$type<import("@/core/graph/model").SourceState>().notNull(),
+    error: text("error"),
+    /** Telemetry sources are indexed only while connected. */
+    connected: integer("connected", { mode: "boolean" }).notNull().default(true),
+    indexedAt: integer("indexed_at").notNull(),
+    checkedAt: integer("checked_at").notNull(),
+  },
+  (t) => [index("graph_sources_workspace_idx").on(t.workspaceId, t.kind)],
+);
+export const graphNodes = sqliteTable(
+  "graph_nodes",
+  {
+    sourceId: text("source_id")
+      .notNull()
+      .references(() => graphSources.id, { onDelete: "cascade" }),
+    id: text("id").notNull(),
+    kind: text("kind").notNull(),
+    workspaceId: text("workspace_id"),
+    label: text("label").notNull(),
+    props: text("props", { mode: "json" })
+      .$type<Record<string, string | number | boolean | null>>()
+      .notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.sourceId, t.id] }),
+    index("graph_nodes_id_idx").on(t.id),
+    index("graph_nodes_workspace_idx").on(t.workspaceId, t.kind),
+  ],
+);
+export const graphEdges = sqliteTable(
+  "graph_edges",
+  {
+    sourceId: text("source_id")
+      .notNull()
+      .references(() => graphSources.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id").notNull(),
+    from: text("from_id").notNull(),
+    to: text("to_id").notNull(),
+    type: text("type").notNull(),
+    origin: text("origin").notNull(),
+    props: text("props", { mode: "json" })
+      .$type<Record<string, string | number | boolean | null>>()
+      .notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.sourceId, t.from, t.type, t.to] }),
+    index("graph_edges_workspace_idx").on(t.workspaceId),
+    index("graph_edges_from_idx").on(t.from),
+    index("graph_edges_to_idx").on(t.to),
+  ],
+);
+export type GraphSourceRow = typeof graphSources.$inferSelect;

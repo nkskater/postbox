@@ -5,6 +5,7 @@ import type { SpecificationAnalysis } from "@/core/specifications/model";
 import type { listMonitors, getMonitor, monitorInput, monitorPatch } from "@/server/monitors";
 import type { getFolderCatalog, searchCatalog, getCatalogEntry, publishCatalog } from "@/server/catalog";
 import type { CatalogPublishInput, CatalogMetadataInput, CatalogSearchInput } from "@/core/catalog/model";
+import type * as graphServer from "@/server/graph";
 import type { getDocumentation, publishDocumentation } from "@/server/documentation";
 import type { PublicationInput } from "@/core/documentation/model";
 /**
@@ -227,6 +228,24 @@ export const api = {
     delete: (id: string) => call<{ ok: boolean }>("DELETE", `/api/monitors/${id}`),
     retry: (id: string, deliveryId: string) =>
       call<{ ok: boolean }>("POST", `/api/monitors/${id}/retry-email`, { deliveryId }),
+  },
+  graph: {
+    overview: (workspaceId: string) =>
+      call<ReturnType<typeof graphServer.graphOverview>>("GET", `/api/graph?${q({ workspaceId })}`),
+    search: (workspaceId: string, query: string, kind?: string) =>
+      call<ReturnType<typeof graphServer.searchGraph>>(
+        "GET",
+        `/api/graph/search?${q({ workspaceId, query, kind })}`,
+      ),
+    traverse: (params: { workspaceId: string; node: string; direction: string; depth: number }) =>
+      call<ReturnType<typeof graphServer.traverseGraph>>(
+        "GET",
+        `/api/graph/traverse?${q({ ...params, depth: String(params.depth) })}`,
+      ),
+    refresh: (workspaceId: string) =>
+      call<ReturnType<typeof graphServer.refreshGraph>>("POST", "/api/graph/refresh", { workspaceId }),
+    connect: (workspaceId: string, sourceId: string, connected: boolean) =>
+      call<unknown>("PATCH", "/api/graph/sources", { workspaceId, sourceId, connected }),
   },
   catalog: {
     managed: (id: string) => call<ReturnType<typeof getFolderCatalog>>("GET", `/api/folders/${id}/catalog`),
