@@ -9,10 +9,13 @@ import Database from "better-sqlite3";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   APP_ID,
+  appWindowArgs,
   defaultDataDir,
+  findAppBrowser,
   findFreePort,
   findRunningCopy,
   formatLocalDate,
+  isWindowMode,
   lockFilePath,
   resolveLocalPaths,
   runDailyBackup,
@@ -468,5 +471,182 @@ describe("portable Windows local edition", () => {
 
     const icon = fs.readFileSync(path.join(ROOT, "windows", "app.ico"));
     expect(icon.subarray(0, 4)).toEqual(Buffer.from([0x00, 0x00, 0x01, 0x00]));
+  });
+
+  it("detects app-window mode from the flag or POSTBOX_WINDOW", () => {
+    expect(isWindowMode(["node", "local.mjs"], {})).toBe(false);
+    expect(isWindowMode(["node", "local.mjs", "--window"], {})).toBe(true);
+    expect(isWindowMode(["node", "local.mjs"], { POSTBOX_WINDOW: "1" })).toBe(true);
+    expect(isWindowMode(["node", "local.mjs"], { POSTBOX_WINDOW: "0" })).toBe(false);
+    expect(isWindowMode(["node", "local.mjs"], { POSTBOX_WINDOW: "false" })).toBe(false);
+    expect(isWindowMode(["node", "local.mjs"], { POSTBOX_WINDOW: "" })).toBe(false);
+  });
+
+  it("finds Edge before Chrome on Windows, honors POSTBOX_BROWSER, and reports none", () => {
+    const env = {
+      "ProgramFiles(x86)": "C:\\Program Files (x86)",
+      ProgramFiles: "C:\\Program Files",
+      LOCALAPPDATA: "C:\\Users\\me\\AppData\\Local",
+    } as unknown as NodeJS.ProcessEnv;
+    const edge = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
+    const chrome = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+    const both = new Set([edge, chrome]);
+    expect(findAppBrowser({ env, platform: "win32", exists: (f) => both.has(f) })).toBe(edge);
+    expect(findAppBrowser({ env, platform: "win32", exists: (f) => f === chrome })).toBe(chrome);
+    expect(findAppBrowser({ env, platform: "win32", exists: () => false })).toBeNull();
+
+    const custom = "D:\\Browsers\\brave.exe";
+    expect(
+      findAppBrowser({
+        env: { ...env, POSTBOX_BROWSER: custom },
+        platform: "win32",
+        exists: (f) => f === custom || f === edge,
+      }),
+    ).toBe(custom);
+    // An override that does not exist is an error, not a silent fallback.
+    expect(
+      findAppBrowser({
+        env: { ...env, POSTBOX_BROWSER: custom },
+        platform: "win32",
+        exists: (f) => f === edge,
+      }),
+    ).toBeNull();
+
+    expect(
+      findAppBrowser({
+        env: { PATH: "/usr/local/bin:/usr/bin" } as unknown as NodeJS.ProcessEnv,
+        platform: "linux",
+        exists: (f) => f === "/usr/bin/chromium",
+      }),
+    ).toBe("/usr/bin/chromium");
+  });
+
+  it("builds app-window arguments with a separate profile", () => {
+    const args = appWindowArgs("http://127.0.0.1:47392/", "C:\\Postbox\\Data\\Window");
+    expect(args[0]).toBe("--app=http://127.0.0.1:47392/");
+    expect(args).toContain("--user-data-dir=C:\\Postbox\\Data\\Window");
+    expect(args).toContain("--no-first-run");
+  });
+
+  it("ships a hidden app-window launcher and shortcuts that use it", () => {
+    const cmd = fs.readFileSync(path.join(ROOT, "windows", "Postbox.cmd"), "utf8");
+    expect(cmd).toContain('local.mjs" %*');
+    expect(cmd).toContain("exit /b %RC%");
+    // A hidden launch must never block on `pause`.
+    expect(cmd).toMatch(/not "%~1"=="--window"/);
+
+    const vbs = fs.readFileSync(path.join(ROOT, "windows", "Postbox App.vbs"), "utf8");
+    expect(vbs).toContain("--window");
+    expect(vbs).toMatch(/shell\.Run\(.*, 0, True\)/);
+    expect(vbs).toContain("startup-error.log");
+
+    const shortcut = fs.readFileSync(path.join(ROOT, "windows", "Create desktop shortcut.cmd"), "utf8");
+    expect(shortcut).toContain("Postbox App.vbs");
+    expect(shortcut).toContain("wscript.exe");
+
+    const build = fs.readFileSync(path.join(ROOT, "scripts", "build-windows.mjs"), "utf8");
+    expect(build).toContain('"Postbox App.vbs"');
+  });
+
+  describe.skipIf(process.platform === "win32")("app-window mode", () => {
+    async function runWindowMode(browserScript: string) {
+      const tmp = makeTempDir();
+      const appDir = path.join(tmp, "app");
+      const dataDir = path.join(tmp, "Data");
+      fs.mkdirSync(path.join(appDir, "drizzle"), { recursive: true });
+      fs.writeFileSync(path.join(appDir, "package.json"), '{"type":"module"}');
+      fs.writeFileSync(
+        path.join(appDir, "server.js"),
+        `import http from "node:http";
+         const srv = http.createServer((req, res) => {
+           res.setHeader("Content-Type", "application/json");
+           res.end(JSON.stringify({ status: "ok", app: "postbox", instance: process.env.POSTBOX_INSTANCE_ID }));
+         });
+         srv.listen(Number(process.env.PORT), "127.0.0.1");
+         process.on("SIGTERM", () => srv.close(() => process.exit(0)));`,
+      );
+      const browser = path.join(tmp, "fake-browser.sh");
+      fs.writeFileSync(
+        browser,
+        `#!/bin/sh\necho "$@" > ${JSON.stringify(path.join(tmp, "browser-args.txt"))}\n${browserScript}\n`,
+        { mode: 0o755 },
+      );
+      const port = await findFreePort(0, "127.0.0.1");
+      const env = { ...process.env } as unknown as NodeJS.ProcessEnv;
+      delete env.NO_BROWSER;
+      Object.assign(env, {
+        BACKUP_KEEP: "0",
+        DATA_DIR: dataDir,
+        LOCALAPPDATA: tmp,
+        PORT: String(port),
+        POSTBOX_APP_DIR: appDir,
+        POSTBOX_BROWSER: browser,
+        POSTBOX_WINDOW_HANDOFF_MS: "300",
+      });
+      const child = spawn(process.execPath, [path.join(ROOT, "scripts", "local-server.mjs"), "--window"], {
+        env,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let out = "";
+      child.stdout.on("data", (d) => (out += d));
+      child.stderr.on("data", (d) => (out += d));
+      const exited = new Promise<number | null>((r) => child.on("exit", (c) => r(c)));
+      return { child, exited, out: () => out, tmp, port, dataDir };
+    }
+
+    it("opens a chromeless window with its own profile and stops the server when it closes", async () => {
+      const run = await runWindowMode("sleep 1.2");
+      try {
+        const code = await Promise.race([
+          run.exited,
+          new Promise<string>((r) => setTimeout(() => r("timeout"), 15_000)),
+        ]);
+        expect(code, run.out()).toBe(0);
+        const args = fs.readFileSync(path.join(run.tmp, "browser-args.txt"), "utf8");
+        expect(args).toContain(`--app=http://127.0.0.1:${run.port}/`);
+        expect(args).toContain(`--user-data-dir=${path.join(run.dataDir, "Window")}`);
+        expect(run.out()).toContain("Close the Postbox window to stop the app.");
+      } finally {
+        run.child.kill("SIGKILL");
+      }
+    }, 20_000);
+
+    it("keeps the server running when the browser hands the window to another process", async () => {
+      const run = await runWindowMode("exit 0");
+      try {
+        const deadline = Date.now() + 10_000;
+        while (Date.now() < deadline && !run.out().includes("leaving Postbox running")) {
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        expect(run.out()).toContain("leaving Postbox running");
+        const res = await fetch(`http://127.0.0.1:${run.port}/api/health`);
+        expect((await res.json()).app).toBe("postbox");
+      } finally {
+        run.child.kill("SIGKILL");
+      }
+    }, 20_000);
+
+    it("refuses to start without a usable browser and leaves the reason on disk", async () => {
+      const tmp = makeTempDir();
+      const dataDir = path.join(tmp, "Data");
+      fs.mkdirSync(path.join(tmp, "app"), { recursive: true });
+      fs.writeFileSync(path.join(tmp, "app", "server.js"), "");
+      const child = spawn(process.execPath, [path.join(ROOT, "scripts", "local-server.mjs"), "--window"], {
+        env: {
+          ...process.env,
+          NO_BROWSER: "",
+          DATA_DIR: dataDir,
+          LOCALAPPDATA: tmp,
+          POSTBOX_APP_DIR: path.join(tmp, "app"),
+          POSTBOX_BROWSER: path.join(tmp, "missing-browser"),
+        },
+        stdio: "ignore",
+      });
+      const code = await new Promise<number | null>((r) => child.on("exit", (c) => r(c)));
+      expect(code).toBe(1);
+      expect(fs.readFileSync(path.join(dataDir, "startup-error.log"), "utf8")).toContain(
+        "Microsoft Edge or Google Chrome",
+      );
+    }, 20_000);
   });
 });

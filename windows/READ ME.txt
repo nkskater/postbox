@@ -23,8 +23,23 @@ STARTING THE APP
   another browser tab on the running instance.
 
   Optional: double-click "Create desktop shortcut" once to add a Postbox
-  shortcut to your Desktop and Start menu (configured to start the console
-  window minimized).
+  shortcut to your Desktop and Start menu. The shortcut opens Postbox in
+  its own window (see below).
+
+RUNNING LIKE A DESKTOP APP (NO CONSOLE, NO BROWSER TAB)
+  Double-click "Postbox App" (Postbox App.vbs). Postbox opens in its own
+  window - no tabs, no address bar, no console window - using Microsoft Edge
+  (included with Windows 10/11) or Google Chrome. Closing the Postbox window
+  stops the app. Window size and UI preferences are remembered between runs.
+
+  If the window does not appear, look for startup-error.log in the Data
+  folder, or run "Postbox.cmd --window" from a Command Prompt to see the
+  message. If scripts (.vbs) are blocked on your PC, use "Postbox.cmd --window"
+  instead; it shows a console window but behaves the same way.
+  To use a different Chromium-based browser, add this line to Settings.cmd:
+    set "POSTBOX_BROWSER=C:\Path\To\browser.exe"
+  To make plain "Postbox.cmd" always open the app window, add:
+    set POSTBOX_WINDOW=1
 
 COMMAND-LINE RUNNER (CLI)
   Use "Postbox CLI.cmd" to run collections from Command Prompt, PowerShell,

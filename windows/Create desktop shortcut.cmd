@@ -1,15 +1,16 @@
 @echo off
 rem Puts a "Postbox" shortcut on your desktop and in the Start menu.
-rem The console window starts minimized so the browser comes to the front.
+rem The shortcuts open Postbox in its own window (no console window).
 setlocal
-set "TARGET=%~dp0Postbox.cmd"
+set "TARGET=%~dp0Postbox App.vbs"
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ws = New-Object -ComObject WScript.Shell;" ^
   "foreach ($dir in @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'))) {" ^
   "  $s = $ws.CreateShortcut((Join-Path $dir 'Postbox.lnk'));" ^
-  "  $s.TargetPath = $env:TARGET;" ^
+  "  $s.TargetPath = Join-Path $env:SystemRoot 'System32\wscript.exe';" ^
+  "  $s.Arguments = '\"' + $env:TARGET + '\"';" ^
   "  $s.WorkingDirectory = (Split-Path $env:TARGET);" ^
-  "  $s.WindowStyle = 7;" ^
+  "  $s.WindowStyle = 1;" ^
   "  $s.IconLocation = (Join-Path (Split-Path $env:TARGET) 'app\app.ico') + ',0';" ^
   "  $s.Description = 'Postbox API Client';" ^
   "  $s.Save() }"

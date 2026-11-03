@@ -15,7 +15,9 @@
 //   - takes an automatic consistent daily SQLite backup in <DATA_DIR>\Backups\
 //     using SQLite `VACUUM INTO` (capturing committed WAL frames even if a
 //     reader pins the WAL checkpoint)
-//   - opens the default web browser once the server is ready
+//   - opens the default web browser once the server is ready, or, in app-window
+//     mode (--window), opens Postbox in its own Edge/Chrome app window with no
+//     tabs or address bar and stops the server when that window is closed
 //
 // Environment overrides (via Settings.cmd or environment variables):
 //   DATA_DIR           folder where postbox.db and Backups\ live
@@ -23,6 +25,9 @@
 //   PORT               preferred loopback port (default 47392; falls back to an
 //                      OS-assigned free port if taken or excluded by Hyper-V/VPN)
 //   NO_BROWSER=1       do not open a browser window automatically
+//   POSTBOX_WINDOW=1   same as the --window flag (app-window mode)
+//   POSTBOX_BROWSER    path to the Chromium-based browser used for app-window mode
+//                      (default: Microsoft Edge, then Google Chrome)
 //   BACKUP_KEEP        daily backups kept (default 30; 0 disables daily backups)
 import { spawn } from "node:child_process";
 import crypto from "node:crypto";
@@ -384,6 +389,79 @@ export function openBrowser(url, env = process.env, platform = process.platform)
   }
 }
 
+/**
+ * True when Postbox should open in its own app window instead of a browser tab.
+ * @param {string[]} [argv]
+ * @param {Record<string, string | undefined>} [env]
+ */
+export function isWindowMode(argv = process.argv, env = process.env) {
+  if (argv.slice(2).includes("--window")) return true;
+  const v = String(env.POSTBOX_WINDOW || "")
+    .trim()
+    .toLowerCase();
+  return v !== "" && v !== "0" && v !== "false";
+}
+
+/**
+ * Finds a Chromium-based browser that can show Postbox as an app window
+ * (`--app=URL`). POSTBOX_BROWSER wins; otherwise Microsoft Edge (installed on
+ * every supported Windows) and then Google Chrome. Returns null if none exists.
+ * @param {{ env?: Record<string, string | undefined>, platform?: string, exists?: (file: string) => boolean }} [options]
+ */
+export function findAppBrowser({
+  env = process.env,
+  platform = process.platform,
+  exists = fs.existsSync,
+} = {}) {
+  if (env.POSTBOX_BROWSER) return exists(env.POSTBOX_BROWSER) ? env.POSTBOX_BROWSER : null;
+  const candidates = [];
+  if (platform === "win32") {
+    const roots = [env["ProgramFiles(x86)"], env.ProgramFiles, env.LOCALAPPDATA].filter(Boolean);
+    for (const rel of [
+      ["Microsoft", "Edge", "Application", "msedge.exe"],
+      ["Google", "Chrome", "Application", "chrome.exe"],
+    ]) {
+      for (const root of roots) candidates.push(path.win32.join(root, ...rel));
+    }
+  } else if (platform === "darwin") {
+    candidates.push(
+      "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    );
+  } else {
+    const dirs = String(env.PATH || "")
+      .split(path.delimiter)
+      .filter(Boolean);
+    for (const name of [
+      "microsoft-edge",
+      "microsoft-edge-stable",
+      "google-chrome",
+      "google-chrome-stable",
+      "chromium",
+      "chromium-browser",
+    ]) {
+      for (const dir of dirs) candidates.push(path.posix.join(dir, name));
+    }
+  }
+  return candidates.find((c) => exists(c)) ?? null;
+}
+
+/** Command-line arguments for a chromeless app window with its own profile. */
+export function appWindowArgs(url, profileDir) {
+  return [`--app=${url}`, `--user-data-dir=${profileDir}`, "--no-first-run", "--no-default-browser-check"];
+}
+
+/**
+ * Opens Postbox in an app window. The window uses its own browser profile
+ * (<DATA_DIR>\Window) so it is a separate process we can wait on, and so
+ * window size and UI preferences persist between launches. Not detached: the
+ * returned child exits when the last window of that profile is closed.
+ */
+export function openAppWindow(url, browser, profileDir, spawnFn = spawn) {
+  const child = spawnFn(browser, appWindowArgs(url, profileDir), { stdio: "ignore" });
+  return child;
+}
+
 function resolveAppDir() {
   if (process.env.POSTBOX_APP_DIR && fs.existsSync(path.join(process.env.POSTBOX_APP_DIR, "server.js"))) {
     return path.resolve(process.env.POSTBOX_APP_DIR);
@@ -439,6 +517,41 @@ async function main() {
   fs.mkdirSync(path.dirname(databasePath), { recursive: true });
   fs.mkdirSync(path.dirname(runningFile), { recursive: true });
 
+  const windowMode = isWindowMode();
+  const profileDir = path.join(dataDir, "Window");
+  let appBrowser = null;
+  if (windowMode && !process.env.NO_BROWSER) {
+    appBrowser = findAppBrowser();
+    if (!appBrowser) {
+      throw new Error(
+        "App-window mode needs Microsoft Edge or Google Chrome, and neither was found. " +
+          "Install one, set POSTBOX_BROWSER in Settings.cmd to its path, or start Postbox.cmd " +
+          "without --window to use your default browser.",
+      );
+    }
+    fs.mkdirSync(profileDir, { recursive: true });
+  }
+
+  let stopServer = null;
+
+  /** Shows the UI; returns the app-window process when there is one to wait on. */
+  function showUi(url) {
+    if (appBrowser) {
+      try {
+        const child = openAppWindow(url, appBrowser, profileDir);
+        child.on("error", (err) => {
+          console.error(`Could not open the Postbox window: ${err.message}`);
+          if (typeof stopServer === "function") void stopServer();
+        });
+        return child;
+      } catch (err) {
+        console.error(`Could not open the Postbox window: ${err.message}`);
+        throw err;
+      }
+    }
+    openBrowser(url);
+    return null;
+  }
   const instance = crypto.randomBytes(12).toString("hex");
   const coord = await acquireOrJoinInstance({
     lockFile,
@@ -451,7 +564,7 @@ async function main() {
   if (coord.role === "secondary") {
     const url = `http://${HOST}:${coord.port}/`;
     console.log(`Postbox is already running — opening ${url}`);
-    openBrowser(url);
+    showUi(url);
     return;
   }
 
@@ -624,11 +737,29 @@ async function main() {
   console.log(`  Data:  ${databasePath}`);
   console.log("");
   console.log("  Requests are sent directly from this PC (including active VPN connections).");
-  console.log("  Keep this window open while you use Postbox.");
-  console.log("  Close it (or press Ctrl+C) to stop the app.");
+  if (appBrowser) {
+    console.log("  Close the Postbox window to stop the app.");
+  } else {
+    console.log("  Keep this window open while you use Postbox.");
+    console.log("  Close it (or press Ctrl+C) to stop the app.");
+  }
   console.log("");
 
-  openBrowser(url);
+  stopServer = () => shutdown("SIGTERM");
+  const ui = showUi(url);
+  if (ui) {
+    const openedAt = Date.now();
+    ui.on("exit", () => {
+      // An exit within seconds means the browser handed the window to a copy that
+      // was already running on this profile, so that window is still open.
+      const handoffMs = Number(process.env.POSTBOX_WINDOW_HANDOFF_MS || 5000);
+      if (Date.now() - openedAt < handoffMs) {
+        console.log("The window is managed by another browser process; leaving Postbox running.");
+        return;
+      }
+      void shutdown("SIGTERM");
+    });
+  }
 }
 
 const isMain =
@@ -641,6 +772,19 @@ if (isMain) {
     console.error("");
     console.error("Postbox could not start:");
     console.error((err && err.stack) || err);
+    if (isWindowMode()) {
+      // No console is visible in app-window mode, so leave the reason on disk.
+      try {
+        const dir = resolveLocalPaths({ appDir: resolveAppDir() }).dataDir;
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(
+          path.join(dir, "startup-error.log"),
+          `${new Date().toISOString()}\n${(err && err.stack) || err}\n`,
+        );
+      } catch {
+        /* best effort */
+      }
+    }
     process.exit(1);
   });
 }

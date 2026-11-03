@@ -105,6 +105,10 @@ extract it, and double-click **Postbox.cmd**. Postbox opens in your browser at `
 keep the console window open while using it. If that port is unavailable, Postbox selects another free local port.
 It binds only to loopback, so it does not expose the app to your network or require a Windows Firewall rule.
 
+To run it like a desktop app instead, double-click **Postbox App.vbs**: Postbox opens in its own window (no tabs,
+address bar or console window) using Microsoft Edge or Google Chrome, and closing the window stops the app.
+`Postbox.cmd --window` does the same with a console window, which is also the fallback where scripts are blocked.
+
 The bundle includes its Node.js runtime and SQLite native module. By default, the `Data` folder beside
 `Postbox.cmd` stores the database and daily backups. Keep this folder when updating: replace the `app` and
 `runtime` folders and launcher files from the new zip, leaving `Data` in place. For a data directory outside
@@ -125,7 +129,7 @@ Use **Postbox CLI.cmd** to run a collection from Command Prompt or PowerShell, f
 "Postbox CLI.cmd" run collection.json -e environment.json --bail
 ```
 
-Run **Create desktop shortcut.cmd** to add shortcuts to the Desktop and Start menu. For screenshots and more
+Run **Create desktop shortcut.cmd** to add app-window shortcuts to the Desktop and Start menu. For screenshots and more
 details, see the [Windows edition guide](windows/READ%20ME.txt). Developers can build the bundle on a supported
 build host with `npm run build:windows`; this writes `dist/Postbox-windows-x64.zip`. The hosted Windows package
 workflow also attaches the zip to tagged GitHub releases.
