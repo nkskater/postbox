@@ -5,7 +5,15 @@
  */
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { ConsoleEntry, RequestDef, ExampleRequest, ResponseExample, Variable } from "@/core/types";
+import type {
+  BodyConfig,
+  BodyMode,
+  ConsoleEntry,
+  RequestDef,
+  ExampleRequest,
+  ResponseExample,
+  Variable,
+} from "@/core/types";
 import { exampleRequest } from "@/core/examples";
 import { DEFAULT_SETTINGS, type RequestSettings } from "@/core/types";
 import { getSetting } from "@/lib/settings/runtime";
@@ -37,6 +45,8 @@ export type Tab =
       draft: RequestDraft;
       /** JSON snapshot of the last saved state, for dirty detection. */
       saved: string | null;
+      /** Inactive body drafts belong to this open tab and are never persisted or sent. */
+      bodyDrafts?: Partial<Record<BodyMode, BodyConfig>>;
       result?: ProxyResult | null;
       sentTemplate?: ExampleRequest | null;
       sending?: boolean;
@@ -120,6 +130,7 @@ function abortTab(id: string) {
 
 function sanitizeStoredTab(tab: Tab): Tab {
   if (tab.type !== "request") return tab;
+  const { bodyDrafts: _bodyDrafts, ...storedTab } = tab;
   const draft = sanitizeRequestDraftForBrowser(tab.draft);
   let saved = tab.saved;
   if (saved) {
@@ -130,7 +141,7 @@ function sanitizeStoredTab(tab: Tab): Tab {
     }
   }
   return {
-    ...tab,
+    ...storedTab,
     draft,
     saved,
     result: null,
@@ -221,6 +232,7 @@ interface AppState {
   closeOtherTabs(id: string): void;
   setActiveTab(id: string): void;
   updateDraft(tabId: string, patch: Partial<RequestDraft>): void;
+  changeBodyMode(tabId: string, initialBody: BodyConfig): void;
   saveTab(tabId: string, target?: { folderId: string; name: string }): Promise<boolean>;
   sendTab(tabId: string): Promise<void>;
   cancelSend(tabId: string): void;
@@ -531,6 +543,22 @@ export const useApp = create<AppState>()(
                 }
               : t,
           ),
+        }));
+      },
+
+      changeBodyMode(tabId, initialBody) {
+        set((s) => ({
+          tabs: s.tabs.map((tab) => {
+            if (tab.id !== tabId || tab.type !== "request" || tab.draft.body.mode === initialBody.mode)
+              return tab;
+            const bodyDrafts = { ...tab.bodyDrafts, [tab.draft.body.mode]: tab.draft.body };
+            return {
+              ...tab,
+              bodyDrafts,
+              preview: false,
+              draft: { ...tab.draft, body: bodyDrafts[initialBody.mode] ?? initialBody },
+            };
+          }),
         }));
       },
 

@@ -63,6 +63,7 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
   const sendKey = useShortcutLabel("send");
   const saveKey = useShortcutLabel("save");
   const updateDraft = useApp((s) => s.updateDraft);
+  const changeBodyMode = useApp((s) => s.changeBodyMode);
   const sendTab = useApp((s) => s.sendTab);
   const cancelSend = useApp((s) => s.cancelSend);
   const saveTab = useApp((s) => s.saveTab);
@@ -344,7 +345,12 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
                 </p>
               </TabsContent>
               <TabsContent value="body" className="mt-0 h-full">
-                <BodyEditor body={d.body} onChange={(body) => set({ body })} draft={d as RequestDef} />
+                <BodyEditor
+                  body={d.body}
+                  onChange={(body) => set({ body })}
+                  onModeChange={(body) => changeBodyMode(tab.id, body)}
+                  draft={d as RequestDef}
+                />
               </TabsContent>
               <TabsContent value="pre" className="mt-0 h-full">
                 <ScriptEditor
