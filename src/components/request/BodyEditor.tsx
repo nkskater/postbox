@@ -4,6 +4,7 @@ import { GraphqlBodyEditor } from "./GraphqlBodyEditor";
  * Request body editor: none / raw (JSON, XML, text, HTML, JS) / form-data /
  * x-www-form-urlencoded / binary / GraphQL.
  */
+import { useRef } from "react";
 import { FileUp, Wand2 } from "lucide-react";
 import type { BodyConfig, BodyMode, RawLanguage, RequestDef } from "@/core/types";
 import { CodeEditor } from "@/components/editor/CodeEditor";
@@ -35,7 +36,7 @@ const LANGS: { value: RawLanguage; label: string }[] = [
   { value: "javascript", label: "JavaScript" },
 ];
 
-/** Switch modes while keeping data from other modes when possible. */
+/** Initial values for a previously unused body type, including form conversions. */
 export function switchBodyMode(body: BodyConfig, mode: BodyMode): BodyConfig {
   switch (mode) {
     case "none":
@@ -81,13 +82,16 @@ function readFile(file: File): Promise<string> {
 export function BodyEditor({
   body,
   onChange,
+  onModeChange,
   draft,
 }: {
   body: BodyConfig;
   onChange: (b: BodyConfig) => void;
+  onModeChange?: (initialBody: BodyConfig) => void;
   /** The whole request, so GraphQL introspection can reuse its URL, headers and auth. */
   draft?: RequestDef & { folderId?: string | null };
 }) {
+  const bodyDrafts = useRef<Partial<Record<BodyMode, BodyConfig>>>({});
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
       <div className="flex flex-wrap items-center gap-3 text-xs">
@@ -97,7 +101,14 @@ export function BodyEditor({
               type="radio"
               className="accent-primary"
               checked={body.mode === m.mode}
-              onChange={() => onChange(switchBodyMode(body, m.mode))}
+              onChange={() => {
+                const initialBody = switchBodyMode(body, m.mode);
+                if (onModeChange) onModeChange(initialBody);
+                else {
+                  bodyDrafts.current[body.mode] = body;
+                  onChange(bodyDrafts.current[m.mode] ?? initialBody);
+                }
+              }}
             />
             <span className={cn(body.mode === m.mode ? "text-foreground" : "text-muted-foreground")}>
               {m.label}

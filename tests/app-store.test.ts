@@ -1,3 +1,5 @@
+import type { BodyConfig } from "@/core/types";
+import { DEFAULT_AI_CONFIG } from "@/core/ai/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Exercise store actions without browser storage or toast rendering.
@@ -232,12 +234,10 @@ describe("example request snapshots", () => {
     vi.mocked(api.proxy).mockReturnValue(pending.promise);
     useApp.setState({ tabs: [tab] });
     const sending = useApp.getState().sendTab(tab.id);
-    useApp
-      .getState()
-      .updateDraft(tab.id, {
-        url: "http://example.test/edited",
-        body: { mode: "raw", raw: "new body", language: "text" },
-      });
+    useApp.getState().updateDraft(tab.id, {
+      url: "http://example.test/edited",
+      body: { mode: "raw", raw: "new body", language: "text" },
+    });
     pending.resolve({ logs: [], scriptErrors: [], warnings: [] } as unknown as ProxyResult);
     await sending;
     expect(current().sentTemplate).toMatchObject({ url: "http://example.test", body: { mode: "none" } });
@@ -257,5 +257,151 @@ describe("example request snapshots", () => {
     vi.mocked(api.requests.update).mockResolvedValue(savedRequest(current()));
     await useApp.getState().saveTab(tab.id);
     expect(vi.mocked(api.requests.update).mock.calls[0][1]).not.toHaveProperty("examples");
+  });
+});
+
+describe("request body type drafts", () => {
+  const raw = { mode: "raw", language: "json", raw: '{\n  "message": "keep this JSON"\n}' } as const;
+  const initialBodies: BodyConfig[] = [
+    { mode: "none" },
+    { mode: "formdata", formdata: [] },
+    { mode: "urlencoded", urlencoded: [] },
+    { mode: "binary", binary: null },
+    { mode: "graphql", graphql: { query: "", variables: "" } },
+    { mode: "ai", ai: { ...DEFAULT_AI_CONFIG, messages: [{ role: "user", content: "" }] } },
+  ];
+  function setupBody() {
+    const tab = requestTab();
+    tab.draft.body = { ...raw };
+    tab.saved = snapshot(tab.draft);
+    useApp.setState({ tabs: [tab], activeTabId: tab.id });
+    return tab;
+  }
+  it.each(initialBodies)("restores raw JSON after switching to $mode and immediately back", (initial) => {
+    const tab = setupBody();
+    useApp.getState().changeBodyMode(tab.id, structuredClone(initial));
+    expect(current().draft.body.mode).toBe(initial.mode);
+    useApp.getState().changeBodyMode(tab.id, { mode: "raw", raw: "", language: "text" });
+    expect(current().draft.body).toEqual(raw);
+    expect(snapshot(current().draft)).toBe(current().saved);
+  });
+  it("retains independent edited form fields, uploads and GraphQL query/variables", () => {
+    const tab = setupBody();
+    const variants: BodyConfig[] = [
+      {
+        mode: "formdata",
+        formdata: [
+          { key: "name", value: "Ada", enabled: true, type: "text", description: "Person" },
+          {
+            key: "file",
+            value: "",
+            enabled: true,
+            type: "file",
+            fileName: "payload.bin",
+            contentType: "application/octet-stream",
+            data: "cGF5bG9hZA==",
+          },
+        ],
+      },
+      {
+        mode: "urlencoded",
+        urlencoded: [{ key: "count", value: "2", enabled: false, description: "Preserve disabled fields" }],
+      },
+      {
+        mode: "binary",
+        binary: { fileName: "bytes.bin", data: "AAECAw==", contentType: "application/octet-stream" },
+      },
+      {
+        mode: "graphql",
+        graphql: {
+          query: "query Get($id: ID!) { user(id: $id) { name } }",
+          variables: '{"id":"7"}',
+          operationName: "Get",
+        },
+      },
+      {
+        mode: "ai",
+        ai: {
+          ...DEFAULT_AI_CONFIG,
+          model: "test-model",
+          messages: [{ role: "user", content: "Retain this prompt" }],
+          temperature: 0.2,
+        },
+      },
+    ];
+    for (const variant of variants) {
+      useApp.getState().changeBodyMode(tab.id, { mode: "none" });
+      useApp.getState().changeBodyMode(tab.id, variant);
+      useApp.getState().updateDraft(tab.id, { body: variant });
+    }
+    for (const variant of variants) {
+      useApp.getState().changeBodyMode(tab.id, { mode: "none" });
+      const empty = initialBodies.find((body) => body.mode === variant.mode)!;
+      useApp.getState().changeBodyMode(tab.id, empty);
+      expect(current().draft.body).toEqual(variant);
+    }
+  });
+  it("remembers intentional clearing and language changes instead of resurrecting older content", () => {
+    const tab = setupBody();
+    useApp.getState().changeBodyMode(tab.id, { mode: "none" });
+    useApp.getState().changeBodyMode(tab.id, { mode: "raw", raw: "", language: "text" });
+    useApp.getState().updateDraft(tab.id, { body: { mode: "raw", raw: "", language: "xml" } });
+    useApp.getState().changeBodyMode(tab.id, { mode: "none" });
+    useApp.getState().changeBodyMode(tab.id, { mode: "raw", raw: "ignored initial value", language: "json" });
+    expect(current().draft.body).toEqual({ mode: "raw", raw: "", language: "xml" });
+    useApp
+      .getState()
+      .changeBodyMode(tab.id, { mode: "raw", raw: "must not replace current mode", language: "json" });
+    expect(current().draft.body).toEqual({ mode: "raw", raw: "", language: "xml" });
+  });
+  it("keeps body drafts isolated between request tabs and does not persist inactive payloads", () => {
+    const tab = setupBody(),
+      other = requestTab("other");
+    other.draft.body = { mode: "raw", raw: "other request", language: "text" };
+    useApp.setState({ tabs: [tab, other] });
+    useApp.getState().changeBodyMode(tab.id, { mode: "none" });
+    useApp.getState().setActiveTab(other.id);
+    useApp.getState().changeBodyMode(other.id, { mode: "none" });
+    useApp.getState().setActiveTab(tab.id);
+    useApp.getState().changeBodyMode(tab.id, { mode: "raw", raw: "", language: "text" });
+    expect(current().draft.body).toEqual(raw);
+    useApp.getState().changeBodyMode(other.id, { mode: "raw", raw: "", language: "json" });
+    const restoredOther = useApp.getState().tabs[1];
+    expect(restoredOther.type === "request" && restoredOther.draft.body).toEqual({
+      mode: "raw",
+      raw: "other request",
+      language: "text",
+    });
+    useApp.getState().updateDraft(tab.id, { body: { ...raw, raw: "inactive-only-secret" } });
+    useApp.getState().changeBodyMode(tab.id, { mode: "none" });
+    const stored = sanitizeStoredState({ tabs: [current()] });
+    expect(stored.tabs[0]).not.toHaveProperty("bodyDrafts");
+    expect(JSON.stringify(stored)).not.toContain("inactive-only-secret");
+  });
+  it("saves and sends only the selected body, keeping inactive drafts out of payloads", async () => {
+    const tab = setupBody();
+    const form = {
+      mode: "urlencoded" as const,
+      urlencoded: [{ key: "active", value: "yes", enabled: true }],
+    };
+    useApp.getState().changeBodyMode(tab.id, form);
+    vi.mocked(api.requests.update).mockResolvedValue(savedRequest(current()));
+    expect(await useApp.getState().saveTab(tab.id)).toBe(true);
+    const saved = vi.mocked(api.requests.update).mock.calls[0][1];
+    expect(saved.body).toEqual(form);
+    expect(JSON.stringify(saved)).not.toContain("keep this JSON");
+    expect(saved).not.toHaveProperty("bodyDrafts");
+    vi.mocked(api.proxy).mockResolvedValue({
+      logs: [],
+      scriptErrors: [],
+      warnings: [],
+    } as unknown as ProxyResult);
+    await useApp.getState().sendTab(tab.id);
+    const sent = vi.mocked(api.proxy).mock.calls[0][0];
+    expect(sent.request.body).toEqual(form);
+    expect(JSON.stringify(sent)).not.toContain("keep this JSON");
+    expect(sent.request).not.toHaveProperty("bodyDrafts");
+    useApp.getState().changeBodyMode(tab.id, { mode: "raw", raw: "", language: "text" });
+    expect(current().draft.body).toEqual(raw);
   });
 });
