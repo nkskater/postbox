@@ -47,6 +47,15 @@ describe("settings", () => {
     await page.getByTitle(/^Settings \(/).click();
     await page.getByPlaceholder(/Search settings/).fill("restore");
     await expect.poll(() => page.getByRole("switch").first().getAttribute("aria-checked")).toBe(after);
+    // Settings live on the server and are shared by every test, so put the original value back.
+    await page.getByRole("switch").first().click();
+    await expect.poll(() => page.getByRole("switch").first().getAttribute("aria-checked")).toBe(before);
+    await expect
+      .poll(async () => {
+        const saved = (await (await fetch(`${baseUrl}/api/settings`)).json()) as unknown;
+        return JSON.stringify(saved).includes('"tabs.restore":false');
+      })
+      .toBe(false);
     expect(errors).toEqual([]);
     await context.close();
   });

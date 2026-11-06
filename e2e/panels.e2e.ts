@@ -96,6 +96,8 @@ describe("dependency graph", () => {
     await page.getByRole("button", { name: "Dependencies", exact: true }).click();
     const search = page.getByLabel("Search the graph");
     await search.waitFor();
+    // The graph is an index; refresh it so it includes what was just created.
+    await page.getByRole("button", { name: "Refresh index" }).click();
     await search.fill("Graph request");
     await page
       .getByText(/Graph request/)
