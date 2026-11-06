@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { useApp } from "@/stores/app";
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,7 @@ export function TelemetryPanel() {
   );
 }
 function Dashboard({ workspaceId }: { workspaceId: string }) {
+  const detailRequest = useRef(0);
   const [sources, setSources] = useState<Source[]>([]),
     [revision, setRevision] = useState(0),
     [busy, setBusy] = useState(false),
@@ -121,6 +122,7 @@ function Dashboard({ workspaceId }: { workspaceId: string }) {
     fn();
     setOffset(0);
     setRevision((v) => v + 1);
+    detailRequest.current++;
     setDetail(null);
     setLoading(true);
   }
@@ -132,6 +134,7 @@ function Dashboard({ workspaceId }: { workspaceId: string }) {
           variant="outline"
           onClick={() => {
             setRevision((v) => v + 1);
+            detailRequest.current++;
             setDetail(null);
             setLoading(true);
           }}
@@ -267,6 +270,7 @@ function Dashboard({ workspaceId }: { workspaceId: string }) {
                   if (window.confirm("Delete all retained observations for this source?"))
                     void action(async () => {
                       await api.telemetry.purge(source.id);
+                      detailRequest.current++;
                       setDetail(null);
                     });
                 }}
@@ -281,6 +285,7 @@ function Dashboard({ workspaceId }: { workspaceId: string }) {
                   if (window.confirm("Delete this source and all its observations?"))
                     void action(async () => {
                       await api.telemetry.delete(source.id);
+                      detailRequest.current++;
                       setDetail(null);
                       setCredential(null);
                       if (editing?.id === source.id) setEditing(undefined);
@@ -431,7 +436,9 @@ function Dashboard({ workspaceId }: { workspaceId: string }) {
                           className="underline text-primary text-left break-all"
                           onClick={() =>
                             void action(async () => {
-                              setDetail(await api.telemetry.endpoint(workspaceId, e.id, query));
+                              const request = ++detailRequest.current;
+                              const endpoint = await api.telemetry.endpoint(workspaceId, e.id, query);
+                              if (request === detailRequest.current) setDetail(endpoint);
                             })
                           }
                         >
@@ -467,6 +474,7 @@ function Dashboard({ workspaceId }: { workspaceId: string }) {
                 disabled={offset === 0}
                 onClick={() => {
                   setOffset(Math.max(0, offset - 25));
+                  detailRequest.current++;
                   setDetail(null);
                   setLoading(true);
                 }}
@@ -482,6 +490,7 @@ function Dashboard({ workspaceId }: { workspaceId: string }) {
                 disabled={offset + 25 >= result.totalEndpoints}
                 onClick={() => {
                   setOffset(offset + 25);
+                  detailRequest.current++;
                   setDetail(null);
                   setLoading(true);
                 }}
@@ -540,7 +549,14 @@ function Dashboard({ workspaceId }: { workspaceId: string }) {
             <h2 className="font-semibold">
               {detail.method} {detail.route}
             </h2>
-            <Button size="sm" variant="outline" onClick={() => setDetail(null)}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                detailRequest.current++;
+                setDetail(null);
+              }}
+            >
               Close detail
             </Button>
             <Button size="sm" variant="outline" onClick={() => download(detail)}>
