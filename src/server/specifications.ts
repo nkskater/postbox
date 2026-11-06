@@ -8,7 +8,7 @@ import { authorize } from "./authorize";
 import { currentCaller } from "./access-context";
 import { HttpError } from "./errors";
 import { assertStorage } from "./usage";
-const { specifications: specs, specificationVersions: versions } = schema;
+const { specifications: specs, specificationVersions: versions, comments } = schema;
 export const createSpecificationInput = specificationSource
   .extend({
     workspaceId: z.string().min(1),
@@ -149,7 +149,12 @@ export function saveSpecification(id: string, raw: z.input<typeof saveSpecificat
 }
 export function deleteSpecification(id: string) {
   requireSpecification(id, "write");
-  getDb().delete(specs).where(eq(specs.id, id)).run();
+  getDb().transaction((tx) => {
+    tx.delete(comments)
+      .where(and(eq(comments.targetKind, "specification"), eq(comments.targetId, id)))
+      .run();
+    tx.delete(specs).where(eq(specs.id, id)).run();
+  });
   return { ok: true };
 }
 export function validateSpecification(raw: z.input<typeof validateSpecificationInput>) {

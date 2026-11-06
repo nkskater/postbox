@@ -1,4 +1,6 @@
 import * as scorecards from "./scorecards";
+import * as discussions from "./comments";
+import { COMMENT_TARGETS, commentBodySchema } from "@/core/comments/model";
 import * as governance from "./governance";
 import * as specificationSync from "./specification-sync";
 import * as specifications from "./specifications";
@@ -387,6 +389,58 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
     async ({ specificationId, ...input }) => {
       try {
         return okJson(await specificationSync.applySpecificationSync(specificationId, input));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "list_comments",
+    {
+      description: "Read the threaded discussion on a request, folder/collection or specification.",
+      inputSchema: {
+        targetKind: z.enum(COMMENT_TARGETS),
+        targetId: z.string().min(1),
+        openOnly: z.boolean().optional(),
+      },
+    },
+    async (input) => {
+      try {
+        return okJson(discussions.listComments(input.targetKind, input.targetId, !input.openOnly));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "add_comment",
+    {
+      description:
+        "Comment on an element, or reply to a top-level comment. @username mentions notify that person.",
+      inputSchema: {
+        targetKind: z.enum(COMMENT_TARGETS),
+        targetId: z.string().min(1),
+        body: commentBodySchema,
+        parentId: z.string().min(1).nullable().optional(),
+      },
+    },
+    async (input) => {
+      try {
+        return okJson(discussions.createComment({ ...input, parentId: input.parentId ?? null }));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "resolve_comment",
+    {
+      description: "Resolve or reopen a comment thread.",
+      inputSchema: { commentId: z.string().min(1), resolved: z.boolean() },
+    },
+    async (input) => {
+      try {
+        return okJson(discussions.setResolved(input.commentId, input.resolved));
       } catch (error) {
         return errResult(error);
       }

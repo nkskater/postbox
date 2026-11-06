@@ -18,6 +18,7 @@ import {
   UserRound,
 } from "lucide-react";
 import { useApp } from "@/stores/app";
+import { NotificationsBell } from "@/components/comments/NotificationsBell";
 import { useDialogs } from "@/stores/dialogs";
 import { useIdentity } from "@/components/settings/useIdentity";
 import { useSettings } from "@/stores/settings";
@@ -180,6 +181,7 @@ export function TopBar({ authEnabled }: { authEnabled: boolean }) {
           </div>
         </PopoverContent>
       </Popover>
+      <NotificationsBell />
       <Button
         variant="ghost"
         size="icon"

@@ -25,7 +25,7 @@ import type { FolderRow, RequestRow } from "./db/schema";
 import { defaultFolder, defaultRequest, newId } from "./defaults";
 import { HttpError, notFound } from "./errors";
 
-const { workspaces, folders, requests, environments, variables, history, cookies } = schema;
+const { workspaces, folders, requests, environments, variables, history, cookies, comments } = schema;
 const now = () => Date.now();
 
 // ------------------------------------------------------------------ mapping
@@ -340,6 +340,14 @@ export function deleteFolder(id: string) {
   }
   const ids = [...toDelete];
   db.transaction((tx) => {
+    const requestIds = tx
+      .select({ id: requests.id })
+      .from(requests)
+      .where(inArray(requests.folderId, ids))
+      .all()
+      .map((r) => r.id);
+    discardComments(tx, "request", requestIds);
+    discardComments(tx, "folder", ids);
     tx.delete(requests).where(inArray(requests.folderId, ids)).run();
     tx.delete(variables)
       .where(and(eq(variables.scope, "collection"), inArray(variables.ownerId, ids)))
@@ -444,8 +452,23 @@ export function updateRequest(id: string, patch: Partial<RequestDef>) {
   return getRequest(id);
 }
 
+/** A discussion belongs to its element: remove it with the element. */
+function discardComments(
+  tx: Pick<ReturnType<typeof getDb>, "delete">,
+  kind: "request" | "folder" | "specification",
+  ids: string[],
+) {
+  if (ids.length)
+    tx.delete(comments)
+      .where(and(eq(comments.targetKind, kind), inArray(comments.targetId, ids)))
+      .run();
+}
+
 export function deleteRequest(id: string) {
-  getDb().delete(requests).where(eq(requests.id, id)).run();
+  getDb().transaction((tx) => {
+    discardComments(tx, "request", [id]);
+    tx.delete(requests).where(eq(requests.id, id)).run();
+  });
 }
 
 export function duplicateRequest(id: string) {

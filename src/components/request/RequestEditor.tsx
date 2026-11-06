@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { HTTP_METHODS, type KeyValue, type RequestDef } from "@/core/types";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { CommentsPanel } from "@/components/comments/CommentsPanel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { VarInput } from "@/components/editor/VarInput";
 import { ResponseViewer } from "@/components/response/ResponseViewer";
@@ -315,6 +316,11 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
               <TabsTrigger value="settings" className="text-xs">
                 Settings
               </TabsTrigger>
+              {tab.requestId && (
+                <TabsTrigger value="comments" className="text-xs">
+                  Comments
+                </TabsTrigger>
+              )}
               {isGrpc && (
                 <TabsTrigger value="grpc" className="text-xs">
                   <TabLabel
@@ -330,6 +336,11 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
               )}
             </TabsList>
             <div className="min-h-0 flex-1 overflow-auto px-3 py-2">
+              {tab.requestId && (
+                <TabsContent value="comments" className="mt-0">
+                  <CommentsPanel key={tab.requestId} kind="request" targetId={tab.requestId} />
+                </TabsContent>
+              )}
               <TabsContent value="params" className="mt-0">
                 <div className="mb-1 text-[11px] font-medium text-muted-foreground">QUERY PARAMS</div>
                 <KeyValueEditor rows={d.params} onChange={onParamsChange} showDescription />
