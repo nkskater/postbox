@@ -262,6 +262,8 @@ const STORAGE_SQL = [
   `SELECT COALESCE(SUM(LENGTH(CAST(report AS BLOB))), 0) AS n FROM governance_reports WHERE workspace_id = ?`,
   `SELECT COALESCE(SUM(LENGTH(CAST(v.config AS BLOB))), 0) AS n FROM quality_scorecard_versions v JOIN quality_scorecards s ON s.id=v.scorecard_id WHERE s.workspace_id = ?`,
   `SELECT COALESCE(SUM(LENGTH(CAST(report AS BLOB))), 0) AS n FROM quality_reports WHERE workspace_id = ?`,
+  `SELECT COALESCE(SUM(LENGTH(CAST(config AS BLOB)) + 300),0) AS n FROM telemetry_sources WHERE workspace_id = ?`,
+  `SELECT COALESCE(SUM(LENGTH(CAST(route AS BLOB)) + LENGTH(CAST(service AS BLOB)) + LENGTH(CAST(environment AS BLOB)) + 400),0) AS n FROM telemetry_observations WHERE workspace_id = ?`,
   `SELECT COALESCE(SUM(LENGTH(CAST(baseline AS BLOB))), 0) AS n FROM specification_links WHERE workspace_id = ?`,
   `SELECT COALESCE(SUM(LENGTH(CAST(v.files AS BLOB))), 0) AS n FROM specification_versions v JOIN specifications s ON s.id = v.specification_id WHERE s.workspace_id = ?`,
   `SELECT COALESCE(SUM(LENGTH(CAST(v.snapshot AS BLOB))), 0) AS n FROM catalog_versions v JOIN catalog_entries e ON e.id = v.entry_id WHERE e.workspace_id = ?`,

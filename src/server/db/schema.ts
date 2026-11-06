@@ -15,7 +15,7 @@ import type { AuditChange } from "@/core/audit";
  * JSON text columns because they are always read and written as a unit.
  * See ARCHITECTURE.md §3 for the rationale.
  */
-import { sqliteTable, text, integer, index, uniqueIndex, primaryKey } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, index, uniqueIndex, primaryKey } from "drizzle-orm/sqlite-core";
 import type {
   DataTable,
   AuthConfig,
@@ -1451,4 +1451,53 @@ export const commentNotifications = sqliteTable(
     createdAt: integer("created_at").notNull(),
   },
   (t) => [index("comment_notifications_user_idx").on(t.userId, t.readAt, t.createdAt)],
+);
+
+export const telemetrySources = sqliteTable(
+  "telemetry_sources",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    config: text("config", { mode: "json" })
+      .$type<import("@/core/telemetry/model").TelemetryConfig>()
+      .notNull(),
+    tokenHash: text("token_hash").notNull(),
+    revision: integer("revision").notNull().default(1),
+    lastIntake: text("last_intake", { mode: "json" }).$type<import("@/core/telemetry/model").IntakeCounts>(),
+    lastReceivedAt: integer("last_received_at"),
+    ...timestamps,
+  },
+  (t) => [index("telemetry_sources_workspace_idx").on(t.workspaceId)],
+);
+export const telemetryObservations = sqliteTable(
+  "telemetry_observations",
+  {
+    id: text("id").primaryKey(),
+    sourceId: text("source_id")
+      .notNull()
+      .references(() => telemetrySources.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    sourceRevision: integer("source_revision").notNull(),
+    traceId: text("trace_id").notNull(),
+    spanId: text("span_id").notNull(),
+    method: text("method").notNull(),
+    route: text("route").notNull(),
+    routeSource: text("route_source").$type<"template" | "path" | "unknown">().notNull(),
+    status: integer("status"),
+    error: integer("error", { mode: "boolean" }).notNull(),
+    durationMs: real("duration_ms").notNull(),
+    at: integer("at").notNull(),
+    service: text("service").notNull(),
+    environment: text("environment").notNull(),
+    sampleRate: real("sample_rate").notNull(),
+  },
+  (t) => [
+    uniqueIndex("telemetry_span_unique").on(t.sourceId, t.traceId, t.spanId),
+    index("telemetry_workspace_time_idx").on(t.workspaceId, t.at),
+    index("telemetry_source_time_idx").on(t.sourceId, t.at),
+  ],
 );

@@ -1,4 +1,5 @@
 "use client";
+import { TelemetryPanel } from "@/components/telemetry/TelemetryPanel";
 import { GovernancePanel } from "@/components/governance/GovernancePanel";
 import { SpecificationsPanel } from "@/components/specifications/SpecificationsPanel";
 /**
@@ -87,6 +88,8 @@ function renderTab(tab: Exclude<ReturnType<typeof useApp.getState>["tabs"][numbe
       return <EnvironmentEditor key="globals" environmentId={null} />;
     case "cookies":
       return <CookiesView />;
+    case "telemetry":
+      return <TelemetryPanel />;
     case "governance":
       return <GovernancePanel />;
     case "specifications":

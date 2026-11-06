@@ -1,3 +1,5 @@
+import type * as telemetry from "@/server/telemetry";
+import type { TelemetryConfig, TelemetryQuery } from "@/core/telemetry/model";
 import type * as scorecards from "@/server/scorecards";
 import type * as governance from "@/server/governance";
 import type * as specificationSync from "@/server/specification-sync";
@@ -103,6 +105,49 @@ const COMMENT_ROUTES: Record<CommentTarget, string> = {
   specification: "specifications",
 };
 export const api = {
+  telemetry: {
+    sources: (workspaceId: string) =>
+      call<ReturnType<typeof telemetry.listTelemetrySources>>(
+        "GET",
+        `/api/telemetry/sources?workspaceId=${encodeURIComponent(workspaceId)}`,
+      ),
+    create: (workspaceId: string, config: TelemetryConfig) =>
+      call<ReturnType<typeof telemetry.createTelemetrySource>>("POST", "/api/telemetry/sources", {
+        workspaceId,
+        config,
+      }),
+    save: (id: string, expectedRevision: number, config: TelemetryConfig) =>
+      call<ReturnType<typeof telemetry.saveTelemetrySource>>("PATCH", `/api/telemetry/sources/${id}`, {
+        expectedRevision,
+        config,
+      }),
+    rotate: (id: string, expectedRevision: number) =>
+      call<ReturnType<typeof telemetry.rotateTelemetrySource>>(
+        "POST",
+        `/api/telemetry/sources/${id}/rotate`,
+        { expectedRevision },
+      ),
+    delete: (id: string) => call<{ ok: boolean }>("DELETE", `/api/telemetry/sources/${id}`),
+    purge: (id: string) => call<{ deleted: number }>("DELETE", `/api/telemetry/sources/${id}/observations`),
+    metrics: (workspaceId: string, query: TelemetryQuery) =>
+      call<ReturnType<typeof telemetry.getTelemetryMetrics>>(
+        "GET",
+        `/api/telemetry/metrics?${new URLSearchParams(
+          Object.entries({ workspaceId, ...query })
+            .filter(([, v]) => v !== undefined)
+            .map(([k, v]) => [k, String(v)]),
+        )}`,
+      ),
+    endpoint: (workspaceId: string, id: string, query: TelemetryQuery) =>
+      call<ReturnType<typeof telemetry.getTelemetryEndpoint>>(
+        "GET",
+        `/api/telemetry/endpoints/${id}?${new URLSearchParams(
+          Object.entries({ workspaceId, ...query })
+            .filter(([, v]) => v !== undefined)
+            .map(([k, v]) => [k, String(v)]),
+        )}`,
+      ),
+  },
   scorecards: {
     list: (workspaceId: string) =>
       call<ReturnType<typeof scorecards.listScorecards>>(

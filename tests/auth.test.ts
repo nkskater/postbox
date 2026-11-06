@@ -64,6 +64,15 @@ describe("auth primitives", () => {
     expect(isPublicPath("/api/auth/login")).toBe(true);
     expect(isPublicPath("/hook/hk_abc")).toBe(true);
     expect(isPublicPath("/api/hook-listeners")).toBe(false);
+    expect(isPublicPath("/api/telemetry/ingest/source_123/v1/traces")).toBe(true);
+    for (const path of [
+      "/api/telemetry/sources",
+      "/api/telemetry/metrics",
+      "/api/telemetry/ingest/source_123/v1/traces/extra",
+      "/api/telemetry/ingest/source_123/v1",
+      "/api/telemetry/ingest/../v1/traces",
+    ])
+      expect(isPublicPath(path)).toBe(false);
     expect(isPublicPath("/api/mcp")).toBe(false);
     expect(isPublicPath("/api/proxy")).toBe(false);
     expect(isPublicPath("/")).toBe(false);

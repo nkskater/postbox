@@ -26,7 +26,8 @@ export type ResourceKind =
   | "specification"
   | "governanceRuleSet"
   | "qualityScorecard"
-  | "comment";
+  | "comment"
+  | "telemetrySource";
 export const RESOURCE_TABLES: Record<ResourceKind, string> = {
   workspace: "workspaces",
   folder: "folders",
@@ -53,6 +54,7 @@ export const RESOURCE_TABLES: Record<ResourceKind, string> = {
   governanceRuleSet: "governance_rule_sets",
   qualityScorecard: "quality_scorecards",
   comment: "comments",
+  telemetrySource: "telemetry_sources",
 };
 export function resourceWorkspace(kind: ResourceKind, id: string): string {
   const row = getSqlite()
