@@ -31,6 +31,27 @@ export default async function setup({ provide }: { provide: (key: string, value:
     let body = "";
     req.on("data", (c) => (body += c));
     req.on("end", () => {
+      if (req.url === "/html") {
+        res.setHeader("content-type", "text/html");
+        res.end("<!doctype html><html><body><h1>Preview Header</h1></body></html>");
+        return;
+      }
+      if (req.url === "/image") {
+        res.setHeader("content-type", "image/png");
+        res.setHeader("content-disposition", 'attachment; filename="pixel.png"');
+        const png = Buffer.from(
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+          "base64",
+        );
+        res.end(png);
+        return;
+      }
+      if (req.url === "/cookies") {
+        res.setHeader("set-cookie", ["session=token123; Path=/; HttpOnly"]);
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ ok: true, cookieSet: true }));
+        return;
+      }
       res.setHeader("content-type", "application/json");
       res.end(JSON.stringify({ ok: true, method: req.method, url: req.url, body }));
     });
@@ -69,7 +90,11 @@ export default async function setup({ provide }: { provide: (key: string, value:
   return async () => {
     app?.kill();
     await new Promise<void>((r) => (target ? target.close(() => r()) : r()));
-    fs.rmSync(dir, { recursive: true, force: true });
+    try {
+      fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    } catch {
+      // Best-effort cleanup on Windows where killed process handles take moments to release.
+    }
   };
 }
 

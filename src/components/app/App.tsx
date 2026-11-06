@@ -82,11 +82,11 @@ function renderTab(tab: Exclude<ReturnType<typeof useApp.getState>["tabs"][numbe
     case "runner":
       return <RunnerTabs folderId={tab.folderId} />;
     case "folder":
-      return <FolderEditor key={tab.folderId} folderId={tab.folderId} />;
+      return <FolderEditor key={tab.folderId} folderId={tab.folderId} tabId={tab.id} />;
     case "environment":
-      return <EnvironmentEditor key={tab.environmentId} environmentId={tab.environmentId} />;
+      return <EnvironmentEditor key={tab.environmentId} environmentId={tab.environmentId} tabId={tab.id} />;
     case "globals":
-      return <EnvironmentEditor key="globals" environmentId={null} />;
+      return <EnvironmentEditor key="globals" environmentId={null} tabId={tab.id} />;
     case "cookies":
       return <CookiesView />;
     case "telemetry":

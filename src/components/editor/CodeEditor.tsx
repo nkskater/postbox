@@ -47,6 +47,7 @@ export interface CodeEditorProps {
   className?: string;
   extensions?: Extension[];
   basicSetup?: ReactCodeMirrorProps["basicSetup"];
+  onCreateEditor?: (view: EditorView) => void;
 }
 
 export function CodeEditor({
@@ -60,6 +61,7 @@ export function CodeEditor({
   className,
   extensions: extra,
   basicSetup,
+  onCreateEditor,
 }: CodeEditorProps) {
   const theme = useApp((s) => s.theme);
   const vars = useApp((s) => s.variables);
@@ -96,6 +98,7 @@ export function CodeEditor({
       extensions={extensions}
       height="100%"
       className={className ?? "h-full"}
+      onCreateEditor={onCreateEditor}
       basicSetup={{
         lineNumbers,
         foldGutter: folding,

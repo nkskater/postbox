@@ -23,9 +23,10 @@ import { VariablesEditor } from "@/components/env/VariablesEditor";
 
 type Editable = FolderDef & { parentId: string | null; variables: Variable[] };
 
-export function FolderEditor({ folderId }: { folderId: string }) {
+export function FolderEditor({ folderId, tabId }: { folderId: string; tabId?: string }) {
   const refreshTree = useApp((s) => s.refreshTree);
   const refreshVariables = useApp((s) => s.refreshVariables);
+  const setTabDirty = useApp((s) => s.setTabDirty);
   const openTab = useApp((s) => s.openTab);
   const [data, setData] = useState<Editable | null>(null);
   const [saved, setSaved] = useState("");
@@ -42,9 +43,19 @@ export function FolderEditor({ folderId }: { folderId: string }) {
       .catch((e) => toast.error(e.message));
   }, [folderId]);
 
+  const isCollection = !data?.parentId;
+  const dirty = !!data && JSON.stringify(data) !== saved;
+
+  useEffect(() => {
+    if (tabId) setTabDirty(tabId, dirty);
+  }, [tabId, dirty, setTabDirty]);
+  useEffect(() => {
+    return () => {
+      if (tabId) setTabDirty(tabId, false);
+    };
+  }, [tabId, setTabDirty]);
+
   if (!data) return <div className="p-6 text-muted-foreground">Loading…</div>;
-  const isCollection = !data.parentId;
-  const dirty = JSON.stringify(data) !== saved;
   const set = (patch: Partial<Editable>) => setData({ ...data, ...patch });
 
   const save = async () => {

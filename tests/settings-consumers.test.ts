@@ -63,6 +63,11 @@ describe("tabs", () => {
       }),
     ).toBe(true);
     expect(isTabDirty({ id: "g", type: "globals", name: "Globals" })).toBe(false);
+    expect(isTabDirty({ id: "g", type: "globals", name: "Globals", dirty: true })).toBe(true);
+    expect(isTabDirty({ id: "f", type: "folder", folderId: "f1", name: "Col", dirty: true })).toBe(true);
+    expect(isTabDirty({ id: "e", type: "environment", environmentId: "e1", name: "Env", dirty: true })).toBe(
+      true,
+    );
   });
 
   it("asks before closing a dirty tab only when the setting is on", () => {
@@ -77,6 +82,13 @@ describe("tabs", () => {
     withSettings({ "tabs.confirmCloseUnsaved": false });
     useApp.getState().requestCloseTab("a");
     expect(useApp.getState().tabs).toHaveLength(0);
+
+    withSettings({ "tabs.confirmCloseUnsaved": true });
+    const dirtyFolder: Tab = { id: "f", type: "folder", folderId: "f1", name: "Folder", dirty: true };
+    useApp.setState({ tabs: [dirtyFolder], activeTabId: "f" });
+    useApp.getState().requestCloseTab("f");
+    expect(useDialogs.getState().confirmCloseTabId).toBe("f");
+    expect(useApp.getState().tabs).toHaveLength(1);
   });
 
   it("closes the oldest clean tabs beyond the maximum, never dirty or active ones", () => {

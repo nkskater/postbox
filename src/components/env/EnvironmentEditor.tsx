@@ -11,17 +11,34 @@ import { useApp } from "@/stores/app";
 import { Button } from "@/components/ui/button";
 import { VariablesEditor } from "./VariablesEditor";
 
-export function EnvironmentEditor({ environmentId }: { environmentId: string | null }) {
+export function EnvironmentEditor({
+  environmentId,
+  tabId,
+}: {
+  environmentId: string | null;
+  tabId?: string;
+}) {
   const workspaceId = useApp((s) => s.workspaceId);
   const refreshEnvironments = useApp((s) => s.refreshEnvironments);
   const refreshVariables = useApp((s) => s.refreshVariables);
+  const setTabDirty = useApp((s) => s.setTabDirty);
   const variablesVersion = useApp((s) => s.variables);
   const [name, setName] = useState("");
+  const [savedName, setSavedName] = useState("");
   const [vars, setVars] = useState<Variable[]>([]);
   const [saved, setSaved] = useState("[]");
   const [loaded, setLoaded] = useState(false);
 
-  const dirty = JSON.stringify(vars) !== saved;
+  const dirty = (environmentId ? name !== savedName : false) || JSON.stringify(vars) !== saved;
+
+  useEffect(() => {
+    if (tabId) setTabDirty(tabId, dirty);
+  }, [tabId, dirty, setTabDirty]);
+  useEffect(() => {
+    return () => {
+      if (tabId) setTabDirty(tabId, false);
+    };
+  }, [tabId, setTabDirty]);
 
   // Reload when scripts changed variables (unless the user has unsaved edits).
   useEffect(() => {
@@ -30,11 +47,13 @@ export function EnvironmentEditor({ environmentId }: { environmentId: string | n
       if (environmentId) {
         const env = await api.environments.get(environmentId);
         setName(env.name);
+        setSavedName(env.name);
         setVars(env.variables);
         setSaved(JSON.stringify(env.variables));
       } else {
         const list = await api.variables.list(workspaceId, "global");
         setName("Globals");
+        setSavedName("Globals");
         setVars(list);
         setSaved(JSON.stringify(list));
       }
@@ -49,6 +68,7 @@ export function EnvironmentEditor({ environmentId }: { environmentId: string | n
     if (environmentId) await api.environments.update(environmentId, { name, variables: clean });
     else await api.variables.replace(workspaceId, "global", null, clean);
     setSaved(JSON.stringify(clean));
+    setSavedName(name);
     setVars(clean);
     await refreshEnvironments();
     await refreshVariables();

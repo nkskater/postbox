@@ -6,12 +6,14 @@
  */
 import { ShortcutHint } from "@/components/app/ShortcutHint";
 import { copyText } from "@/lib/clipboard";
-import { useMemo, useState } from "react";
-import { AlertTriangle, Check, Copy, Download, Save, Send, X, WrapText } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
+import { AlertTriangle, Check, Copy, Download, Save, Search, Send, X, WrapText } from "lucide-react";
 import { toast } from "sonner";
 import type { ProxyResult } from "@/lib/api";
 import type { Timings } from "@/core/types";
 import { CodeEditor, type EditorLanguage } from "@/components/editor/CodeEditor";
+import type { EditorView } from "@codemirror/view";
+import { openSearchPanel } from "@codemirror/search";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -40,6 +42,43 @@ function prettify(body: string, lang: EditorLanguage): string {
     /* fall back to raw */
   }
   return body;
+}
+
+function filenameForResponse(res: NonNullable<ProxyResult["response"]>, lang: EditorLanguage): string {
+  const cd = res.headers.find(([k]) => k.toLowerCase() === "content-disposition")?.[1];
+  if (cd) {
+    const match = cd.match(/filename\*?=(?:UTF-8'')?["']?([^"';]+)["']?/i);
+    if (match?.[1]) {
+      try {
+        return decodeURIComponent(match[1].trim());
+      } catch {
+        return match[1].trim();
+      }
+    }
+  }
+  const ct = (res.contentType || "").toLowerCase().split(";")[0].trim();
+  const extMap: Record<string, string> = {
+    "application/json": ".json",
+    "text/json": ".json",
+    "text/html": ".html",
+    "application/xhtml+xml": ".html",
+    "application/xml": ".xml",
+    "text/xml": ".xml",
+    "text/csv": ".csv",
+    "text/plain": ".txt",
+    "application/pdf": ".pdf",
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+    "image/svg+xml": ".svg",
+    "application/zip": ".zip",
+    "application/gzip": ".gz",
+  };
+  const ext =
+    extMap[ct] ?? (lang === "json" ? ".json" : lang === "xml" ? ".xml" : lang === "html" ? ".html" : "");
+  return `response${ext}`;
 }
 
 function TimingBreakdown({ t }: { t: Timings }) {
@@ -93,6 +132,7 @@ export function ResponseViewer({
   const wrapDefault = useSetting<boolean>("responses.wrap");
   const maxRenderBytes = (Number(useSetting<number>("responses.maxRenderKb")) || 2048) * 1024;
   const openTestsOnFailure = useSetting<boolean>("responses.openTestsOnFailure");
+  const editorViewRef = useRef<EditorView | null>(null);
   const [view, setView] = useState<"pretty" | "raw" | "preview">(defaultView);
   const [wrap, setWrap] = useState(wrapDefault);
   const [tab, setTab] = useState("body");
@@ -147,19 +187,36 @@ export function ResponseViewer({
   const failed = result.tests.filter((t) => !t.passed).length;
 
   const copyBody = () => {
+    if (res?.isBinary) {
+      if (!res.bodyBase64) {
+        toast.error("Binary response is empty");
+        return;
+      }
+      void copyText(res.bodyBase64).then((ok) =>
+        ok ? toast.success("Copied base64 to clipboard") : toast.error("Could not copy the response"),
+      );
+      return;
+    }
     void copyText(view === "pretty" && !tooLarge ? pretty : (res?.bodyText ?? "")).then((ok) =>
       ok ? toast.success("Copied to clipboard") : toast.error("Could not copy the response"),
     );
   };
   const download = () => {
     if (!res) return;
-    const bytes = Uint8Array.from(atob(res.bodyBase64), (c) => c.charCodeAt(0));
-    const blob = new Blob([bytes], { type: res.contentType || "application/octet-stream" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `response${lang === "json" ? ".json" : lang === "xml" ? ".xml" : lang === "html" ? ".html" : ""}`;
-    a.click();
-    URL.revokeObjectURL(a.href);
+    try {
+      const bytes = res.bodyBase64
+        ? Uint8Array.from(atob(res.bodyBase64), (c) => c.charCodeAt(0))
+        : new TextEncoder().encode(res.bodyText);
+      const blob = new Blob([bytes], { type: res.contentType || "application/octet-stream" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filenameForResponse(res, lang);
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch {
+      toast.error("Could not download the response");
+    }
   };
 
   const isImage = res?.contentType.startsWith("image/");
@@ -321,6 +378,22 @@ export function ResponseViewer({
                 {res.isBinary ? "binary" : lang}
               </span>
               <div className="ml-auto flex items-center gap-1">
+                {!res.isBinary && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-6"
+                    title="Search (Ctrl+F)"
+                    onClick={() => {
+                      if (editorViewRef.current) {
+                        editorViewRef.current.focus();
+                        openSearchPanel(editorViewRef.current);
+                      }
+                    }}
+                  >
+                    <Search className="size-3.5" />
+                  </Button>
+                )}
                 <Button
                   variant="ghost"
                   size="icon"
@@ -397,6 +470,9 @@ export function ResponseViewer({
                       language="text"
                       readOnly
                       wrap={wrap}
+                      onCreateEditor={(v) => {
+                        editorViewRef.current = v;
+                      }}
                     />
                   </div>
                 </div>
@@ -406,6 +482,9 @@ export function ResponseViewer({
                   language={view === "pretty" ? lang : "text"}
                   readOnly
                   wrap={wrap}
+                  onCreateEditor={(v) => {
+                    editorViewRef.current = v;
+                  }}
                 />
               )}
             </div>

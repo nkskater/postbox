@@ -55,19 +55,19 @@ export type Tab =
       /** Secrets were removed from browser storage; restored from the saved request after hydration. */
       credentialsOmitted?: boolean;
     }
-  | { id: string; type: "folder"; folderId: string; name: string }
-  | { id: string; type: "environment"; environmentId: string; name: string }
-  | { id: string; type: "globals"; name: string }
-  | { id: string; type: "runner"; folderId: string; name: string }
-  | { id: string; type: "cookies"; name: string }
-  | { id: string; type: "catalog"; name: string }
-  | { id: string; type: "graph"; name: string }
-  | { id: string; type: "mcp-client"; name: string }
-  | { id: string; type: "monitors"; name: string }
-  | { id: string; type: "specifications"; name: string }
-  | { id: string; type: "telemetry"; name: string }
-  | { id: string; type: "governance"; name: string }
-  | { id: string; type: "settings"; name: string };
+  | { id: string; type: "folder"; folderId: string; name: string; dirty?: boolean }
+  | { id: string; type: "environment"; environmentId: string; name: string; dirty?: boolean }
+  | { id: string; type: "globals"; name: string; dirty?: boolean }
+  | { id: string; type: "runner"; folderId: string; name: string; dirty?: boolean }
+  | { id: string; type: "cookies"; name: string; dirty?: boolean }
+  | { id: string; type: "catalog"; name: string; dirty?: boolean }
+  | { id: string; type: "graph"; name: string; dirty?: boolean }
+  | { id: string; type: "mcp-client"; name: string; dirty?: boolean }
+  | { id: string; type: "monitors"; name: string; dirty?: boolean }
+  | { id: string; type: "specifications"; name: string; dirty?: boolean }
+  | { id: string; type: "telemetry"; name: string; dirty?: boolean }
+  | { id: string; type: "governance"; name: string; dirty?: boolean }
+  | { id: string; type: "settings"; name: string; dirty?: boolean };
 
 export interface KnownVariable {
   value: string;
@@ -130,7 +130,13 @@ function abortTab(id: string) {
 }
 
 function sanitizeStoredTab(tab: Tab): Tab {
-  if (tab.type !== "request") return tab;
+  if (tab.type !== "request") {
+    if ("dirty" in tab && tab.dirty) {
+      const { dirty: _d, ...clean } = tab;
+      return clean as Tab;
+    }
+    return tab;
+  }
   const { bodyDrafts: _bodyDrafts, ...storedTab } = tab;
   const draft = sanitizeRequestDraftForBrowser(tab.draft);
   let saved = tab.saved;
@@ -233,6 +239,7 @@ interface AppState {
   requestCloseTab(id: string): void;
   closeOtherTabs(id: string): void;
   setActiveTab(id: string): void;
+  setTabDirty(id: string, dirty: boolean): void;
   updateDraft(tabId: string, patch: Partial<RequestDraft>): void;
   changeBodyMode(tabId: string, initialBody: BodyConfig): void;
   saveTab(tabId: string, target?: { folderId: string; name: string }): Promise<boolean>;
@@ -533,6 +540,19 @@ export const useApp = create<AppState>()(
         void get().refreshVariables();
       },
 
+      setTabDirty(id, dirty) {
+        set((s) => {
+          let changed = false;
+          const tabs = s.tabs.map((t) => {
+            if (t.id !== id || t.type === "request") return t;
+            if (t.dirty === dirty) return t;
+            changed = true;
+            return { ...t, dirty };
+          });
+          return changed ? { tabs } : s;
+        });
+      },
+
       updateDraft(tabId, patch) {
         set((s) => ({
           tabs: s.tabs.map((t) =>
@@ -777,11 +797,13 @@ export const useApp = create<AppState>()(
   ),
 );
 
-/** A request tab with changes that would be lost on close. */
+/** A tab with changes that would be lost on close. */
 export function isTabDirty(t: Tab): boolean {
-  if (t.type !== "request") return false;
-  if (t.saved === null) return t.draft.url.trim() !== "" || t.draft.body.mode !== "none";
-  return t.saved !== snapshot(t.draft);
+  if (t.type === "request") {
+    if (t.saved === null) return t.draft.url.trim() !== "" || t.draft.body.mode !== "none";
+    return t.saved !== snapshot(t.draft);
+  }
+  return !!("dirty" in t && t.dirty);
 }
 
 /**

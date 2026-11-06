@@ -1,7 +1,7 @@
 "use client";
 import { useShortcutLabel } from "@/lib/use-shortcuts";
 import { Settings, Cookie, Globe, Layers, Library, Play, Plus, X } from "lucide-react";
-import { useApp, snapshot, type Tab } from "@/stores/app";
+import { useApp, isTabDirty, type Tab } from "@/stores/app";
 import { useDialogs } from "@/stores/dialogs";
 import { ConfirmDialog } from "@/components/dialogs/ConfirmDialog";
 import { methodColor } from "@/lib/format";
@@ -128,7 +128,7 @@ export function TabBar() {
     <>
       <div className="flex h-9 shrink-0 items-stretch overflow-x-auto border-b bg-sidebar">
         {tabs.map((t) => {
-          const dirty = t.type === "request" && (t.saved === null ? false : t.saved !== snapshot(t.draft));
+          const dirty = isTabDirty(t);
           return (
             <ContextMenu key={t.id}>
               <ContextMenuTrigger asChild>
@@ -184,7 +184,7 @@ export function TabBar() {
       <ConfirmDialog
         open={!!confirmTab}
         onOpenChange={(o) => !o && setConfirmCloseTabId(null)}
-        title={`Discard unsaved changes to "${confirmTab?.type === "request" ? confirmTab.draft.name : "this tab"}"?`}
+        title={`Discard unsaved changes to "${confirmTab?.type === "request" ? confirmTab.draft.name : (confirmTab?.name ?? "this tab")}"?`}
         description="Closing this tab discards your unsaved changes. You can turn this prompt off in Settings → Tabs."
         confirmLabel="Discard and close"
         destructive
