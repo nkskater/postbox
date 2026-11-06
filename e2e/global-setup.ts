@@ -4,6 +4,7 @@ import http from "node:http";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
+import { WebSocketServer } from "ws";
 
 /**
  * Starts the production build (`next start`) on a free port with an empty database, plus a small
@@ -34,6 +35,11 @@ export default async function setup({ provide }: { provide: (key: string, value:
       res.setHeader("content-type", "application/json");
       res.end(JSON.stringify({ ok: true, method: req.method, url: req.url, body }));
     });
+  });
+  // The same port also speaks WebSocket (echoes every message) for the live-protocol tests.
+  const sockets = new WebSocketServer({ server: target });
+  sockets.on("connection", (socket) => {
+    socket.on("message", (data, isBinary) => socket.send(isBinary ? data : `echo:${data.toString()}`));
   });
   await new Promise<void>((r) => target!.listen(targetPort, "127.0.0.1", r));
   app = spawn(
@@ -66,6 +72,7 @@ export default async function setup({ provide }: { provide: (key: string, value:
   }
   provide("baseUrl", base);
   provide("targetUrl", `http://127.0.0.1:${targetPort}`);
+  provide("wsUrl", `ws://127.0.0.1:${targetPort}`);
   return async () => {
     app?.kill();
     await new Promise<void>((r) => (target ? target.close(() => r()) : r()));
@@ -77,5 +84,6 @@ declare module "vitest" {
   export interface ProvidedContext {
     baseUrl: string;
     targetUrl: string;
+    wsUrl: string;
   }
 }

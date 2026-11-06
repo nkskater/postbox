@@ -28,7 +28,9 @@ async function openEnv(page: Page, name: string) {
   await page.getByText(name, { exact: true }).first().click();
   await expect
     .poll(() =>
-      page.locator("input").evaluateAll((els, n) => els.some((e) => (e as HTMLInputElement).value === n), name),
+      page
+        .locator("input")
+        .evaluateAll((els, n) => els.some((e) => (e as HTMLInputElement).value === n), name),
     )
     .toBe(true);
 }
@@ -54,7 +56,11 @@ describe("environments and variables", () => {
     expect(saved.variables.map((v) => [v.key, v.value])).toEqual([["host", targetUrl]]);
 
     // Select the environment and send a request that uses {{host}}.
-    await page.getByRole("combobox").filter({ hasText: /No environment/ }).first().click();
+    await page
+      .getByRole("combobox")
+      .filter({ hasText: /No environment/ })
+      .first()
+      .click();
     await page.getByRole("option", { name: "EnvSend" }).click();
     await page.getByTitle("New request (Alt+T)").click();
     await typeInEditor(page, "Enter URL", "{{host}}/from-env");
@@ -105,7 +111,9 @@ describe("import", () => {
     const { page, context, errors } = await openApp(browser, baseUrl);
     await page.getByRole("button", { name: "Import", exact: true }).first().click();
     await page.getByRole("tab", { name: "Raw text / cURL" }).click();
-    await page.getByPlaceholder(/curl https/).fill(`curl ${targetUrl}/curl-import -H 'Accept: application/json'`);
+    await page
+      .getByPlaceholder(/curl https/)
+      .fill(`curl ${targetUrl}/curl-import -H 'Accept: application/json'`);
     await page.getByRole("button", { name: "Import", exact: true }).last().click();
     await expect.poll(() => page.getByText(/curl-import/).count()).toBeGreaterThan(0);
     expect(errors).toEqual([]);
@@ -123,11 +131,14 @@ describe("import", () => {
     };
     const { page, context, errors } = await openApp(browser, baseUrl);
     await page.getByRole("button", { name: "Import", exact: true }).first().click();
-    await page.locator('input[type="file"]').first().setInputFiles({
-      name: "postman.json",
-      mimeType: "application/json",
-      buffer: Buffer.from(JSON.stringify(collection)),
-    });
+    await page
+      .locator('input[type="file"]')
+      .first()
+      .setInputFiles({
+        name: "postman.json",
+        mimeType: "application/json",
+        buffer: Buffer.from(JSON.stringify(collection)),
+      });
     await page.getByText("ImportedPostman").first().waitFor();
     const ws = await workspaceId();
     const tree = (await (await fetch(`${baseUrl}/api/workspaces/${ws}/tree`)).json()) as unknown;
