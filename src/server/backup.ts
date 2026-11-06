@@ -1,3 +1,4 @@
+import { telemetryConfig } from "@/core/telemetry/model";
 import { scorecardConfig } from "@/core/scorecards/model";
 import { governanceConfig, governanceOverrides, governanceExclusion } from "@/core/governance/model";
 import { specificationSource } from "@/core/specifications/model";
@@ -46,6 +47,7 @@ const TABLES = {
   datasetVersions: schema.datasetVersions,
   schedules: schema.schedules,
   monitors: schema.monitors,
+  telemetrySources: schema.telemetrySources,
   specifications: schema.specifications,
   specificationVersions: schema.specificationVersions,
   specificationLinks: schema.specificationLinks,
@@ -81,6 +83,7 @@ const ORDER: TableName[] = [
   "datasetVersions",
   "schedules",
   "monitors",
+  "telemetrySources",
   "specifications",
   "specificationVersions",
   "specificationLinks",
@@ -135,11 +138,24 @@ const maskHeaders = (rows: unknown) =>
       )
     : rows;
 
+function disableTelemetryBackup(row: Record<string, unknown>): Record<string, unknown> {
+  const config = telemetryConfig.safeParse(row.config);
+  if (!config.success) throw new BackupError("Invalid telemetry source configuration");
+  return {
+    ...row,
+    config: { ...config.data, enabled: false },
+    tokenHash: "",
+    lastIntake: null,
+    lastReceivedAt: null,
+  };
+}
+
 export function createBackup(db: DB, opts: { includeSecrets: boolean }): Backup {
   const tables = {} as Backup["tables"];
   for (const name of ORDER) {
     tables[name] = db.select().from(TABLES[name]).all() as Record<string, unknown>[];
   }
+  tables.telemetrySources = tables.telemetrySources.map(disableTelemetryBackup);
   if (!opts.includeSecrets) {
     const mockSecrets = credentialRedactionValues([
       ...tables.variables.filter((v) => v.type === "secret").map((v) => String(v.value ?? "")),
@@ -293,6 +309,7 @@ export function restoreBackup(db: DB, sqlite: Database.Database, input: unknown)
   if (!parsed.success)
     throw new BackupError("This is not a Postbox backup file, or it comes from an unsupported version");
   const tables = parsed.data.tables as Backup["tables"];
+  tables.telemetrySources = tables.telemetrySources.map(disableTelemetryBackup);
 
   const users = new Set(
     db

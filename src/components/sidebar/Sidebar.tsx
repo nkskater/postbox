@@ -11,6 +11,7 @@ import { DatasetList } from "./DatasetList";
 import { HistoryList } from "./HistoryList";
 
 const VIEWS = [
+  { id: "telemetry", label: "Telemetry", icon: Server },
   { id: "governance", label: "Governance", icon: Library },
   { id: "specifications", label: "Specifications", icon: Library },
   { id: "monitors", label: "Monitors", icon: Server },
@@ -46,6 +47,10 @@ export function Sidebar() {
             title={v.label}
             onClick={() => {
               setView(v.id);
+              if (v.id === "telemetry")
+                useApp
+                  .getState()
+                  .openTab({ id: "api-telemetry", type: "telemetry", name: "Production telemetry" });
               if (v.id === "governance")
                 useApp
                   .getState()
@@ -75,6 +80,22 @@ export function Sidebar() {
         ))}
       </nav>
       <div className="min-w-0 flex-1">
+        {view === "telemetry" && (
+          <div className="p-3 space-y-3 text-xs">
+            <h2 className="font-medium">Production telemetry</h2>
+            <p>Discover endpoints and sampled latency/error metrics from opt-in service traces.</p>
+            <button
+              className="underline text-primary"
+              onClick={() =>
+                useApp
+                  .getState()
+                  .openTab({ id: "api-telemetry", type: "telemetry", name: "Production telemetry" })
+              }
+            >
+              Open telemetry
+            </button>
+          </div>
+        )}
         {view === "governance" && (
           <div className="p-3 space-y-3 text-xs">
             <h2 className="font-medium">API governance</h2>

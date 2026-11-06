@@ -57,6 +57,27 @@ beforeAll(async () => {
       createdAt: 1,
     })
     .run();
+  ids.telemetrySource = "access-telemetry";
+  getDb()
+    .insert(schema.telemetrySources)
+    .values({
+      id: ids.telemetrySource,
+      workspaceId,
+      config: {
+        name: "Access",
+        serviceName: "test",
+        environment: "production",
+        enabled: false,
+        sampleRate: 1,
+        retentionDays: 7,
+        maxObservations: 2000,
+        staticSegments: [],
+      },
+      tokenHash: "",
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    .run();
   ids.qualityScorecard = "access-quality";
   getDb()
     .insert(schema.qualityScorecards)

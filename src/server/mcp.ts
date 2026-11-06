@@ -1,3 +1,5 @@
+import * as telemetry from "./telemetry";
+import { telemetryQuery } from "@/core/telemetry/model";
 import * as scorecards from "./scorecards";
 import * as discussions from "./comments";
 import { COMMENT_TARGETS, commentBodySchema } from "@/core/comments/model";
@@ -441,6 +443,139 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
     async (input) => {
       try {
         return okJson(discussions.setResolved(input.commentId, input.resolved));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "list_telemetry_sources",
+    {
+      description: "List opt-in telemetry sources without credentials.",
+      inputSchema: { workspaceId: z.string().min(1) },
+    },
+    async (input) => {
+      try {
+        return okJson(telemetry.listTelemetrySources(input.workspaceId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "get_telemetry_source",
+    {
+      description: "Read telemetry source configuration and last intake counts.",
+      inputSchema: { sourceId: z.string().min(1) },
+    },
+    async (input) => {
+      try {
+        return okJson(telemetry.getTelemetrySource(input.sourceId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "create_telemetry_source",
+    {
+      description: "Create a source; returns the ingestion credential once. Enable explicitly in config.",
+      inputSchema: telemetry.createTelemetryInput.shape,
+    },
+    async (input) => {
+      try {
+        return okJson(telemetry.createTelemetrySource(input));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "save_telemetry_source",
+    {
+      description: "Update source configuration with an optimistic revision guard.",
+      inputSchema: { sourceId: z.string().min(1), ...telemetry.saveTelemetryInput.shape },
+    },
+    async (input) => {
+      try {
+        return okJson(
+          telemetry.saveTelemetrySource(input.sourceId, {
+            expectedRevision: input.expectedRevision,
+            config: input.config,
+          }),
+        );
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "delete_telemetry_source",
+    {
+      description: "Delete a telemetry source and its retained observations.",
+      inputSchema: { sourceId: z.string().min(1) },
+    },
+    async (input) => {
+      try {
+        return okJson(telemetry.deleteTelemetrySource(input.sourceId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "rotate_telemetry_source",
+    {
+      description: "Invalidate the old ingestion credential and return a new one once.",
+      inputSchema: { sourceId: z.string().min(1), ...telemetry.rotateTelemetryInput.shape },
+    },
+    async (input) => {
+      try {
+        return okJson(
+          telemetry.rotateTelemetrySource(input.sourceId, { expectedRevision: input.expectedRevision }),
+        );
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "purge_telemetry_source",
+    {
+      description: "Delete all observations retained for a source.",
+      inputSchema: { sourceId: z.string().min(1) },
+    },
+    async (input) => {
+      try {
+        return okJson(telemetry.purgeTelemetrySource(input.sourceId));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "get_telemetry_metrics",
+    {
+      description: "Read endpoint inventory and sampled latency/error distributions for a bounded window.",
+      inputSchema: { workspaceId: z.string().min(1), query: telemetryQuery },
+    },
+    async (input) => {
+      try {
+        return okJson(telemetry.getTelemetryMetrics(input.workspaceId, input.query));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "get_telemetry_endpoint",
+    {
+      description: "Read one inferred endpoint and redacted failed span metadata.",
+      inputSchema: { workspaceId: z.string().min(1), endpointId: z.string(), query: telemetryQuery },
+    },
+    async (input) => {
+      try {
+        return okJson(telemetry.getTelemetryEndpoint(input.workspaceId, input.endpointId, input.query));
       } catch (error) {
         return errResult(error);
       }
