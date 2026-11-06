@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { SpecificationGovernancePanel } from "@/components/governance/GovernancePanel";
 import { SpecificationCollectionsPanel } from "./SpecificationSyncPanel";
 import { CodeEditor } from "@/components/editor/CodeEditor";
+import { CommentsPanel } from "@/components/comments/CommentsPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -582,6 +583,12 @@ function WorkspaceSpecifications({ workspaceId }: { workspaceId: string }) {
                   </li>
                 ))}
               </ul>
+            </section>
+          )}
+          {doc && (
+            <section className="rounded border p-3 space-y-2" aria-label="Specification discussion">
+              <h2 className="font-semibold">Comments</h2>
+              <CommentsPanel key={doc.id} kind="specification" targetId={doc.id} />
             </section>
           )}
         </main>

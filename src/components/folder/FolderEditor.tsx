@@ -10,6 +10,7 @@ import type { FolderDef, Variable } from "@/core/types";
 import { api } from "@/lib/api";
 import { useApp } from "@/stores/app";
 import { Button } from "@/components/ui/button";
+import { CommentsPanel } from "@/components/comments/CommentsPanel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { AuthEditor } from "@/components/request/AuthEditor";
@@ -129,6 +130,9 @@ export function FolderEditor({ folderId }: { folderId: string }) {
               Variables
             </TabsTrigger>
           )}
+          <TabsTrigger value="comments" className="text-xs">
+            Comments
+          </TabsTrigger>
         </TabsList>
         <div className="min-h-0 flex-1 overflow-auto px-4 py-3">
           {isCollection && (
@@ -159,6 +163,9 @@ export function FolderEditor({ folderId }: { folderId: string }) {
               <CatalogPublisher key={folderId} folderId={folderId} name={data.name} />
             </TabsContent>
           )}
+          <TabsContent value="comments" className="mt-0">
+            <CommentsPanel key={folderId} kind="folder" targetId={folderId} />
+          </TabsContent>
           <TabsContent value="overview" className="mt-0 max-w-3xl">
             <Textarea
               className="min-h-40"

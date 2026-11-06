@@ -119,6 +119,10 @@ describe("contract and access policy", () => {
       "/api/requests/[id]/contract-validation",
       "/api/folders/[id]/documentation",
       "/api/folders/[id]/catalog",
+      "/api/requests/[id]/comments",
+      "/api/folders/[id]/comments",
+      "/api/comments",
+      "/api/notifications",
     ];
     const documented = new Set(OPERATIONS.map(policyKey));
     const unclassified = Object.keys(REST_POLICIES).filter((key) => {

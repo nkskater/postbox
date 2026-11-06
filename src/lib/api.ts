@@ -7,6 +7,8 @@ import type { listMonitors, getMonitor, monitorInput, monitorPatch } from "@/ser
 import type { getFolderCatalog, searchCatalog, getCatalogEntry, publishCatalog } from "@/server/catalog";
 import type { CatalogPublishInput, CatalogMetadataInput, CatalogSearchInput } from "@/core/catalog/model";
 import type * as graphServer from "@/server/graph";
+import type * as discussions from "@/server/comments";
+import type { CommentTarget } from "@/core/comments/model";
 import type { getDocumentation, publishDocumentation } from "@/server/documentation";
 import type { PublicationInput } from "@/core/documentation/model";
 /**
@@ -95,6 +97,11 @@ async function call<T>(method: string, url: string, body?: unknown, signal?: Abo
 const q = (params: Record<string, string | null | undefined>) =>
   new URLSearchParams(Object.entries(params).filter(([, v]) => v != null) as [string, string][]).toString();
 
+const COMMENT_ROUTES: Record<CommentTarget, string> = {
+  request: "requests",
+  folder: "folders",
+  specification: "specifications",
+};
 export const api = {
   scorecards: {
     list: (workspaceId: string) =>
@@ -272,6 +279,37 @@ export const api = {
     delete: (id: string) => call<{ ok: boolean }>("DELETE", `/api/monitors/${id}`),
     retry: (id: string, deliveryId: string) =>
       call<{ ok: boolean }>("POST", `/api/monitors/${id}/retry-email`, { deliveryId }),
+  },
+  comments: {
+    list: (kind: CommentTarget, id: string) =>
+      call<ReturnType<typeof discussions.listComments>>("GET", `/api/${COMMENT_ROUTES[kind]}/${id}/comments`),
+    add: (kind: CommentTarget, id: string, body: string, parentId: string | null = null) =>
+      call<ReturnType<typeof discussions.createComment>>(
+        "POST",
+        `/api/${COMMENT_ROUTES[kind]}/${id}/comments`,
+        {
+          body,
+          parentId,
+        },
+      ),
+    edit: (id: string, body: string) =>
+      call<ReturnType<typeof discussions.editComment>>("PATCH", `/api/comments/${id}`, { body }),
+    resolve: (id: string, resolved: boolean) =>
+      call<ReturnType<typeof discussions.setResolved>>("PUT", `/api/comments/${id}/resolution`, { resolved }),
+    remove: (id: string) => call<{ deleted: number }>("DELETE", `/api/comments/${id}`),
+    counts: (workspaceId: string) =>
+      call<Record<string, number>>("GET", `/api/comments/counts?${q({ workspaceId })}`),
+    mentionable: (workspaceId: string) =>
+      call<ReturnType<typeof discussions.listMentionable>>(
+        "GET",
+        `/api/comments/mentionable?${q({ workspaceId })}`,
+      ),
+    notifications: (unread = false) =>
+      call<ReturnType<typeof discussions.listNotifications>>(
+        "GET",
+        `/api/notifications${unread ? "?unread=1" : ""}`,
+      ),
+    markRead: (ids?: string[]) => call<{ updated: number }>("POST", "/api/notifications/read", { ids }),
   },
   graph: {
     overview: (workspaceId: string) =>

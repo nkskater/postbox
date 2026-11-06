@@ -671,3 +671,4 @@ Share pinned helpers across collections using **Packages** and `pm.require`. See
 - [API governance and CI checks](docs/governance.md): versioned declarative policies, source diagnostics, exclusions and deterministic CLI reports.
 
 - [API quality scorecards](docs/scorecards.md): weighted catalog, monitoring and governance quality with freshness, coverage and historical reports.
+- [Comments and review discussions](docs/comments.md): threaded comments, @mentions, resolve/reopen and notifications on requests, collections and specifications.

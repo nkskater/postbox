@@ -1402,3 +1402,53 @@ export const qualityReports = sqliteTable(
   },
   (t) => [index("quality_reports_card_time").on(t.scorecardId, t.createdAt)],
 );
+
+/**
+ * Discussions on API elements (a request, a folder or collection, a specification). Replies point at
+ * a top-level comment through parentId; the element is polymorphic so deleting it is cleaned up in code.
+ */
+export const comments = sqliteTable(
+  "comments",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    targetKind: text("target_kind").$type<import("@/core/comments/model").CommentTarget>().notNull(),
+    targetId: text("target_id").notNull(),
+    parentId: text("parent_id"),
+    body: text("body").notNull(),
+    authorId: text("author_id").references(() => users.id, { onDelete: "set null" }),
+    /** Kept so a thread still reads correctly after the account is removed. */
+    authorName: text("author_name").notNull(),
+    mentions: text("mentions", { mode: "json" }).$type<string[]>().notNull(),
+    /** The element's revision (or last-change time) when the comment was written. */
+    revision: text("revision").notNull().default(""),
+    resolvedAt: integer("resolved_at"),
+    resolvedBy: text("resolved_by"),
+    editedAt: integer("edited_at"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    index("comments_target_idx").on(t.targetKind, t.targetId, t.createdAt),
+    index("comments_parent_idx").on(t.parentId),
+    index("comments_workspace_idx").on(t.workspaceId),
+  ],
+);
+/** One row per person told about a comment (a mention, or a reply to their comment). */
+export const commentNotifications = sqliteTable(
+  "comment_notifications",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    commentId: text("comment_id")
+      .notNull()
+      .references(() => comments.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<"mention" | "reply">().notNull(),
+    readAt: integer("read_at"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("comment_notifications_user_idx").on(t.userId, t.readAt, t.createdAt)],
+);
