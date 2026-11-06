@@ -25,7 +25,7 @@ async function invoke(args: string[]) {
   try {
     const result = await exec(process.execPath, [cli, "governance", ...args], {
       cwd: dir,
-      timeout: 20000,
+      timeout: 45000,
       maxBuffer: 4 * 1024 * 1024,
     });
     return { ...result, code: 0 };

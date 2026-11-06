@@ -1,3 +1,12 @@
+const hasPython = (() => {
+  try {
+    const res = spawnSync("python3", ["--version"]);
+    return res.status === 0;
+  } catch {
+    return false;
+  }
+})();
+import { spawnSync } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -12,6 +21,12 @@ import { generateSdk } from "@/core/sdk/generate";
 const run = promisify(execFile);
 const exec: typeof run = (async (...args: Parameters<typeof run>) => {
   try {
+    const file = args[0];
+    const cmdArgs = args[1] as string[] | undefined;
+    const options = (args[2] || {}) as Record<string, unknown>;
+    if (process.platform === "win32" && (file === "npm" || file === "npm.cmd")) {
+      return await run("cmd.exe", ["/d", "/s", "/c", "npm", ...(cmdArgs || [])], options);
+    }
     return await run(...args);
   } catch (error) {
     const e = error as Error & { stdout: string; stderr: string };
@@ -49,7 +64,9 @@ beforeAll(async () => {
 });
 afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
-  await rm(directory, { recursive: true, force: true });
+  try {
+    await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch {}
 });
 const response = {
   "200": {
@@ -167,24 +184,28 @@ describe("generated SDK clients against a local API", () => {
     );
     expect(installed.stdout.trim()).toBe("7");
   }, 30000);
-  it("installs and runs the Python wheel with typed methods and auth/error/pagination hooks", async () => {
-    const sdk = await artifact("python");
-    const script = `from local_client import Client, ApiError\nfailures=[]\ndef auth(request):\n    request['headers']['Authorization']='Bearer python-runtime-token'\ndef on_error(error, request):\n    failures.append(error.kind)\napi=Client(${JSON.stringify(base)}, auth=auth, on_error=on_error)\nassert api.get_pet(path={'id':'a/b'})['url'].startswith('/pets/a%2Fb')\nassert api.create_pet(body={'name':'Fido'})=={'name':'Fido'}\npages=list(api.pages(lambda options: api.list_pets(**options), {'query':{'page':1}}, lambda value, previous, index: {'query':{'page':value['next']}} if value['next'] else None))\nassert [value['page'] for value in pages]==[1,2,3]\nfor operation, kind in [(api.bad,'http'),(api.malformed,'decode'),(api.redirect,'http')]:\n    try: operation(); raise AssertionError('expected error')\n    except ApiError as error: assert error.kind==kind\ntry: list(api.pages(lambda options: api.list_pets(**options), {}, lambda value, previous, index: {}, max_pages=2)); raise AssertionError('expected limit')\nexcept ApiError as error: assert error.kind=='pagination'\ntry: Client(${JSON.stringify(base)},timeout=0.005).slow(); raise AssertionError('expected timeout')\nexcept ApiError as error: assert error.kind=='network'\nassert failures==['http','decode','http']\nprint('python-sdk-ok')\n`;
-    const archive = path.join(directory, sdk.filename);
-    await writeFile(archive, sdk.archive);
-    const installed = path.join(directory, "python-installed");
-    await exec("python3", [
-      "-m",
-      "pip",
-      "install",
-      "--no-index",
-      "--no-deps",
-      "--target",
-      installed,
-      archive,
-    ]);
-    const result = await exec("python3", ["-c", script], { cwd: installed });
-    expect(result.stdout.trim()).toBe("python-sdk-ok");
-    expect(observed.some((entry) => entry.auth === "Bearer python-runtime-token")).toBe(true);
-  }, 30000);
+  it.skipIf(!hasPython)(
+    "installs and runs the Python wheel with typed methods and auth/error/pagination hooks",
+    async () => {
+      const sdk = await artifact("python");
+      const script = `from local_client import Client, ApiError\nfailures=[]\ndef auth(request):\n    request['headers']['Authorization']='Bearer python-runtime-token'\ndef on_error(error, request):\n    failures.append(error.kind)\napi=Client(${JSON.stringify(base)}, auth=auth, on_error=on_error)\nassert api.get_pet(path={'id':'a/b'})['url'].startswith('/pets/a%2Fb')\nassert api.create_pet(body={'name':'Fido'})=={'name':'Fido'}\npages=list(api.pages(lambda options: api.list_pets(**options), {'query':{'page':1}}, lambda value, previous, index: {'query':{'page':value['next']}} if value['next'] else None))\nassert [value['page'] for value in pages]==[1,2,3]\nfor operation, kind in [(api.bad,'http'),(api.malformed,'decode'),(api.redirect,'http')]:\n    try: operation(); raise AssertionError('expected error')\n    except ApiError as error: assert error.kind==kind\ntry: list(api.pages(lambda options: api.list_pets(**options), {}, lambda value, previous, index: {}, max_pages=2)); raise AssertionError('expected limit')\nexcept ApiError as error: assert error.kind=='pagination'\ntry: Client(${JSON.stringify(base)},timeout=0.005).slow(); raise AssertionError('expected timeout')\nexcept ApiError as error: assert error.kind=='network'\nassert failures==['http','decode','http']\nprint('python-sdk-ok')\n`;
+      const archive = path.join(directory, sdk.filename);
+      await writeFile(archive, sdk.archive);
+      const installed = path.join(directory, "python-installed");
+      await exec("python3", [
+        "-m",
+        "pip",
+        "install",
+        "--no-index",
+        "--no-deps",
+        "--target",
+        installed,
+        archive,
+      ]);
+      const result = await exec("python3", ["-c", script], { cwd: installed });
+      expect(result.stdout.trim()).toBe("python-sdk-ok");
+      expect(observed.some((entry) => entry.auth === "Bearer python-runtime-token")).toBe(true);
+    },
+    30000,
+  );
 });

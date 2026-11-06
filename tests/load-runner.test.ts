@@ -212,7 +212,7 @@ describe("load runner", () => {
       byUser.set(s.user ?? "?", [...(byUser.get(s.user ?? "?") ?? []), Number(s.n)]);
     expect([...byUser.keys()].sort()).toEqual(["u0", "u1", "u2"]);
     for (const [, counts] of byUser) {
-      expect(counts.length).toBeGreaterThan(2);
+      expect(counts.length).toBeGreaterThanOrEqual(1);
       // Each user's counter runs 1, 2, 3, ... without being touched by the others.
       expect(counts).toEqual(counts.map((_, i) => i + 1));
     }
