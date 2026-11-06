@@ -18,6 +18,8 @@ Postbox is worked on by several coding agents (Claude, Codex, Antigravity). Jira
    ```bash
    npm test && npm run typecheck && npm run lint && npm run build
    ```
+   Changes to UI behaviour should also pass `npm run test:e2e` (browser tests in `e2e/`, run against the build) and,
+   when fixing a UI bug, add a browser test that fails without the fix.
 6. **`Done`** only after the PR is merged into `main`. New work you discover becomes a new `To Do` story under LAB-25.
 
 ## Repository rules

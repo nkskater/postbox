@@ -25,6 +25,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "db:generate": "drizzle-kit generate",
     "screenshots": "node scripts/screenshots.mjs",
     "build:sandbox": "node scripts/build-sandbox.mjs",
