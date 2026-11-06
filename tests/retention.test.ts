@@ -217,3 +217,44 @@ describe("credential and upload retention", () => {
     expect(example?.body).toBe("******** and ********");
   });
 });
+
+describe("variable and vault references survive redaction (LAB-177)", () => {
+  it("keeps {{vault:..}} and {{var}} values in sensitive-named headers, params and form fields", () => {
+    const draft = newDraft({
+      url: "https://example.test/oauth/token?api_key={{vault:key}}",
+      headers: [
+        { key: "Authorization", value: "Bearer {{vault:tok}}", enabled: true },
+        { key: "X-Api-Key", value: "{{apiKey}}", enabled: true },
+        { key: "Cookie", value: "real-session-cookie", enabled: true },
+      ],
+      body: {
+        mode: "urlencoded",
+        urlencoded: [
+          { key: "username", value: "{{vault:ma_user}}", enabled: true },
+          { key: "password", value: "{{vault:ma_pass}}", enabled: true },
+        ],
+      } as never,
+    });
+    const safe = sanitizeRequestDraftForBrowser(draft);
+    expect(safe.headers.map((h) => h.value)).toEqual(["Bearer {{vault:tok}}", "{{apiKey}}", "[REDACTED]"]);
+    expect(safe.url).toContain("api_key={{vault:key}}");
+    expect(JSON.stringify(safe.body)).toContain("{{vault:ma_pass}}");
+    expect(JSON.stringify(safe.body)).not.toContain("REDACTED");
+  });
+
+  it("still redacts literal secrets, including ones that merely contain a reference", () => {
+    expect(redactSensitiveFields({ key: "password", value: "hunter2" })).toEqual({
+      key: "password",
+      value: "[REDACTED]",
+    });
+    expect(redactSensitiveFields({ key: "password", value: "hunter2-{{suffix}}" })).toEqual({
+      key: "password",
+      value: "[REDACTED]",
+    });
+    expect(redactSensitiveFields("a=1&password=hunter2")).toBe("a=1&password=[REDACTED]");
+    expect(redactSensitiveFields("a=1&password={{vault:p}}")).toBe("a=1&password={{vault:p}}");
+    expect(redactSensitiveFields('{"password":"{{vault:p}}","token":"abc"}')).toBe(
+      '{"password":"{{vault:p}}","token":"[REDACTED]"}',
+    );
+  });
+});
