@@ -61,25 +61,26 @@ function MainArea() {
       </div>
     );
   }
-  // Runner tabs stay mounted while open (hidden when another tab is active) so their
-  // data table, excluded requests, options and any run in progress survive tab switches.
-  const runners = tabs.filter((t): t is Extract<typeof t, { type: "runner" }> => t.type === "runner");
+  // Every tab except a request stays mounted while open (hidden when another tab is active), so unsaved
+  // edits, runner data tables, selections and runs in progress survive tab switches. Request tabs keep
+  // their draft and result in the store instead, so only the active one is rendered.
+  const kept = tabs.filter((t): t is Exclude<typeof t, { type: "request" }> => t.type !== "request");
   return (
     <>
-      {runners.map((r) => (
-        <div key={r.id} className={r.id === tab.id ? "h-full" : "hidden"}>
-          <RunnerTabs folderId={r.folderId} />
+      {kept.map((t) => (
+        <div key={t.id} className={t.id === tab.id ? "h-full" : "hidden"}>
+          {renderTab(t)}
         </div>
       ))}
-      {tab.type !== "runner" && renderTab(tab)}
+      {tab.type === "request" && <RequestEditor key={tab.id} tab={tab} />}
     </>
   );
 }
 
-function renderTab(tab: Exclude<ReturnType<typeof useApp.getState>["tabs"][number], { type: "runner" }>) {
+function renderTab(tab: Exclude<ReturnType<typeof useApp.getState>["tabs"][number], { type: "request" }>) {
   switch (tab.type) {
-    case "request":
-      return <RequestEditor key={tab.id} tab={tab} />;
+    case "runner":
+      return <RunnerTabs folderId={tab.folderId} />;
     case "folder":
       return <FolderEditor key={tab.folderId} folderId={tab.folderId} />;
     case "environment":
