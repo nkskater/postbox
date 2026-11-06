@@ -31,12 +31,14 @@ npm-debug.log*
 
 # OS / editor
 .DS_Store
+Thumbs.db
 .vscode/
 .idea/
 
 # assistant tooling (kept local)
 CLAUDE.md
 .claude/
+.antigravity/
 
 
 # sandbox browser bundle, rebuilt by npm scripts

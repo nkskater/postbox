@@ -44,7 +44,7 @@ execute on the machine running Postbox, so VPN-connected Windows users can reach
   urlencoded, binary, GraphQL); auth (Bearer, Basic, API key, Digest, NTLMv2, OAuth 1.0 (HMAC/RSA/PLAINTEXT in header, query or body),
   OAuth 2.0 client-credentials/password/authorization code with PKCE (browser sign-in)/manual, Hawk, Akamai EdgeGrid,
   AWS Signature V4 with session tokens, header or presigned-URL mode, and re-signing on same-origin redirects,
-  Atlassian ASAP JWTs signed with RS/PS/ES keys);
+  Atlassian ASAP JWTs signed with RS/PS/ES keys; see [Authentication Guide](docs/authentication.md));
   per-request settings (timeout, redirects, SSL verify, cookie jar). Multi-tab editing with unsaved-draft persistence.
 - **WebSockets**: enter a `ws://` or `wss://` URL and **Connect** to open a live session with the request's headers and
   auth. Send text or base64 binary frames, see a timestamped log of both directions, then disconnect or reconnect.
@@ -146,7 +146,7 @@ workflow also attaches the zip to tagged GitHub releases.
 1. Press **Alt+T** (or the **+** next to your tabs) to open a new request.
 2. Pick a method and type a URL. Query parameters typed in the URL appear in the **Params** tab, and edits there update the URL.
 3. Add **Headers**, an **Authorization** method and a **Body** if you need them. For JSON, choose **Body → raw → JSON**;
-   **Beautify** formats it.
+   **Beautify** formats it. See the [Authentication Guide](docs/authentication.md) for details on supported schemes and inheritance.
 4. Press **Send** (or **Ctrl+Enter**). Save the request into a collection with **Ctrl+S**.
 
 ![A POST request with a JSON body that uses dynamic variables](docs/screenshots/request-body.png)
@@ -169,7 +169,7 @@ between folders.
 
 **Edit collection** (or **Edit folder**) opens settings that everything inside inherits:
 
-- **Authorization**: requests set to *Inherit auth from parent* use the nearest folder's or the collection's auth.
+- **Authorization**: requests set to _Inherit auth from parent_ use the nearest folder's or the collection's auth.
 - **Headers**: added to every request inside, unless the request sets a header with the same name.
 - **Pre-request / Post-response scripts**: run before or after every request inside, outermost first.
 - **Variables** (collections only): collection variables.
@@ -186,13 +186,13 @@ Type `{{` to get autocomplete.
 
 Variables come from these scopes, highest priority first:
 
-| Scope | Where to edit it |
-|---|---|
-| Local | `pm.variables.set()` in scripts (lasts one request or one runner iteration) |
-| Iteration data | A row of the runner's CSV/JSON/XLSX file |
-| Environment | **Environments** in the sidebar; choose the active one at the top right |
-| Collection | **Edit collection → Variables** |
-| Global | **Environments → Globals** |
+| Scope          | Where to edit it                                                            |
+| -------------- | --------------------------------------------------------------------------- |
+| Local          | `pm.variables.set()` in scripts (lasts one request or one runner iteration) |
+| Iteration data | A row of the runner's CSV/JSON/XLSX file                                    |
+| Environment    | **Environments** in the sidebar; choose the active one at the top right     |
+| Collection     | **Edit collection → Variables**                                             |
+| Global         | **Environments → Globals**                                                  |
 
 Mark sensitive values as **secret**. They are masked in the UI (use the eye button to reveal one) and
 redacted from logs, history and the **Request** tab. The 👁 button in the top bar shows every variable in scope.
@@ -291,18 +291,18 @@ PowerShell, with variables resolved or left as `{{placeholders}}`.
 
 ![Command palette](docs/screenshots/command-palette.png)
 
-| Shortcut | Action |
-|---|---|
-| Ctrl/⌘ + Enter | Send request |
-| Ctrl/⌘ + S | Save request / folder / environment |
-| Ctrl/⌘ + K | Command palette |
-| Ctrl/⌘ + , | Settings |
-| Ctrl/⌘ + B | Toggle sidebar |
-| Ctrl/⌘ + ` | Toggle console |
-| Alt + T / Alt + W | New tab / close tab |
-| Alt + 1…9 | Jump to tab |
-| Ctrl/⌘ + F | Search inside an editor or response |
-| ? | Show all shortcuts |
+| Shortcut          | Action                              |
+| ----------------- | ----------------------------------- |
+| Ctrl/⌘ + Enter    | Send request                        |
+| Ctrl/⌘ + S        | Save request / folder / environment |
+| Ctrl/⌘ + K        | Command palette                     |
+| Ctrl/⌘ + ,        | Settings                            |
+| Ctrl/⌘ + B        | Toggle sidebar                      |
+| Ctrl/⌘ + `        | Toggle console                      |
+| Alt + T / Alt + W | New tab / close tab                 |
+| Alt + 1…9         | Jump to tab                         |
+| Ctrl/⌘ + F        | Search inside an editor or response |
+| ?                 | Show all shortcuts                  |
 
 These are the defaults. Change them under **Settings → Keyboard shortcuts**; see [docs/keyboard-shortcuts.md](docs/keyboard-shortcuts.md).
 
@@ -378,27 +378,27 @@ Chromium binary (otherwise run `npx playwright-core install chromium` once).
 
 ## Configuration
 
-| Variable | Default | Description |
-|---|---|---|
-| `DATABASE_PATH` | `/data/postbox.db` (prod), `./data/postbox.db` (dev) | SQLite file |
-| `PORT` | `3000` | HTTP port |
-| `POSTBOX_PASSWORD` | _(none)_ | Enables login with this password |
-| `POSTBOX_TOKEN` | _(none)_ | Enables `Authorization: Bearer` access (API, MCP, automation) |
-| `POSTBOX_SESSION_SECRET` | _(generated)_ | Optional explicit key for signing session cookies (otherwise derived from the env credentials, or generated and stored for accounts) |
-| `POSTBOX_SESSION_DAYS` | `30` | Session lifetime |
-| `PROXY_ALLOW_HOSTS` | _(all)_ | Comma list of hosts, `*.wildcards` or CIDRs requests may target |
-| `PROXY_DENY_HOSTS` | _(none)_ | Comma list that is always blocked (wins over allow) |
-| `PROXY_ALLOW_SOCKETS` | _(none)_ | Unix sockets / named pipes requests may connect to; everything else is denied |
-| `SCRIPT_TIMEOUT_MS` | _(setting)_ | Pins the script time limit (100–60000 ms; otherwise set in Settings) |
-| `SCRIPT_MEMORY_MB` | _(setting)_ | Pins the script memory limit (8–512 MB; otherwise set in Settings) |
-| `RUNS_MAX_ACTIVE` | _(setting)_ | Pins how many collection runs execute at once (1–32, default 4) |
-| `RUNS_MAX_QUEUED` | _(setting)_ | Pins how many runs may wait for a slot (0–500, default 20); further runs get HTTP 429 |
-| `RESPONSE_MAX_BYTES` | `52428800` | Encoded response bytes are truncated at this limit; decompression exceeding the limit at any stage is rejected |
-| `API_BODY_LIMIT_MB` | `25` | Largest JSON body the REST API and `/api/mcp` accept (file uploads travel inline as base64); larger bodies get `413` |
-| `MCP_ALLOWED_ORIGINS` | _(none)_ | Extra browser origins allowed to call `/api/mcp` (cross-origin browser requests are rejected otherwise). Also under Settings → MCP & integrations; the variable pins the setting |
-| `MCP_ENABLED` | `true` | Serve `/api/mcp`; `false` makes it refuse every request. Also a setting |
-| `MCP_READ_ONLY` | `false` | Hide and block MCP tools that change data. Also a setting |
-| `HISTORY_LIMIT` | `500` | History entries kept per workspace |
+| Variable                 | Default                                              | Description                                                                                                                                                                      |
+| ------------------------ | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_PATH`          | `/data/postbox.db` (prod), `./data/postbox.db` (dev) | SQLite file                                                                                                                                                                      |
+| `PORT`                   | `3000`                                               | HTTP port                                                                                                                                                                        |
+| `POSTBOX_PASSWORD`       | _(none)_                                             | Enables login with this password                                                                                                                                                 |
+| `POSTBOX_TOKEN`          | _(none)_                                             | Enables `Authorization: Bearer` access (API, MCP, automation)                                                                                                                    |
+| `POSTBOX_SESSION_SECRET` | _(generated)_                                        | Optional explicit key for signing session cookies (otherwise derived from the env credentials, or generated and stored for accounts)                                             |
+| `POSTBOX_SESSION_DAYS`   | `30`                                                 | Session lifetime                                                                                                                                                                 |
+| `PROXY_ALLOW_HOSTS`      | _(all)_                                              | Comma list of hosts, `*.wildcards` or CIDRs requests may target                                                                                                                  |
+| `PROXY_DENY_HOSTS`       | _(none)_                                             | Comma list that is always blocked (wins over allow)                                                                                                                              |
+| `PROXY_ALLOW_SOCKETS`    | _(none)_                                             | Unix sockets / named pipes requests may connect to; everything else is denied                                                                                                    |
+| `SCRIPT_TIMEOUT_MS`      | _(setting)_                                          | Pins the script time limit (100–60000 ms; otherwise set in Settings)                                                                                                             |
+| `SCRIPT_MEMORY_MB`       | _(setting)_                                          | Pins the script memory limit (8–512 MB; otherwise set in Settings)                                                                                                               |
+| `RUNS_MAX_ACTIVE`        | _(setting)_                                          | Pins how many collection runs execute at once (1–32, default 4)                                                                                                                  |
+| `RUNS_MAX_QUEUED`        | _(setting)_                                          | Pins how many runs may wait for a slot (0–500, default 20); further runs get HTTP 429                                                                                            |
+| `RESPONSE_MAX_BYTES`     | `52428800`                                           | Encoded response bytes are truncated at this limit; decompression exceeding the limit at any stage is rejected                                                                   |
+| `API_BODY_LIMIT_MB`      | `25`                                                 | Largest JSON body the REST API and `/api/mcp` accept (file uploads travel inline as base64); larger bodies get `413`                                                             |
+| `MCP_ALLOWED_ORIGINS`    | _(none)_                                             | Extra browser origins allowed to call `/api/mcp` (cross-origin browser requests are rejected otherwise). Also under Settings → MCP & integrations; the variable pins the setting |
+| `MCP_ENABLED`            | `true`                                               | Serve `/api/mcp`; `false` makes it refuse every request. Also a setting                                                                                                          |
+| `MCP_READ_ONLY`          | `false`                                              | Hide and block MCP tools that change data. Also a setting                                                                                                                        |
+| `HISTORY_LIMIT`          | `500`                                                | History entries kept per workspace                                                                                                                                               |
 
 ### Outbound host policy and redirects
 
@@ -470,11 +470,11 @@ and the host policy for requests carrying sensitive bodies.
 Docker Compose limits the entire running app, including the web server, request execution,
 script sandboxes and collection runs. Set these Compose variables in `.env`:
 
-| Variable | Default | Description |
-|---|---|---|
-| `POSTBOX_MEMORY_LIMIT` | `1g` | Total container memory, using Docker byte units such as `512m` or `2g` |
-| `POSTBOX_CPU_LIMIT` | `2.0` | CPU quota in cores; fractional values such as `0.5` are supported |
-| `POSTBOX_PIDS_LIMIT` | `256` | Maximum total processes and threads in the container |
+| Variable               | Default | Description                                                            |
+| ---------------------- | ------- | ---------------------------------------------------------------------- |
+| `POSTBOX_MEMORY_LIMIT` | `1g`    | Total container memory, using Docker byte units such as `512m` or `2g` |
+| `POSTBOX_CPU_LIMIT`    | `2.0`   | CPU quota in cores; fractional values such as `0.5` are supported      |
+| `POSTBOX_PIDS_LIMIT`   | `256`   | Maximum total processes and threads in the container                   |
 
 These [Compose service limits](https://docs.docker.com/reference/compose-file/services/)
 apply at runtime, including `docker compose run postbox postbox-cli ...`; they do not limit image builds
@@ -579,6 +579,7 @@ queued events exceed 1 MiB is disconnected so a slow connection cannot accumulat
 unbounded server memory. Reopen the run from history to inspect its persisted results.
 
 **Caddy**
+
 ```
 postbox.example.com {
     reverse_proxy postbox:3000 {
@@ -588,6 +589,7 @@ postbox.example.com {
 ```
 
 **nginx**
+
 ```nginx
 location / {
     proxy_pass http://127.0.0.1:3000;
@@ -611,6 +613,7 @@ location / {
 Postbox exposes a Streamable HTTP MCP endpoint at `/api/mcp` backed by the same server-side execution engine, collection runner, variable resolver, and SQLite database as the web UI.
 
 **Claude Code**
+
 ```bash
 claude mcp add --transport http postbox http://localhost:3000/api/mcp
 # with accounts: create a personal token under Profile → API tokens
@@ -620,6 +623,7 @@ claude mcp add --transport http postbox http://localhost:3000/api/mcp --header "
 ```
 
 **Cursor / MCP JSON config**
+
 ```json
 {
   "mcpServers": {
@@ -630,8 +634,8 @@ claude mcp add --transport http postbox http://localhost:3000/api/mcp --header "
 }
 ```
 
-Ask your assistant things like *"list my Postbox collections"*, *"send the Get user request with userId 3"* or
-*"run the JSONPlaceholder Demo collection with this CSV and summarise the failures"*.
+Ask your assistant things like _"list my Postbox collections"_, _"send the Get user request with userId 3"_ or
+_"run the JSONPlaceholder Demo collection with this CSV and summarise the failures"_.
 
 ## Roadmap
 
@@ -674,3 +678,4 @@ Share pinned helpers across collections using **Packages** and `pm.require`. See
 - [Production telemetry](docs/telemetry.md): opt-in OTLP/HTTP JSON traces, inferred endpoints, sampled latency/error metrics and bounded retention.
 - [API quality scorecards](docs/scorecards.md): weighted catalog, monitoring and governance quality with freshness, coverage and historical reports.
 - [Comments and review discussions](docs/comments.md): threaded comments, @mentions, resolve/reopen and notifications on requests, collections and specifications.
+- [Request authentication](docs/authentication.md): inheritance, secrets vault integration, and all supported authentication schemes.
