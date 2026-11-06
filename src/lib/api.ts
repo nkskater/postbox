@@ -1,4 +1,5 @@
 import type * as telemetry from "@/server/telemetry";
+import type * as telemetryRepro from "@/server/telemetry-repro";
 import type { TelemetryConfig, TelemetryQuery } from "@/core/telemetry/model";
 import type * as scorecards from "@/server/scorecards";
 import type * as governance from "@/server/governance";
@@ -147,6 +148,8 @@ export const api = {
             .map(([k, v]) => [k, String(v)]),
         )}`,
       ),
+    repro: (input: Parameters<typeof telemetryRepro.planTelemetryRepro>[0]) =>
+      call<ReturnType<typeof telemetryRepro.planTelemetryRepro>>("POST", "/api/telemetry/repro", input),
   },
   scorecards: {
     list: (workspaceId: string) =>

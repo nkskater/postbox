@@ -1,4 +1,5 @@
 import * as telemetry from "./telemetry";
+import * as telemetryRepro from "./telemetry-repro";
 import { telemetryQuery } from "@/core/telemetry/model";
 import * as scorecards from "./scorecards";
 import * as discussions from "./comments";
@@ -576,6 +577,21 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
     async (input) => {
       try {
         return okJson(telemetry.getTelemetryEndpoint(input.workspaceId, input.endpointId, input.query));
+      } catch (error) {
+        return errResult(error);
+      }
+    },
+  );
+  server.registerTool(
+    "plan_telemetry_repro",
+    {
+      description:
+        "Plan an unsent request draft that reproduces one failed telemetry observation. Maps the discarded production host and redacted route placeholders onto a target base URL/environment and lists missing or redacted fields. Never sends a request.",
+      inputSchema: telemetryRepro.telemetryReproInput.shape,
+    },
+    async (input) => {
+      try {
+        return okJson(telemetryRepro.planTelemetryRepro(input));
       } catch (error) {
         return errResult(error);
       }
