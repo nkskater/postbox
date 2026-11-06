@@ -38,6 +38,24 @@ jobs:
       - name: Check startup memory
         run: npm run check:memory
 
+  browser-tests:
+    name: Browser smoke tests
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npx playwright-core install --with-deps chromium
+      - run: npm run build
+      - run: npm run test:e2e
+
   windows-package:
     name: Build and smoke test portable Windows package
     needs: validate

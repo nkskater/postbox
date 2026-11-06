@@ -358,6 +358,7 @@ The same CLI can manage a running server: `postbox profile add`, then `workspace
 npm install
 npm run dev        # http://localhost:3000, DB at ./data/postbox.db
 npm test           # Vitest suites for the engine, sandbox, runner, converters, repository, settings and MCP
+npm run build && npm run test:e2e   # browser smoke tests (Playwright) against the production build; first run: npx playwright-core install chromium
 npm run lint && npm run typecheck
 npm run db:generate  # after changing src/server/db/schema.ts
 ```
