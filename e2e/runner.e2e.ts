@@ -73,7 +73,10 @@ describe("collection runner", () => {
       mimeType: "text/csv",
       buffer: Buffer.from("n\n1\n2\n3\n"),
     });
-    await page.getByText(/Loaded 3 rows/).first().waitFor();
+    await page
+      .getByText(/Loaded 3 rows/)
+      .first()
+      .waitFor();
     await page.getByRole("button", { name: /^Run RunnerData/ }).click();
     await page.getByText(/Iterations: 3/).waitFor();
     await page.getByText(/Requests: 6/).waitFor();
@@ -89,7 +92,11 @@ describe("collection runner", () => {
     await page.getByText(/Tests passed: 1/).waitFor();
     await page.getByTitle("New request (Alt+T)").click();
     await page.locator("div.h-9.overflow-x-auto > div").last().waitFor();
-    await page.locator("div.h-9.overflow-x-auto > div").filter({ hasText: /RunnerKeep/ }).last().click();
+    await page
+      .locator("div.h-9.overflow-x-auto > div")
+      .filter({ hasText: /RunnerKeep/ })
+      .last()
+      .click();
     await page.getByText(/Tests passed: 1/).waitFor();
     expect(errors).toEqual([]);
     await context.close();
