@@ -50,6 +50,14 @@ describe("switching between tabs keeps their state", () => {
     const { page, context, errors } = await openApp(browser, baseUrl);
     await page.getByRole("button", { name: "Environments", exact: true }).click();
     await page.getByText("TabsEnv", { exact: true }).first().click();
+    // Wait for the editor to finish loading so the server data cannot arrive after the edit.
+    await expect
+      .poll(() =>
+        page
+          .locator("input")
+          .evaluateAll((els) => els.some((e) => (e as HTMLInputElement).value === "TabsEnv")),
+      )
+      .toBe(true);
     const add = page.getByPlaceholder("Add new variable");
     await add.fill("draft_var");
     await page.getByTitle("New request (Alt+T)").click();
