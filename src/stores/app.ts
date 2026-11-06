@@ -232,6 +232,8 @@ interface AppState {
   /** Close a tab, asking for confirmation first if it has unsaved changes (per settings). */
   requestCloseTab(id: string): void;
   closeOtherTabs(id: string): void;
+  /** Move a tab so it ends up at `toIndex` in the tab bar (clamped). The active tab does not change. */
+  moveTab(id: string, toIndex: number): void;
   setActiveTab(id: string): void;
   updateDraft(tabId: string, patch: Partial<RequestDraft>): void;
   changeBodyMode(tabId: string, initialBody: BodyConfig): void;
@@ -526,6 +528,19 @@ export const useApp = create<AppState>()(
         for (const tab of get().tabs) if (tab.id !== id) abortTab(tab.id);
         set((s) => ({ tabs: s.tabs.filter((t) => t.id === id), activeTabId: id }));
         void get().refreshVariables();
+      },
+
+      moveTab(id, toIndex) {
+        set((s) => {
+          const from = s.tabs.findIndex((t) => t.id === id);
+          if (from < 0) return s;
+          const to = Math.max(0, Math.min(s.tabs.length - 1, toIndex));
+          if (to === from) return s;
+          const tabs = s.tabs.slice();
+          const [moved] = tabs.splice(from, 1);
+          tabs.splice(to, 0, moved);
+          return { tabs };
+        });
       },
 
       setActiveTab(id) {
