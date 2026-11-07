@@ -253,7 +253,10 @@ describe("importing", () => {
   it("creates a new collection from files, secret-free, with its structure", () => {
     const { root } = setup("Source");
     const p = pull(root);
-    const made = as(owner, () => svc.importFiles({ workspaceId: ws2, files: p.files }));
+    const made = as(owner, () => svc.importFiles({ workspaceId: ws2, files: p.files })) as Extract<
+      ReturnType<typeof svc.importFiles>,
+      { kind: "collection" }
+    >;
     expect(made).toMatchObject({ name: "Source", folders: 1, requests: 2, ignored: [] });
     expect(made.collectionId).not.toBe(root);
     const copy = repo.getFolderTree(made.collectionId)!;
@@ -270,5 +273,108 @@ describe("importing", () => {
     expect(() =>
       as(owner, () => svc.importFiles({ workspaceId: ws2, files: { "collection.json": "{}" } })),
     ).toThrow();
+  });
+});
+
+describe("environments as repository files", () => {
+  const makeEnv = (name: string) =>
+    as(owner, () =>
+      repo.createEnvironment(ws, name, [
+        { key: "host", value: "stg.test", type: "default", enabled: true },
+        { key: "token", value: "env-secret", type: "secret", enabled: true },
+      ]),
+    ).id;
+  const pullEnv = (id: string) => as(owner, () => svc.exportEnvironmentFiles(id));
+  const pushEnv = (
+    id: string,
+    files: Record<string, string>,
+    extra: Partial<Parameters<typeof svc.pushEnvironmentFiles>[1]> = {},
+    who = owner,
+  ) =>
+    as(who, () =>
+      svc.pushEnvironmentFiles(id, { files, prune: false, force: false, dryRun: false, ...extra }),
+    );
+  const values = (id: string) =>
+    Object.fromEntries(repo.getEnvironment(id)!.variables.map((v) => [v.key, v.value]));
+
+  it("writes two stable, secret-free files", () => {
+    const id = makeEnv("Staging");
+    const a = pullEnv(id);
+    expect(Object.keys(a.files).sort()).toEqual(["environment.json", "variables.json"]);
+    expect(JSON.stringify(a.files)).not.toContain("env-secret");
+    expect(pullEnv(id)).toEqual(a);
+    expect(JSON.parse(a.files["environment.json"])).toMatchObject({ id, name: "Staging", format: 1 });
+  });
+
+  it("applies edited variables and a rename, keeping the stored secret", () => {
+    const id = makeEnv("Edit env");
+    const p = pullEnv(id);
+    const files = {
+      "environment.json": JSON.stringify({ format: 1, id, name: "Edit env (renamed)" }),
+      "variables.json": JSON.stringify([
+        { key: "host", value: "prod.test", type: "default", enabled: true },
+        { key: "token", value: "", type: "secret", enabled: true },
+        { key: "region", value: "eu", type: "default", enabled: true },
+      ]),
+    };
+    const r = pushEnv(id, files, { baseChecksum: p.checksum });
+    expect(r.dryRun).toBe(false);
+    expect(repo.getEnvironment(id)?.name).toBe("Edit env (renamed)");
+    expect(values(id)).toEqual({ host: "prod.test", token: "env-secret", region: "eu" });
+    expect(r.dryRun === false && r.checksum).toBe(pullEnv(id).checksum);
+  });
+
+  it("refuses stale pushes, keeps missing variables unless pruning, and previews with a dry run", () => {
+    const id = makeEnv("Stale env");
+    const p = pullEnv(id);
+    const only = {
+      ...p.files,
+      "variables.json": JSON.stringify([{ key: "host", value: "x", type: "default", enabled: true }]),
+    };
+    const dry = pushEnv(id, only, { baseChecksum: p.checksum, dryRun: true });
+    expect(dry.dryRun && dry.diff.variables.map((v) => `${v.key}:${v.change}`)).toEqual([
+      "host:changed",
+      "token:removed",
+    ]);
+    expect(values(id).host).toBe("stg.test");
+    pushEnv(id, only, { baseChecksum: p.checksum });
+    expect(values(id)).toEqual({ host: "x", token: "env-secret" });
+    expect(() => pushEnv(id, only, { baseChecksum: p.checksum })).toThrow(/changed since/);
+    pushEnv(id, only, { force: true, prune: true });
+    expect(values(id)).toEqual({ host: "x" });
+  });
+
+  it("rejects collection files, other environments, bad files and unauthorized pushes", () => {
+    const a = makeEnv("A env");
+    const b = makeEnv("B env");
+    const pa = pullEnv(a);
+    const col = setup("Not an env").root;
+    expect(() => pushEnv(a, pull(col).files, { force: true })).toThrow(/collection, not an environment/);
+    expect(() => pushEnv(b, pa.files, { force: true })).toThrow(/different environment/);
+    expect(() =>
+      pushEnv(a, { ...pa.files, "variables.json": "{ nope" }, { baseChecksum: pa.checksum }),
+    ).toThrow(/variables\.json/);
+    expect(() => pushEnv(a, pa.files, { baseChecksum: pa.checksum }, viewer)).toThrow(/Insufficient/);
+    expect(() => as(outsider, () => svc.exportEnvironmentFiles(a))).toThrow(/not found/i);
+    expect(() => pushEnv(a, { ...pa.files, "collection.json": "{}" }, { baseChecksum: pa.checksum })).toThrow(
+      /one/,
+    );
+  });
+
+  it("imports an environment, and tells a collection from an environment by its files", () => {
+    const id = makeEnv("Source env");
+    const p = pullEnv(id);
+    const made = as(owner, () => svc.importFiles({ workspaceId: ws2, files: p.files })) as Extract<
+      ReturnType<typeof svc.importFiles>,
+      { kind: "environment" }
+    >;
+    expect(made).toMatchObject({ kind: "environment", name: "Source env", variables: 2 });
+    expect(made.environmentId).not.toBe(id);
+    expect(
+      Object.fromEntries(repo.getEnvironment(made.environmentId)!.variables.map((v) => [v.key, v.value])),
+    ).toEqual({ host: "stg.test", token: "" });
+    expect(() =>
+      as(owner, () => svc.importFiles({ workspaceId: ws2, files: { "variables.json": "[]" } })),
+    ).toThrow(/Neither/);
   });
 });

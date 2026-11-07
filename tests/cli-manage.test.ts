@@ -182,6 +182,23 @@ function handler(req: http.IncomingMessage, res: http.ServerResponse) {
           received: Object.keys(JSON.parse(body).files).sort(),
           workspaceId: JSON.parse(body).workspaceId,
         });
+      case "GET /api/environments/e1/files":
+        return reply(200, {
+          checksum: "env-chk-aaaaaaaaaaaaaaaa",
+          files: {
+            "environment.json": '{"format":1,"id":"e1","name":"Staging"}\n',
+            "variables.json": '[{"enabled":true,"key":"host","type":"default","value":"x"}]\n',
+          },
+        });
+      case "PUT /api/environments/e1/files": {
+        const input = JSON.parse(body);
+        return reply(200, {
+          dryRun: !!input.dryRun,
+          received: Object.keys(input.files).sort(),
+          baseChecksum: input.baseChecksum,
+          checksum: "env-chk-bbbbbbbbbbbbbbbb",
+        });
+      }
       case "GET /api/mocks":
         return reply(200, [
           { id: "m1", name: "Pets mock", workspaceId: url.searchParams.get("workspaceId") },
@@ -865,6 +882,44 @@ describe("postbox management commands", () => {
     const stale = await invoke(["collection", "push", "--dir", repoDir], authed());
     expect(stale.code).toBe(5);
     expect(stale.stderr).toContain("changed since");
+  });
+
+  it("pulls and pushes an environment, and keeps the two kinds of directory apart", async () => {
+    const envDir = path.join(directory, "env-a");
+    const pulled = await invoke(["env", "pull", "e1", "--dir", envDir], authed());
+    expect(pulled.code).toBe(0);
+    expect(pulled.stdout).toContain("Pulled 2 file(s)");
+    const state = JSON.parse(await readFile(path.join(envDir, ".postbox-repo.json"), "utf8"));
+    expect(state).toMatchObject({
+      kind: "environment",
+      collectionId: "e1",
+      checksum: "env-chk-aaaaaaaaaaaaaaaa",
+    });
+
+    await writeFile(
+      path.join(envDir, "variables.json"),
+      '[{"enabled":true,"key":"host","type":"default","value":"edited"}]',
+    );
+    const pushed = JSON.parse(
+      (await invoke(["env", "push", "--dir", envDir, "-o", "json"], authed())).stdout,
+    );
+    expect(pushed).toMatchObject({
+      dryRun: false,
+      baseChecksum: "env-chk-aaaaaaaaaaaaaaaa",
+      received: ["environment.json", "variables.json"],
+    });
+    expect(JSON.parse(await readFile(path.join(envDir, ".postbox-repo.json"), "utf8")).checksum).toBe(
+      "env-chk-bbbbbbbbbbbbbbbb",
+    );
+
+    // The commands for one kind refuse the other kind's directory.
+    const wrong = await invoke(["collection", "push", "--dir", envDir], authed());
+    expect(wrong.code).toBe(2);
+    expect(wrong.stderr).toContain("env push");
+    expect((await invoke(["collection", "pull", "c1", "--dir", envDir], authed())).code).toBe(2);
+    const collectionDir = path.join(directory, "env-b");
+    await invoke(["collection", "pull", "c1", "--dir", collectionDir], authed());
+    expect((await invoke(["env", "push", "--dir", collectionDir], authed())).code).toBe(2);
   });
 
   it("creates a collection from a directory of files", async () => {

@@ -30,6 +30,22 @@ admin--Qx91/delete-pet--Pp40.request.json
   `{{vault:token}}` are kept. Credentials already stored in Postbox are never overwritten by a push.
 - Other files in the directory (README, CI config, `.git`) are ignored.
 
+## Environments
+
+An environment is two files: `environment.json` (`format`, `id`, `name`) and `variables.json`. Secret variables
+are written with an empty value, so nothing secret is in the files, and a push never overwrites a secret already
+stored in Postbox. A directory holds either a collection or an environment, never both.
+
+```sh
+postbox env pull <environmentId> --dir ./staging
+postbox env push --dir ./staging [--dry-run] [--prune] [--force]
+postbox collection import-dir ./staging -w <workspace>      # a directory with environment.json creates an environment
+```
+
+`push` has the same guard as collections (refused if the environment changed since the pull). Without `--prune`,
+variables missing from the file are left alone. `env push` refuses a collection directory and `collection push`
+refuses an environment one.
+
 ## Command line
 
 ```sh
@@ -56,7 +72,8 @@ Exit codes follow the other management commands (`push` refused: 5; usage mistak
 |---|---|
 | `GET /api/folders/{id}/files` | `{ format, checksum, files }` for the collection |
 | `PUT /api/folders/{id}/files` | `{ files, baseChecksum, prune?, force?, dryRun? }` apply edited files |
-| `POST /api/import/files` | `{ workspaceId, files }` create a new collection |
+| `GET /api/environments/{id}/files` · `PUT` | The same for an environment |
+| `POST /api/import/files` | `{ workspaceId, files }` create a new collection, or an environment if the files have `environment.json` |
 
 Reading needs the *viewer* role; push and import need *editor*. Malformed files are rejected with the offending
 path (400); unsafe paths (`..`, absolute, backslashes) and oversized input (5000 files, 2 MB per file) are
@@ -66,4 +83,4 @@ refused.
 
 This is the file format and the pull/push/import path. Not yet part of it: Postbox running `git` itself
 (connecting a repository, status, commit, branch, push and pull against a remote, with repository hooks
-disabled), a workspace UI for it, API specifications, and environments.
+disabled), a workspace UI for it, and API specifications.
