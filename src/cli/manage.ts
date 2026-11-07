@@ -1100,6 +1100,7 @@ export function registerManagement(program: Command) {
   );
   const releaseColumns = [
     id,
+    column("KIND", "kind"),
     name,
     column("VERSION", "version"),
     column("WORKSPACE", "workspaceId"),
@@ -1108,6 +1109,7 @@ export function registerManagement(program: Command) {
   ];
   const installColumns = [
     id,
+    column("KIND", "kind"),
     name,
     column("VERSION", "version"),
     column("STATUS", "status"),
@@ -1115,29 +1117,40 @@ export function registerManagement(program: Command) {
     column("EDITED", "modified"),
     column("FOLDER", "folderId"),
   ];
+  const sourcePath = (sourceId: string, environment?: boolean) =>
+    `/api/${environment ? "environments" : "folders"}/${enc(sourceId)}/releases`;
   withList(
-    dependency.command("releases <collectionId>").description("List the published versions of a collection"),
+    dependency
+      .command("releases <id>")
+      .description("List the published versions of a collection (or environment with --environment)")
+      .option("--environment", "The id is an environment"),
   ).action(
-    act(async (ctx, [collectionId]) =>
+    act(async (ctx, [sourceId], command) =>
       ctx.list(
-        await ctx.api.request<Row[]>("GET", `/api/folders/${enc(collectionId)}/releases`),
+        await ctx.api.request<Row[]>(
+          "GET",
+          sourcePath(sourceId, command.opts<{ environment?: boolean }>().environment),
+        ),
         releaseColumns,
       ),
     ),
   );
   dependency
-    .command("publish <collectionId> <version>")
-    .description("Publish the collection's current state as an immutable, secret-free version")
+    .command("publish <id> <version>")
+    .description(
+      "Publish a collection's (or with --environment, an environment's) current state as an immutable, secret-free version",
+    )
+    .option("--environment", "The id is an environment")
     .option("--notes <text>", "Release notes")
     .option(
       "--everyone",
       "Let everyone on the server install it (needs the owner role); default: workspace members",
     )
     .action(
-      act(async (ctx, [collectionId, version], command) => {
-        const options = command.opts<{ notes?: string; everyone?: boolean }>();
+      act(async (ctx, [sourceId, version], command) => {
+        const options = command.opts<{ notes?: string; everyone?: boolean; environment?: boolean }>();
         ctx.show(
-          await ctx.api.request("POST", `/api/folders/${enc(collectionId)}/releases`, {
+          await ctx.api.request("POST", sourcePath(sourceId, options.environment), {
             body: {
               version,
               notes: options.notes ?? "",
@@ -1260,16 +1273,18 @@ export function registerManagement(program: Command) {
     );
   dependency
     .command("remove <id>")
-    .description("Stop tracking an installed dependency (the collection is kept unless --delete-copy)")
-    .option("--delete-copy", "Also delete the installed collection")
+    .description(
+      "Stop tracking an installed dependency (the collection or environment is kept unless --delete-copy)",
+    )
+    .option("--delete-copy", "Also delete the installed collection or environment")
     .action(
       act(async (ctx, [dependencyId], command) => {
         const deleteCopy = !!command.opts<{ deleteCopy?: boolean }>().deleteCopy;
-        if (deleteCopy) await ctx.confirm(`Delete the installed collection for ${dependencyId}?`);
+        if (deleteCopy) await ctx.confirm(`Delete the installed copy for ${dependencyId}?`);
         await ctx.api.request("DELETE", `/api/dependencies/${enc(dependencyId)}`, {
           query: { deleteCopy: deleteCopy ? "1" : undefined },
         });
-        out(`Removed ${dependencyId}${deleteCopy ? " and its collection" : ""}`);
+        out(`Removed ${dependencyId}${deleteCopy ? " and its copy" : ""}`);
       }),
     );
 

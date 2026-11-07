@@ -5,7 +5,7 @@
  */
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import type { ConflictStrategy } from "@/core/dependencies/model";
+import type { ConflictStrategy, DependencyKind } from "@/core/dependencies/model";
 import { api } from "@/lib/api";
 import { useApp } from "@/stores/app";
 import { Button } from "@/components/ui/button";
@@ -23,7 +23,15 @@ const STATUS: Record<Installs[number]["status"], string> = {
 };
 const select = "h-8 rounded-md border bg-background px-2 text-xs";
 
-export function SharedPanel({ folderId }: { folderId: string }) {
+export function SharedPanel({
+  folderId,
+  kind = "collection",
+}: {
+  /** The id of the collection or environment this panel is about. */
+  folderId: string;
+  kind?: DependencyKind;
+}) {
+  const noun = kind === "environment" ? "environment" : "collection";
   const workspaceId = useApp((s) => s.workspaceId);
   const [releases, setReleases] = useState<Releases>([]);
   const [installs, setInstalls] = useState<Installs>([]);
@@ -40,7 +48,10 @@ export function SharedPanel({ folderId }: { folderId: string }) {
 
   useEffect(() => {
     let live = true;
-    Promise.all([api.dependencies.releases(folderId), workspaceId ? api.dependencies.list(workspaceId) : []])
+    Promise.all([
+      api.dependencies.releases(folderId, kind),
+      workspaceId ? api.dependencies.list(workspaceId) : [],
+    ])
       .then(([r, i]) => {
         if (!live) return;
         setReleases(r);
@@ -51,7 +62,7 @@ export function SharedPanel({ folderId }: { folderId: string }) {
     return () => {
       live = false;
     };
-  }, [folderId, workspaceId, tick]);
+  }, [folderId, kind, workspaceId, tick]);
 
   const reload = () => setTick((n) => n + 1);
   const act = async (work: () => Promise<unknown>, done?: string) => {
@@ -66,7 +77,7 @@ export function SharedPanel({ folderId }: { folderId: string }) {
       setBusy(false);
     }
   };
-  const mine = installs.find((i) => i.folderId === folderId);
+  const mine = installs.find((i) => i.folderId === folderId && i.kind === kind);
 
   return (
     <div className="max-w-3xl space-y-6 text-sm">
@@ -187,8 +198,8 @@ export function SharedPanel({ folderId }: { folderId: string }) {
       <section className="space-y-3" aria-label="Publish a version">
         <h3 className="font-medium">Publish a version</h3>
         <p className="text-xs text-muted-foreground">
-          A version is a frozen copy of this collection without passwords or tokens. Other workspaces can
-          install it, and update when you publish the next one.
+          A version is a frozen copy of this {noun} without passwords or tokens. Other workspaces can install
+          it, and update when you publish the next one.
         </p>
         <div className="flex flex-wrap items-end gap-2">
           <label className="space-y-1 text-xs">
@@ -228,7 +239,11 @@ export function SharedPanel({ folderId }: { folderId: string }) {
             disabled={busy || !version.trim()}
             onClick={() =>
               act(async () => {
-                await api.dependencies.publish(folderId, { version: version.trim(), notes, visibility });
+                await api.dependencies.publish(
+                  folderId,
+                  { version: version.trim(), notes, visibility },
+                  kind,
+                );
                 setVersion("");
                 setNotes("");
               }, "Published")
@@ -248,7 +263,8 @@ export function SharedPanel({ folderId }: { folderId: string }) {
               <div className="flex flex-wrap items-center gap-2">
                 <strong>{r.version}</strong>
                 <span className="text-xs text-muted-foreground">
-                  {r.requestCount} requests · {new Date(r.createdAt).toLocaleString()} ·{" "}
+                  {kind === "environment" ? "variables" : `${r.requestCount} requests`} ·{" "}
+                  {new Date(r.createdAt).toLocaleString()} ·{" "}
                   {r.visibility === "instance" ? "everyone" : "workspace"}
                 </span>
                 <code className="text-[10px] text-muted-foreground" title="SHA-256 of the contents">

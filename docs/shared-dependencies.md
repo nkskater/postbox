@@ -1,6 +1,6 @@
 # Shared collection dependencies
 
-Publish a collection as a numbered version, and install it into other workspaces. An installed copy stays
+Publish a collection or an environment as a numbered version, and install it into other workspaces. An installed copy stays
 linked to the version it came from, so you can see when the source has moved on and update without losing
 your own edits or credentials.
 
@@ -17,6 +17,13 @@ Open a collection → **Sharing** → enter a version (`1.0.0`, `2024.3`, `beta-
 - Publishing is refused if nothing changed since the newest version, or if the version already exists.
 - Who can install it: **members of the workspace** (needs the *editor* role to publish) or **everyone on
   the server** (needs the *owner* role).
+
+## Environments
+
+An environment is shared the same way: open it → **Sharing** → publish a version. A version holds the
+environment's name and variables; secret-typed variables are published with empty values. Installing creates
+a new environment in your workspace. Updating merges variable by variable using the table above (a changed
+name counts as an edit too), and a secret value you filled in is never overwritten.
 
 ## Installing
 
@@ -65,6 +72,7 @@ All routes need an API key or session with access to the workspace involved.
 |---|---|
 | `GET /api/folders/{id}/releases` | Versions of a collection |
 | `POST /api/folders/{id}/releases` | Publish `{ version, notes?, visibility? }` |
+| `GET/POST /api/environments/{id}/releases` | The same for an environment |
 | `GET /api/dependency-releases?workspaceId=` | Releases you may install into that workspace |
 | `GET /api/dependency-releases/{id}` | One release |
 | `POST /api/dependency-releases/{id}/revoke` | Withdraw `{ reason }` |
@@ -80,7 +88,8 @@ Status is one of `current`, `update-available`, `withdrawn`, `source-unavailable
 
 ```sh
 postbox dependency publish <collectionId> 1.2.0 --notes "Adds paging" [--everyone]
-postbox dependency releases <collectionId>
+postbox dependency publish <environmentId> 1.0.0 --environment
+postbox dependency releases <collectionId> [--environment]
 postbox dependency browse -w <workspace>             # releases you could install
 postbox dependency install <releaseId> -w <workspace>
 postbox dependency list -w <workspace>               # installed, with status and latest version
@@ -97,5 +106,5 @@ Deleting the copy asks for confirmation (`--yes` to skip).
 
 ## Not covered yet
 
-Environments and mock servers as dependency kinds, and review before publishing (waiting on the review
-workflow), are not part of this first version.
+Mock servers as a dependency kind, and review before publishing (waiting on the review workflow), are not
+part of this version.

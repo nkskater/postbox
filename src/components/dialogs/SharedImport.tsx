@@ -52,8 +52,8 @@ export function SharedImport({
   return (
     <div className="space-y-2 text-sm">
       <p className="text-xs text-muted-foreground">
-        Collections other workspaces have published. An installed copy stays linked to its version, keeps your
-        own edits and credentials, and can be updated when a newer version is published.
+        Collections and environments other workspaces have published. An installed copy stays linked to its
+        version, keeps your own edits and credentials, and can be updated when a newer version is published.
       </p>
       {error && (
         <p role="alert" className="text-xs text-destructive">
@@ -71,7 +71,8 @@ export function SharedImport({
                 <strong>{r.name}</strong> <span className="text-xs text-muted-foreground">{r.version}</span>
               </div>
               <div className="truncate text-xs text-muted-foreground">
-                {r.requestCount} requests{r.notes ? ` · ${r.notes}` : ""}
+                {r.kind === "environment" ? "Environment" : `${r.requestCount} requests`}
+                {r.notes ? ` · ${r.notes}` : ""}
               </div>
             </div>
             <Button

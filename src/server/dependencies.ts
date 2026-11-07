@@ -12,6 +12,7 @@ import {
   RELEASE_LIMITS,
   RELEASE_VISIBILITIES,
   CONFLICT_STRATEGIES,
+  buildEnvironmentSnapshot,
   buildSnapshot,
   checksumOf,
   countNodes,
@@ -21,6 +22,7 @@ import {
   resolveConflicts,
   restoreLocalSecrets,
   type ConflictStrategy,
+  type DependencyKind,
   type MergePlan,
   type SnapNode,
   type Snapshot,
@@ -74,25 +76,28 @@ function visibleRelease(id: string): ReleaseRow {
   return row;
 }
 
-export function publishRelease(folderId: string, input: z.infer<typeof publishInput>) {
-  const folder = repo.getFolder(folderId);
-  if (!folder) throw new HttpError(404, "Collection not found");
-  if (folder.parentId) throw new HttpError(400, "Only a whole collection can be published, not a folder");
+type PublishInput = z.infer<typeof publishInput>;
+
+/** Store a release of `sourceId`, enforcing the same rules whatever the kind. */
+function insertRelease(
+  kind: DependencyKind,
+  workspaceId: string,
+  sourceId: string,
+  name: string,
+  snapshot: Snapshot,
+  input: PublishInput,
+) {
   // Anyone on the instance can install an instance-wide release, so that takes the manage role.
-  authorize(currentCaller(), folder.workspaceId, input.visibility === "instance" ? "manage" : "write");
-  assertStorage(folder.workspaceId);
-  const tree = repo.getFolderTree(folderId);
-  if (!tree) throw new HttpError(404, "Collection not found");
-  const snapshot = buildSnapshot(tree, repo.listVariables(folder.workspaceId, "collection", folderId));
+  authorize(currentCaller(), workspaceId, input.visibility === "instance" ? "manage" : "write");
+  assertStorage(workspaceId);
   if (Buffer.byteLength(JSON.stringify(snapshot)) > RELEASE_LIMITS.snapshotBytes)
-    throw new HttpError(413, "This collection is too large to publish");
+    throw new HttpError(413, "This is too large to publish");
   const checksum = checksumOf(snapshot);
-  const db = getDb();
-  return db.transaction((tx) => {
+  return getDb().transaction((tx) => {
     const existing = tx
       .select()
       .from(releases)
-      .where(eq(releases.folderId, folderId))
+      .where(eq(releases.folderId, sourceId))
       .orderBy(desc(releases.seq))
       .all();
     if (existing.some((r) => r.version === input.version))
@@ -103,9 +108,10 @@ export function publishRelease(folderId: string, input: z.infer<typeof publishIn
     const counts = countNodes(snapshot);
     const row: ReleaseRow = {
       id: newId(),
-      workspaceId: folder.workspaceId,
-      folderId,
-      name: folder.name,
+      workspaceId,
+      kind,
+      folderId: sourceId,
+      name,
       version: input.version,
       seq: (existing[0]?.seq ?? 0) + 1,
       notes: input.notes,
@@ -125,11 +131,38 @@ export function publishRelease(folderId: string, input: z.infer<typeof publishIn
   });
 }
 
-/** Every release of one collection, newest first. */
-export function listReleases(folderId: string) {
+export function publishRelease(folderId: string, input: PublishInput) {
   const folder = repo.getFolder(folderId);
   if (!folder) throw new HttpError(404, "Collection not found");
-  authorize(currentCaller(), folder.workspaceId, "read");
+  if (folder.parentId) throw new HttpError(400, "Only a whole collection can be published, not a folder");
+  const tree = repo.getFolderTree(folderId);
+  if (!tree) throw new HttpError(404, "Collection not found");
+  const snapshot = buildSnapshot(tree, repo.listVariables(folder.workspaceId, "collection", folderId));
+  return insertRelease("collection", folder.workspaceId, folderId, folder.name, snapshot, input);
+}
+
+export function publishEnvironmentRelease(environmentId: string, input: PublishInput) {
+  const env = repo.getEnvironment(environmentId);
+  if (!env) throw new HttpError(404, "Environment not found");
+  return insertRelease(
+    "environment",
+    env.workspaceId,
+    environmentId,
+    env.name,
+    buildEnvironmentSnapshot(env, env.variables),
+    input,
+  );
+}
+
+/** Every release of one collection or environment, newest first. */
+export function listReleases(folderId: string, kind: DependencyKind = "collection") {
+  const workspaceId =
+    kind === "environment"
+      ? repo.getEnvironment(folderId)?.workspaceId
+      : repo.getFolder(folderId)?.workspaceId;
+  if (!workspaceId)
+    throw new HttpError(404, kind === "environment" ? "Environment not found" : "Collection not found");
+  authorize(currentCaller(), workspaceId, "read");
   return getDb()
     .select()
     .from(releases)
@@ -199,14 +232,20 @@ export function installRelease(input: z.infer<typeof installInput>) {
   const { snapshot, root } = rootAndBase(release);
   const map: Record<string, string> = {};
   return getDb().transaction(() => {
-    materialize(input.workspaceId, root, null, map);
-    const folderId = map[root.sid];
-    if (snapshot.variables.length)
-      repo.replaceVariables(input.workspaceId, "collection", folderId, snapshot.variables);
+    let folderId: string;
+    if (release.kind === "environment") {
+      folderId = repo.createEnvironment(input.workspaceId, snapshot.name, snapshot.variables).id;
+    } else {
+      materialize(input.workspaceId, root, null, map);
+      folderId = map[root.sid];
+      if (snapshot.variables.length)
+        repo.replaceVariables(input.workspaceId, "collection", folderId, snapshot.variables);
+    }
     const now = Date.now();
     const row: InstallRow = {
       id: newId(),
       workspaceId: input.workspaceId,
+      kind: release.kind,
       folderId,
       releaseId: release.id,
       sourceWorkspaceId: release.workspaceId,
@@ -232,6 +271,15 @@ const reverse = (map: Record<string, string>) =>
 
 /** The local copy as a snapshot whose node ids are the source's, so it can be compared with a release. */
 function localSnapshot(row: InstallRow, keepSecrets = false): Snapshot | null {
+  if (row.kind === "environment") {
+    const env = repo.getEnvironment(row.folderId);
+    if (!env) return null;
+    return buildEnvironmentSnapshot(
+      { id: row.baseSnapshot.root.sid, name: env.name },
+      env.variables,
+      keepSecrets,
+    );
+  }
   const tree = repo.getFolderTree(row.folderId);
   if (!tree) return null;
   const back = reverse(row.nodeMap);
@@ -275,6 +323,7 @@ export function installView(row: InstallRow) {
   return {
     id: row.id,
     workspaceId: row.workspaceId,
+    kind: row.kind,
     folderId: row.folderId,
     sourceWorkspaceId: row.sourceWorkspaceId,
     sourceFolderId: row.sourceFolderId,
@@ -316,8 +365,8 @@ export function getInstall(id: string) {
 function targetRelease(row: InstallRow, releaseId?: string): ReleaseRow {
   const target = releaseId ? visibleRelease(releaseId) : sourceReleases(row).find((r) => !r.revokedAt);
   if (!target) throw new HttpError(404, "The source of this collection is no longer available to you");
-  if (target.folderId !== row.sourceFolderId)
-    throw new HttpError(400, "That release belongs to a different collection");
+  if (target.folderId !== row.sourceFolderId || target.kind !== row.kind)
+    throw new HttpError(400, "That release belongs to something else");
   return target;
 }
 
@@ -381,7 +430,18 @@ export function updateInstall(id: string, input: z.infer<typeof updateInput>) {
   getDb().transaction(() => {
     const action = new Map(plan.entries.map((e) => [e.sid, e.action]));
     // Parents before children, so a new folder exists before the nodes that go inside it.
-    const ordered = [...incoming.values()].sort((a, b) => depth(incoming, a.sid) - depth(incoming, b.sid));
+    const isCollection = row.kind === "collection";
+    if (!isCollection) {
+      // An environment has no tree, only a name and its variables.
+      const rootEntry = plan.entries.find((e) => e.sid === target.snapshot.root.sid);
+      if (rootEntry?.action === "update") {
+        repo.renameEnvironment(rootLocal, String(target.snapshot.root.data.name ?? ""));
+        counts.updated++;
+      }
+    }
+    const ordered = isCollection
+      ? [...incoming.values()].sort((a, b) => depth(incoming, a.sid) - depth(incoming, b.sid))
+      : [];
     for (const node of ordered) {
       const act = action.get(node.sid);
       if (act === "add") {
@@ -403,7 +463,7 @@ export function updateInstall(id: string, input: z.infer<typeof updateInput>) {
       }
     }
     // Deepest first, so a folder is removed after what was inside it.
-    const gone = plan.entries
+    const gone = (isCollection ? plan.entries : [])
       .filter((e) => e.action === "remove" && map[e.sid])
       .sort((a, b) => depth(current, b.sid) - depth(current, a.sid));
     for (const e of gone) {
@@ -417,8 +477,9 @@ export function updateInstall(id: string, input: z.infer<typeof updateInput>) {
       counts.removed++;
     }
 
-    // Collection variables: apply the plan key by key, never overwriting a secret the user filled in.
-    const have = new Map(repo.listVariables(row.workspaceId, "collection", rootLocal).map((v) => [v.key, v]));
+    // Variables: apply the plan key by key, never overwriting a secret the user filled in.
+    const scope = isCollection ? "collection" : "environment";
+    const have = new Map(repo.listVariables(row.workspaceId, scope, rootLocal).map((v) => [v.key, v]));
     const wanted = new Map(target.snapshot.variables.map((v) => [v.key, v]));
     for (const v of plan.variables) {
       if (v.action === "remove") have.delete(v.key);
@@ -428,7 +489,7 @@ export function updateInstall(id: string, input: z.infer<typeof updateInput>) {
         else have.set(v.key, restoreLocalSecrets(next, have.get(v.key)) as Variable);
       }
     }
-    repo.replaceVariables(row.workspaceId, "collection", rootLocal, [...have.values()]);
+    repo.replaceVariables(row.workspaceId, scope, rootLocal, [...have.values()]);
 
     getDb()
       .update(installs)
@@ -446,11 +507,14 @@ export function updateInstall(id: string, input: z.infer<typeof updateInput>) {
   return { applied: counts, dependency: installView(requireInstall(id)) };
 }
 
-/** Stop tracking a dependency. The local collection stays unless `deleteCopy` is set. */
+/** Stop tracking a dependency. The local collection or environment stays unless `deleteCopy` is set. */
 export function removeInstall(id: string, deleteCopy: boolean) {
   const row = requireInstall(id);
   authorize(currentCaller(), row.workspaceId, "write");
-  if (deleteCopy) repo.deleteFolder(row.folderId);
+  if (deleteCopy) {
+    if (row.kind === "environment") repo.deleteEnvironment(row.folderId);
+    else repo.deleteFolder(row.folderId);
+  }
   getDb().delete(installs).where(eq(installs.id, id)).run();
   return { removed: true, deletedCopy: deleteCopy };
 }
