@@ -151,6 +151,37 @@ function handler(req: http.IncomingMessage, res: http.ServerResponse) {
         return reply(200, { applied: { added: 1, updated: 0, removed: 0 } });
       case "POST /api/merge-requests/mr1/close":
         return reply(200, { id: "mr1", status: "closed", closedNote: JSON.parse(body).note });
+      case "GET /api/folders/c1/files":
+        return reply(200, {
+          checksum: "chk-one-aaaaaaaaaaaaaaaa",
+          files: {
+            "collection.json": '{"format":1,"id":"c1","name":"Pets","order":["r1"]}\n',
+            "list--r1.request.json": '{"format":1,"id":"r1","name":"List","method":"GET","url":"x"}\n',
+            "list--r1.test.js": "pm.test('a', () => {});\n",
+            "variables.json": "[]\n",
+          },
+        });
+      case "GET /api/folders/c2/files":
+        return reply(200, { checksum: "chk-two", files: { "../escape.json": "{}" } });
+      case "PUT /api/folders/c1/files": {
+        const input = JSON.parse(body);
+        if (input.baseChecksum === "stale")
+          return reply(409, { error: "The collection changed since these files were pulled." });
+        return reply(200, {
+          dryRun: !!input.dryRun,
+          applied: { added: 0, updated: 1, removed: 0 },
+          received: Object.keys(input.files).sort(),
+          prune: input.prune,
+          force: input.force,
+          checksum: "chk-two-bbbbbbbbbbbbbbbb",
+        });
+      }
+      case "POST /api/import/files":
+        return reply(201, {
+          collectionId: "c77",
+          received: Object.keys(JSON.parse(body).files).sort(),
+          workspaceId: JSON.parse(body).workspaceId,
+        });
       case "GET /api/mocks":
         return reply(200, [
           { id: "m1", name: "Pets mock", workspaceId: url.searchParams.get("workspaceId") },
@@ -758,6 +789,97 @@ describe("postbox management commands", () => {
       (await invoke(["mr", "close", "mr1", "--note", "dropped", "-o", "json"], authed())).stdout,
     );
     expect(closed).toMatchObject({ status: "closed", closedNote: "dropped" });
+  });
+
+  it("pulls a collection into a directory, edits it and pushes it back", async () => {
+    const repoDir = path.join(directory, "repo-a");
+    const pulled = await invoke(["collection", "pull", "c1", "--dir", repoDir], authed());
+    expect(pulled.code).toBe(0);
+    expect(pulled.stdout).toContain("Pulled 4 file(s)");
+    expect(await readFile(path.join(repoDir, "list--r1.test.js"), "utf8")).toBe("pm.test('a', () => {});\n");
+    const state = JSON.parse(await readFile(path.join(repoDir, ".postbox-repo.json"), "utf8"));
+    expect(state).toMatchObject({ collectionId: "c1", checksum: "chk-one-aaaaaaaaaaaaaaaa" });
+    expect(state.files).toHaveLength(4);
+
+    // A file of the user's own, and an unrelated file, go along on a push (only repository files do).
+    await writeFile(path.join(repoDir, "extra.request.json"), '{"format":1,"name":"Extra"}');
+    await writeFile(path.join(repoDir, "README.md"), "# not sent");
+    const dry = JSON.parse(
+      (await invoke(["collection", "push", "--dir", repoDir, "--dry-run", "-o", "json"], authed())).stdout,
+    );
+    expect(dry.dryRun).toBe(true);
+    expect(dry.received).toEqual([
+      "collection.json",
+      "extra.request.json",
+      "list--r1.request.json",
+      "list--r1.test.js",
+      "variables.json",
+    ]);
+    // A dry run does not move the recorded checksum.
+    expect(JSON.parse(await readFile(path.join(repoDir, ".postbox-repo.json"), "utf8")).checksum).toBe(
+      "chk-one-aaaaaaaaaaaaaaaa",
+    );
+
+    const pushed = await invoke(["collection", "push", "--dir", repoDir, "--prune", "-o", "json"], authed());
+    expect(pushed.code).toBe(0);
+    expect(JSON.parse(pushed.stdout)).toMatchObject({ applied: { updated: 1 }, prune: true, force: false });
+    expect(pushed.stderr).toContain("pull");
+    expect(JSON.parse(await readFile(path.join(repoDir, ".postbox-repo.json"), "utf8")).checksum).toBe(
+      "chk-two-bbbbbbbbbbbbbbbb",
+    );
+  });
+
+  it("removes files the collection no longer has on a later pull, but not the user's own", async () => {
+    const repoDir = path.join(directory, "repo-b");
+    await invoke(["collection", "pull", "c1", "--dir", repoDir], authed());
+    const state = JSON.parse(await readFile(path.join(repoDir, ".postbox-repo.json"), "utf8"));
+    state.files.push("gone--zz.request.json");
+    await writeFile(path.join(repoDir, ".postbox-repo.json"), JSON.stringify(state));
+    await writeFile(path.join(repoDir, "gone--zz.request.json"), "{}");
+    await writeFile(path.join(repoDir, "mine.request.json"), "{}");
+    await invoke(["collection", "pull", "c1", "--dir", repoDir], authed());
+    await expect(stat(path.join(repoDir, "gone--zz.request.json"))).rejects.toThrow();
+    expect((await stat(path.join(repoDir, "mine.request.json"))).isFile()).toBe(true);
+  });
+
+  it("refuses misuse: another collection's directory, a directory without state, unsafe paths, stale pushes", async () => {
+    const repoDir = path.join(directory, "repo-c");
+    await invoke(["collection", "pull", "c1", "--dir", repoDir], authed());
+    expect((await invoke(["collection", "pull", "c9", "--dir", repoDir], authed())).code).toBe(2);
+    expect(
+      (await invoke(["collection", "push", "--dir", path.join(directory, "nowhere")], authed())).code,
+    ).toBe(2);
+    const unsafe = await invoke(
+      ["collection", "pull", "c2", "--dir", path.join(directory, "repo-d")],
+      authed(),
+    );
+    expect(unsafe.code).toBe(7);
+    expect(unsafe.stderr).toContain("unsafe");
+    await expect(stat(path.join(directory, "escape.json"))).rejects.toThrow();
+
+    const state = JSON.parse(await readFile(path.join(repoDir, ".postbox-repo.json"), "utf8"));
+    await writeFile(
+      path.join(repoDir, ".postbox-repo.json"),
+      JSON.stringify({ ...state, checksum: "stale" }),
+    );
+    const stale = await invoke(["collection", "push", "--dir", repoDir], authed());
+    expect(stale.code).toBe(5);
+    expect(stale.stderr).toContain("changed since");
+  });
+
+  it("creates a collection from a directory of files", async () => {
+    const repoDir = path.join(directory, "repo-e");
+    await invoke(["collection", "pull", "c1", "--dir", repoDir], authed());
+    const made = JSON.parse(
+      (await invoke(["collection", "import-dir", repoDir, "-w", "w2", "-o", "json"], authed())).stdout,
+    );
+    expect(made).toMatchObject({ collectionId: "c77", workspaceId: "w2" });
+    expect(made.received).toContain("collection.json");
+    expect(made.received).not.toContain(".postbox-repo.json");
+    expect(
+      (await invoke(["collection", "import-dir", path.join(directory, "empty-dir-x"), "-w", "w2"], authed()))
+        .code,
+    ).toBe(2);
   });
 
   it("keeps `run` available alongside management commands", async () => {
