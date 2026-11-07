@@ -1092,6 +1092,187 @@ export function registerManagement(program: Command) {
       }),
     );
 
+  // ------------------------------------------------------------ shared dependencies
+  const dependency = group(
+    program,
+    "dependency",
+    "Publish collections as versions and install or update them in other workspaces",
+  );
+  const releaseColumns = [
+    id,
+    name,
+    column("VERSION", "version"),
+    column("WORKSPACE", "workspaceId"),
+    column("WHO", "visibility"),
+    column("WITHDRAWN", "revokedReason"),
+  ];
+  const installColumns = [
+    id,
+    name,
+    column("VERSION", "version"),
+    column("STATUS", "status"),
+    column("LATEST", "latestVersion"),
+    column("EDITED", "modified"),
+    column("FOLDER", "folderId"),
+  ];
+  withList(
+    dependency.command("releases <collectionId>").description("List the published versions of a collection"),
+  ).action(
+    act(async (ctx, [collectionId]) =>
+      ctx.list(
+        await ctx.api.request<Row[]>("GET", `/api/folders/${enc(collectionId)}/releases`),
+        releaseColumns,
+      ),
+    ),
+  );
+  dependency
+    .command("publish <collectionId> <version>")
+    .description("Publish the collection's current state as an immutable, secret-free version")
+    .option("--notes <text>", "Release notes")
+    .option(
+      "--everyone",
+      "Let everyone on the server install it (needs the owner role); default: workspace members",
+    )
+    .action(
+      act(async (ctx, [collectionId, version], command) => {
+        const options = command.opts<{ notes?: string; everyone?: boolean }>();
+        ctx.show(
+          await ctx.api.request("POST", `/api/folders/${enc(collectionId)}/releases`, {
+            body: {
+              version,
+              notes: options.notes ?? "",
+              visibility: options.everyone ? "instance" : "workspace",
+            },
+          }),
+        );
+      }),
+    );
+  withWorkspace(
+    withList(dependency.command("browse").description("List releases from other workspaces you can install")),
+  ).action(
+    act(async (ctx) =>
+      ctx.list(
+        await ctx.api.request<Row[]>("GET", "/api/dependency-releases", {
+          query: { workspaceId: await ctx.workspace() },
+        }),
+        releaseColumns,
+      ),
+    ),
+  );
+  withWorkspace(
+    withList(dependency.command("list").description("List collections installed from shared releases")),
+  ).action(
+    act(async (ctx) =>
+      ctx.list(
+        await ctx.api.request<Row[]>("GET", "/api/dependencies", {
+          query: { workspaceId: await ctx.workspace() },
+        }),
+        installColumns,
+      ),
+    ),
+  );
+  withWorkspace(
+    dependency
+      .command("install <releaseId>")
+      .description("Install a release as a new collection pinned to that version"),
+  ).action(
+    act(async (ctx, [releaseId]) =>
+      ctx.show(
+        await ctx.api.request("POST", "/api/dependencies", {
+          body: { workspaceId: await ctx.workspace(), releaseId },
+        }),
+      ),
+    ),
+  );
+  dependency
+    .command("status <id>")
+    .description("Show an installed dependency and whether it is behind")
+    .option(
+      "--fail-on <states>",
+      "Exit 1 if the status is one of these (comma separated: update-available, withdrawn, source-unavailable)",
+    )
+    .action(
+      act(async (ctx, [dependencyId], command) => {
+        const view = await ctx.api.request<Row>("GET", `/api/dependencies/${enc(dependencyId)}`);
+        ctx.show(view);
+        const failOn = String(command.opts<{ failOn?: string }>().failOn ?? "")
+          .split(",")
+          .map((state) => state.trim())
+          .filter(Boolean);
+        if (failOn.includes(String(view.status)))
+          throw new CliError(`Dependency ${dependencyId} is ${view.status}.`, EXIT.failure);
+      }),
+    );
+  dependency
+    .command("preview <id>")
+    .description("Show what updating would change and where it collides with your edits")
+    .option("--release <id>", "Release to compare with (default: the newest)")
+    .option("--fail-on-conflict", "Exit 1 when the update would collide with local edits")
+    .action(
+      act(async (ctx, [dependencyId], command) => {
+        const options = command.opts<{ release?: string; failOnConflict?: boolean }>();
+        const preview = await ctx.api.request<{ plan: { conflicts: number } }>(
+          "GET",
+          `/api/dependencies/${enc(dependencyId)}/preview`,
+          { query: { releaseId: options.release } },
+        );
+        ctx.show(preview);
+        if (options.failOnConflict && preview.plan.conflicts > 0)
+          throw new CliError(`${preview.plan.conflicts} change(s) collide with local edits.`, EXIT.failure);
+      }),
+    );
+  dependency
+    .command("update <id>")
+    .description("Move to a newer release, keeping local edits and credentials")
+    .option("--release <id>", "Release to move to (default: the newest)")
+    .option(
+      "--strategy <strategy>",
+      "On conflicts: abort (default), keep-local or take-incoming",
+      (value) => {
+        if (!["abort", "keep-local", "take-incoming"].includes(value))
+          throw new InvalidArgumentError("Use abort, keep-local or take-incoming.");
+        return value;
+      },
+      "abort",
+    )
+    .action(
+      act(async (ctx, [dependencyId], command) => {
+        const options = command.opts<{ release?: string; strategy: string }>();
+        ctx.show(
+          await ctx.api.request("POST", `/api/dependencies/${enc(dependencyId)}/update`, {
+            body: { releaseId: options.release, strategy: options.strategy },
+          }),
+        );
+      }),
+    );
+  dependency
+    .command("withdraw <releaseId>")
+    .description("Withdraw a published version so it can no longer be installed or updated to")
+    .requiredOption("--reason <text>", "Why the version is being withdrawn")
+    .action(
+      act(async (ctx, [releaseId], command) =>
+        ctx.show(
+          await ctx.api.request("POST", `/api/dependency-releases/${enc(releaseId)}/revoke`, {
+            body: { reason: command.opts<{ reason: string }>().reason },
+          }),
+        ),
+      ),
+    );
+  dependency
+    .command("remove <id>")
+    .description("Stop tracking an installed dependency (the collection is kept unless --delete-copy)")
+    .option("--delete-copy", "Also delete the installed collection")
+    .action(
+      act(async (ctx, [dependencyId], command) => {
+        const deleteCopy = !!command.opts<{ deleteCopy?: boolean }>().deleteCopy;
+        if (deleteCopy) await ctx.confirm(`Delete the installed collection for ${dependencyId}?`);
+        await ctx.api.request("DELETE", `/api/dependencies/${enc(dependencyId)}`, {
+          query: { deleteCopy: deleteCopy ? "1" : undefined },
+        });
+        out(`Removed ${dependencyId}${deleteCopy ? " and its collection" : ""}`);
+      }),
+    );
+
   const globals = group(program, "globals", "Manage workspace global variables");
   withWorkspace(globals.command("get").description("Show global variables")).action(
     act(async (ctx) =>
