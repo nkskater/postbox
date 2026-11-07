@@ -625,6 +625,7 @@ export function deleteEnvironment(id: string) {
     tx.delete(variables)
       .where(and(eq(variables.scope, "environment"), eq(variables.ownerId, id)))
       .run();
+    tx.delete(schema.dependencyInstalls).where(eq(schema.dependencyInstalls.folderId, id)).run();
     tx.delete(environments).where(eq(environments.id, id)).run();
   });
 }

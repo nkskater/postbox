@@ -15,6 +15,9 @@ import {
 } from "../retention";
 
 export const SNAPSHOT_SCHEMA = 1;
+/** What a release contains. A collection carries folders and requests; an environment only variables. */
+export const DEPENDENCY_KINDS = ["collection", "environment"] as const;
+export type DependencyKind = (typeof DEPENDENCY_KINDS)[number];
 export const RELEASE_VISIBILITIES = ["workspace", "instance"] as const;
 export type ReleaseVisibility = (typeof RELEASE_VISIBILITIES)[number];
 export const RELEASE_LIMITS = {
@@ -190,6 +193,23 @@ export function buildSnapshot(tree: FolderNode, variables: Variable[], keepSecre
     schema: SNAPSHOT_SCHEMA,
     name: tree.name,
     root: toSnapNode(tree, keepSecrets),
+    variables: (keepSecrets ? variables : stripSecrets(variables)).map(({ id: _id, ...v }) => v as Variable),
+  };
+}
+
+/**
+ * An environment is a snapshot with a single root node (its name) and its variables, so the same diff
+ * and merge rules apply. Secret variable values are blanked.
+ */
+export function buildEnvironmentSnapshot(
+  env: { id: string; name: string },
+  variables: Variable[],
+  keepSecrets = false,
+): Snapshot {
+  return {
+    schema: SNAPSHOT_SCHEMA,
+    name: env.name,
+    root: { sid: env.id, kind: "folder", data: { name: env.name }, children: [] },
     variables: (keepSecrets ? variables : stripSecrets(variables)).map(({ id: _id, ...v }) => v as Variable),
   };
 }

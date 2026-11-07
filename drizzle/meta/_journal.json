@@ -281,6 +281,13 @@
       "when": 1794070888484,
       "tag": "0039_short_major_mapleleaf",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "6",
+      "when": 1794073705902,
+      "tag": "0040_light_kulan_gath",
+      "breakpoints": true
     }
   ]
 }

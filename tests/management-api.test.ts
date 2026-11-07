@@ -126,6 +126,7 @@ describe("contract and access policy", () => {
       "/api/dependencies",
       "/api/dependency-releases",
       "/api/folders/[id]/releases",
+      "/api/environments/[id]/releases",
       "/api/notifications",
     ];
     const documented = new Set(OPERATIONS.map(policyKey));

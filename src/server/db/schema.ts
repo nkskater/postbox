@@ -1510,7 +1510,11 @@ export const dependencyReleases = sqliteTable(
     workspaceId: text("workspace_id")
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
-    /** The source collection. Not a foreign key: a release outlives edits and deletion of its source. */
+    kind: text("kind")
+      .$type<import("@/core/dependencies/model").DependencyKind>()
+      .notNull()
+      .default("collection"),
+    /** The source collection or environment. Not a foreign key: a release outlives edits and deletion of it. */
     folderId: text("folder_id").notNull(),
     name: text("name").notNull(),
     version: text("version").notNull(),
@@ -1519,7 +1523,9 @@ export const dependencyReleases = sqliteTable(
     notes: text("notes").notNull().default(""),
     visibility: text("visibility").$type<import("@/core/dependencies/model").ReleaseVisibility>().notNull(),
     checksum: text("checksum").notNull(),
-    snapshot: text("snapshot", { mode: "json" }).$type<import("@/core/dependencies/model").Snapshot>().notNull(),
+    snapshot: text("snapshot", { mode: "json" })
+      .$type<import("@/core/dependencies/model").Snapshot>()
+      .notNull(),
     folderCount: integer("folder_count").notNull().default(0),
     requestCount: integer("request_count").notNull().default(0),
     revokedAt: integer("revoked_at"),
@@ -1541,7 +1547,11 @@ export const dependencyInstalls = sqliteTable(
     workspaceId: text("workspace_id")
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
-    /** The local collection. */
+    kind: text("kind")
+      .$type<import("@/core/dependencies/model").DependencyKind>()
+      .notNull()
+      .default("collection"),
+    /** The local collection or environment. */
     folderId: text("folder_id").notNull(),
     releaseId: text("release_id").notNull(),
     sourceWorkspaceId: text("source_workspace_id").notNull(),

@@ -11,7 +11,7 @@ import type { CatalogPublishInput, CatalogMetadataInput, CatalogSearchInput } fr
 import type * as graphServer from "@/server/graph";
 import type * as discussions from "@/server/comments";
 import type * as shared from "@/server/dependencies";
-import type { ConflictStrategy } from "@/core/dependencies/model";
+import type { ConflictStrategy, DependencyKind } from "@/core/dependencies/model";
 import type { CommentTarget } from "@/core/comments/model";
 import type { getDocumentation, publishDocumentation } from "@/server/documentation";
 import type { PublicationInput } from "@/core/documentation/model";
@@ -328,12 +328,21 @@ export const api = {
       call<{ ok: boolean }>("POST", `/api/monitors/${id}/retry-email`, { deliveryId }),
   },
   dependencies: {
-    releases: (folderId: string) =>
-      call<ReturnType<typeof shared.listReleases>>("GET", `/api/folders/${folderId}/releases`),
+    releases: (id: string, kind: DependencyKind = "collection") =>
+      call<ReturnType<typeof shared.listReleases>>(
+        "GET",
+        `/api/${kind === "environment" ? "environments" : "folders"}/${id}/releases`,
+      ),
     publish: (
-      folderId: string,
+      id: string,
       input: { version: string; notes?: string; visibility: "workspace" | "instance" },
-    ) => call<ReturnType<typeof shared.publishRelease>>("POST", `/api/folders/${folderId}/releases`, input),
+      kind: DependencyKind = "collection",
+    ) =>
+      call<ReturnType<typeof shared.publishRelease>>(
+        "POST",
+        `/api/${kind === "environment" ? "environments" : "folders"}/${id}/releases`,
+        input,
+      ),
     revoke: (releaseId: string, reason: string) =>
       call<ReturnType<typeof shared.revokeRelease>>("POST", `/api/dependency-releases/${releaseId}/revoke`, {
         reason,

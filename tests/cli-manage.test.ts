@@ -79,6 +79,10 @@ function handler(req: http.IncomingMessage, res: http.ServerResponse) {
           { id: "rel2", name: "Pets", version: "1.1.0", workspaceId: "w1", visibility: "workspace" },
           { id: "rel1", name: "Pets", version: "1.0.0", workspaceId: "w1", visibility: "workspace" },
         ]);
+      case "POST /api/environments/e1/releases":
+        return reply(201, { id: "rel9", kind: "environment", ...JSON.parse(body) });
+      case "GET /api/environments/e1/releases":
+        return reply(200, [{ id: "rel9", kind: "environment", name: "Staging", version: "1.0.0" }]);
       case "POST /api/folders/c1/releases":
         return reply(201, { id: "rel3", ...JSON.parse(body) });
       case "GET /api/dependency-releases":
@@ -580,6 +584,16 @@ describe("postbox management commands", () => {
       (await invoke(["dependency", "publish", "c1", "2.1.0", "-o", "json"], authed())).stdout,
     );
     expect(workspaceOnly).toMatchObject({ notes: "", visibility: "workspace" });
+
+    const envReleases = JSON.parse(
+      (await invoke(["dependency", "releases", "e1", "--environment", "-o", "json"], authed())).stdout,
+    );
+    expect(envReleases.items[0]).toMatchObject({ kind: "environment", name: "Staging" });
+    const envPublished = JSON.parse(
+      (await invoke(["dependency", "publish", "e1", "1.0.0", "--environment", "-o", "json"], authed()))
+        .stdout,
+    );
+    expect(envPublished).toMatchObject({ kind: "environment", version: "1.0.0" });
 
     expect((await invoke(["dependency", "browse", "-w", "w2", "-o", "json"], authed())).code).toBe(0);
     const installed = JSON.parse(

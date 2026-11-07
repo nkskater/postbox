@@ -108,6 +108,61 @@ describe("shared collection dependencies", () => {
   });
 });
 
+describe("shared environments", () => {
+  it("publishes an environment without its secrets and installs it in another workspace", async () => {
+    const [home] = (await call("GET", "/api/workspaces")) as { id: string }[];
+    await call("POST", "/api/environments", {
+      workspaceId: home.id,
+      name: "SharedStaging",
+      variables: [
+        { key: "host", value: "stg.example.test", type: "default", enabled: true },
+        { key: "token", value: "do-not-share-env", type: "secret", enabled: true },
+      ],
+    });
+    let { page, context, errors } = await openApp(browser, baseUrl);
+    await page.getByRole("button", { name: "Environments", exact: true }).click();
+    await page.getByText("SharedStaging", { exact: true }).first().click();
+    await page.getByText("Sharing", { exact: true }).click();
+    await page.getByLabel("Release version").fill("1.0.0");
+    await page.getByRole("button", { name: "Publish", exact: true }).click();
+    await page.getByRole("region", { name: "Published versions" }).getByText("1.0.0").waitFor();
+
+    const envs = (await call("GET", `/api/environments?workspaceId=${home.id}`)) as {
+      id: string;
+      name: string;
+    }[];
+    const sourceEnv = envs.find((e) => e.name === "SharedStaging")!;
+    const releases = await call("GET", `/api/environments/${sourceEnv.id}/releases`);
+    expect(JSON.stringify(releases)).not.toContain("do-not-share-env");
+
+    const other = (await call("POST", "/api/workspaces", { name: "EnvConsumerWs" })) as { id: string };
+    await context.close();
+    ({ page, context, errors } = await openApp(browser, baseUrl));
+    await page.getByRole("combobox").first().click();
+    await page.getByRole("option", { name: "EnvConsumerWs" }).click();
+    await page.getByRole("button", { name: "Import", exact: true }).first().click();
+    await page.getByRole("tab", { name: "Shared" }).click();
+    await page.getByRole("button", { name: "Install SharedStaging 1.0.0" }).click();
+    await page.getByText("Installed SharedStaging 1.0.0").first().waitFor();
+
+    const installed = (await call("GET", `/api/environments?workspaceId=${other.id}`)) as {
+      id: string;
+      name: string;
+    }[];
+    expect(installed.map((e) => e.name)).toContain("SharedStaging");
+    const copy = (await call(
+      "GET",
+      `/api/environments/${installed.find((e) => e.name === "SharedStaging")!.id}`,
+    )) as {
+      variables: { key: string; value: string }[];
+    };
+    expect(copy.variables.find((v) => v.key === "host")?.value).toBe("stg.example.test");
+    expect(copy.variables.find((v) => v.key === "token")?.value).toBe("");
+    expect(errors).toEqual([]);
+    await context.close();
+  });
+});
+
 async function requestIdOf(folderId: string) {
   const [home] = (await call("GET", "/api/workspaces")) as { id: string }[];
   const tree = (await call("GET", `/api/workspaces/${home.id}/tree`)) as {

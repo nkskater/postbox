@@ -320,3 +320,144 @@ describe("withdrawal and availability", () => {
     expect(got.status).toBe("current");
   });
 });
+
+describe("environments as dependencies", () => {
+  let env: string;
+  const envVars = (...pairs: [string, string, ("default" | "secret")?][]) =>
+    pairs.map(([key, value, type]) => ({ key, value, type: type ?? ("default" as const), enabled: true }));
+  const publishEnv = (version: string, who = author) =>
+    as(who, () => deps.publishEnvironmentRelease(env, { version, notes: "", visibility: "workspace" }));
+  const envRelease = (version: string) =>
+    as(author, () => deps.listReleases(env, "environment")).find((r) => r.version === version)!;
+  const envInstall = (releaseId: string) =>
+    as(dev, () => deps.installRelease({ workspaceId: wsB, releaseId }));
+  const valuesOf = (id: string) =>
+    Object.fromEntries(repo.getEnvironment(id)!.variables.map((v) => [v.key, v.value]));
+
+  beforeAll(() => {
+    env = as(author, () =>
+      repo.createEnvironment(
+        wsA,
+        "Staging",
+        envVars(["host", "stg.test"], ["token", "author-secret", "secret"]),
+      ),
+    ).id;
+  });
+
+  it("publishes variables with secret values blanked, and refuses repeats", () => {
+    const v1 = publishEnv("1.0.0");
+    expect(v1).toMatchObject({ kind: "environment", version: "1.0.0", name: "Staging" });
+    const stored = getDb()
+      .select()
+      .from(schema.dependencyReleases)
+      .where(eq(schema.dependencyReleases.id, v1.id))
+      .get()!;
+    expect(JSON.stringify(stored.snapshot)).not.toContain("author-secret");
+    expect(() => publishEnv("1.0.1")).toThrow(/Nothing has changed/);
+    expect(() => publishEnv("1.0.0")).toThrow(/already published/);
+    expect(() => as(stranger, () => deps.listReleases(env, "environment"))).toThrow(/not found/i);
+    // Releases are listed per kind: the collection's list does not include environment versions.
+    expect(as(author, () => deps.listReleases(source)).every((r) => r.kind === "collection")).toBe(true);
+  });
+
+  it("installs as a new environment and shows up beside collection dependencies", () => {
+    const inst = envInstall(envRelease("1.0.0").id);
+    expect(inst).toMatchObject({ kind: "environment", status: "current", modified: false, name: "Staging" });
+    expect(repo.getEnvironment(inst.folderId)?.name).toBe("Staging");
+    expect(valuesOf(inst.folderId)).toEqual({ host: "stg.test", token: "" });
+    const kinds = as(dev, () => deps.listInstalls(wsB)).map((i) => i.kind);
+    expect(kinds).toContain("environment");
+    expect(kinds).toContain("collection");
+  });
+
+  it("updates variables and the name, keeping the user's own secret and additions", () => {
+    const inst = envInstall(envRelease("1.0.0").id);
+    // Local: fill the secret in, add a variable of their own.
+    const local = repo.getEnvironment(inst.folderId)!;
+    repo.replaceVariables(wsB, "environment", inst.folderId, [
+      ...local.variables.map((v) => (v.key === "token" ? { ...v, value: "my-token" } : v)),
+      { key: "mine", value: "1", type: "default", enabled: true },
+    ]);
+    expect(as(dev, () => deps.getInstall(inst.id)).modified).toBe(true);
+    as(author, () => {
+      repo.renameEnvironment(env, "Staging (EU)");
+      repo.replaceVariables(
+        wsA,
+        "environment",
+        env,
+        envVars(["host", "eu.stg.test"], ["token", "author-secret", "secret"], ["region", "eu"]),
+      );
+    });
+    const v2 = publishEnv("1.1.0");
+    const preview = as(dev, () => deps.previewUpdate(inst.id));
+    expect(preview.diff.variables.map((v) => `${v.key}:${v.change}`)).toEqual([
+      "host:changed",
+      "region:added",
+    ]);
+    expect(preview.plan.conflicts).toBe(0);
+    const result = as(dev, () => deps.updateInstall(inst.id, { releaseId: v2.id, strategy: "abort" }));
+    expect(result.dependency).toMatchObject({ version: "1.1.0", status: "current" });
+    expect(repo.getEnvironment(inst.folderId)?.name).toBe("Staging (EU)");
+    expect(valuesOf(inst.folderId)).toEqual({
+      host: "eu.stg.test",
+      token: "my-token",
+      region: "eu",
+      mine: "1",
+    });
+  });
+
+  it("stops when a variable was changed on both sides, then settles it either way", () => {
+    const latest = as(author, () => deps.listReleases(env, "environment"))[0];
+    const a = envInstall(latest.id);
+    const b = envInstall(latest.id);
+    as(author, () =>
+      repo.replaceVariables(
+        wsA,
+        "environment",
+        env,
+        envVars(["host", "up.stg.test"], ["token", "", "secret"], ["region", "eu"]),
+      ),
+    );
+    const next = publishEnv("1.2.0");
+    for (const inst of [a, b])
+      repo.replaceVariables(
+        wsB,
+        "environment",
+        inst.folderId,
+        envVars(["host", "local.test"], ["token", "", "secret"], ["region", "eu"]),
+      );
+    expect(as(dev, () => deps.previewUpdate(a.id)).plan.conflicts).toBe(1);
+    expect(() => as(dev, () => deps.updateInstall(a.id, { releaseId: next.id, strategy: "abort" }))).toThrow(
+      /conflict/,
+    );
+    expect(valuesOf(a.folderId).host).toBe("local.test");
+    as(dev, () => deps.updateInstall(a.id, { releaseId: next.id, strategy: "keep-local" }));
+    expect(valuesOf(a.folderId).host).toBe("local.test");
+    as(dev, () => deps.updateInstall(b.id, { releaseId: next.id, strategy: "take-incoming" }));
+    expect(valuesOf(b.folderId).host).toBe("up.stg.test");
+  });
+
+  it("flags withdrawn versions and unlinks or deletes cleanly", () => {
+    const latest = as(author, () => deps.listReleases(env, "environment"))[0];
+    const inst = envInstall(latest.id);
+    as(author, () => deps.revokeRelease(latest.id, "wrong host"));
+    expect(as(dev, () => deps.getInstall(inst.id))).toMatchObject({
+      status: "withdrawn",
+      withdrawnReason: "wrong host",
+    });
+    as(dev, () => deps.removeInstall(inst.id, true));
+    expect(repo.getEnvironment(inst.folderId)).toBeNull();
+
+    const other = envInstall(envRelease("1.0.0").id);
+    repo.deleteEnvironment(other.folderId);
+    expect(() => as(dev, () => deps.getInstall(other.id))).toThrow(/not found/i);
+  });
+
+  it("will not mix kinds when updating", () => {
+    const inst = envInstall(envRelease("1.0.0").id);
+    const collectionRelease = as(author, () => deps.listReleases(source)).find((r) => !r.revokedAt)!;
+    expect(() =>
+      as(dev, () => deps.updateInstall(inst.id, { releaseId: collectionRelease.id, strategy: "abort" })),
+    ).toThrow(/something else/);
+  });
+});

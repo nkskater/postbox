@@ -58,6 +58,8 @@ export const REST_POLICIES: Record<string, Policy> = {
   "POST /api/specifications/[id]/comments": p("resource", "read", "specification"),
   "GET /api/folders/[id]/releases": p("resource", "read", "folder"),
   "POST /api/folders/[id]/releases": p("resource", "write", "folder"),
+  "GET /api/environments/[id]/releases": p("resource", "read", "environment"),
+  "POST /api/environments/[id]/releases": p("resource", "write", "environment"),
   "GET /api/dependency-releases": p("query", "read"),
   // Visibility is decided per release (instance-wide or members of the source), so no single workspace applies.
   "GET /api/dependency-releases/[id]": p("account"),
