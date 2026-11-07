@@ -62,6 +62,13 @@ postbox collection import-dir ./petstore-spec -w <workspace>    # specification.
 
 REST: `GET/PUT /api/specifications/{id}/files`.
 
+## In the app
+
+Collections have a **Repository** tab; environments and specifications have a **Repository** section. It shows
+the files Postbox would write right now (count, list, and a JSON download), the checksum a push is guarded by,
+and the commands to pull, preview (`--dry-run`) and push, ready to copy with the directory and id filled in.
+Previewing and pushing run from the command line because that is where your repository files are.
+
 ## Command line
 
 ```sh
@@ -100,4 +107,4 @@ refused.
 
 This is the file format and the pull/push/import path. Not yet part of it: Postbox running `git` itself
 (connecting a repository, status, commit, branch, push and pull against a remote, with repository hooks
-disabled) and a workspace UI for it.
+disabled).

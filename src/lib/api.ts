@@ -12,6 +12,7 @@ import type * as graphServer from "@/server/graph";
 import type * as discussions from "@/server/comments";
 import type * as shared from "@/server/dependencies";
 import type * as forkServer from "@/server/forks";
+import type * as repositoryServer from "@/server/repository";
 import type { ConflictStrategy, DependencyKind } from "@/core/dependencies/model";
 import type { CommentTarget } from "@/core/comments/model";
 import type { getDocumentation, publishDocumentation } from "@/server/documentation";
@@ -328,6 +329,18 @@ export const api = {
     delete: (id: string) => call<{ ok: boolean }>("DELETE", `/api/monitors/${id}`),
     retry: (id: string, deliveryId: string) =>
       call<{ ok: boolean }>("POST", `/api/monitors/${id}/retry-email`, { deliveryId }),
+  },
+  repository: {
+    files: (kind: "collection" | "environment" | "specification", id: string) => {
+      const route = { collection: "folders", environment: "environments", specification: "specifications" }[
+        kind
+      ];
+      return call<
+        | ReturnType<typeof repositoryServer.exportFiles>
+        | ReturnType<typeof repositoryServer.exportEnvironmentFiles>
+        | ReturnType<typeof repositoryServer.exportSpecificationFiles>
+      >("GET", `/api/${route}/${id}/files`);
+    },
   },
   forks: {
     listOf: (folderId: string) =>
