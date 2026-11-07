@@ -90,7 +90,11 @@ export default async function setup({ provide }: { provide: (key: string, value:
   return async () => {
     for (const child of apps) child.kill();
     await new Promise<void>((r) => (target ? target.close(() => r()) : r()));
-    fs.rmSync(dir, { recursive: true, force: true });
+    try {
+      fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    } catch {
+      // Best-effort cleanup on Windows if child processes take time to release SQLite file handles
+    }
   };
 }
 

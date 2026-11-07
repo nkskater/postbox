@@ -6,6 +6,12 @@ import { chromium, type Browser, type BrowserContext, type Page } from "playwrig
 /** Chromium to drive: E2E_CHROMIUM, else a cached Playwright headless shell, else Playwright's own default. */
 function executablePath(): string | undefined {
   if (process.env.E2E_CHROMIUM) return process.env.E2E_CHROMIUM;
+  if (process.platform === "win32") {
+    const winChrome = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+    if (fs.existsSync(winChrome)) return winChrome;
+    const winEdge = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
+    if (fs.existsSync(winEdge)) return winEdge;
+  }
   const cache = path.join(os.homedir(), ".cache", "ms-playwright");
   try {
     const dir = fs.readdirSync(cache).find((d) => d.startsWith("chromium_headless_shell-"));
