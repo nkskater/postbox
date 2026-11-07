@@ -89,7 +89,29 @@ discussion. Deleting the original leaves forks working, marked "original not ava
 
 `strategy` is `abort` (default), `keep-local` or `take-incoming`.
 
+## Command line
+
+```sh
+postbox fork create <collectionId> -w <workspace> [--name "My fork"]
+postbox fork list -w <workspace>
+postbox fork status <id> [--fail-on behind,diverged]
+postbox fork sync <id> [--preview [--fail-on-conflict]] [--strategy abort|keep-local|take-incoming]
+postbox fork propose <id> --title "Add paging" [--description "..."]
+postbox fork remove <id> [--delete-copy]
+
+postbox mr list -w <workspace> [--status open|merged|closed]
+postbox mr show <id> [--fail-unless-mergeable]
+postbox mr approve <id> [--note "..."]
+postbox mr request-changes <id> [--note "..."]
+postbox mr merge <id>
+postbox mr close <id> [--note "..."]
+```
+
+For CI: `fork status --fail-on`, `fork sync --preview --fail-on-conflict` and `mr show --fail-unless-mergeable`
+exit 1 when the state matches (the last also prints why). `fork sync` with the default `abort` strategy and
+`mr merge` that is refused (not approved, conflicts, owner-only) exit 5 and apply nothing. Deleting a fork's
+collection asks for confirmation (`--yes` to skip).
+
 ## Not covered yet
 
-Forking API specifications, command-line commands, and merging into a specific past version are not part of this
-first version.
+Forking API specifications and merging into a specific past version are not part of this first version.

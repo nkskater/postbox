@@ -1288,6 +1288,205 @@ export function registerManagement(program: Command) {
       }),
     );
 
+  // ------------------------------------------------------------ forks and merge requests
+  const strategyOption = (value: string) => {
+    if (!["abort", "keep-local", "take-incoming"].includes(value))
+      throw new InvalidArgumentError("Use abort, keep-local or take-incoming.");
+    return value;
+  };
+  const fork = group(program, "fork", "Fork collections, keep forks current and propose changes back");
+  const forkColumns = [
+    id,
+    column("FOLDER", "folderId"),
+    column("PARENT", "parentName"),
+    column("STATUS", "status"),
+    column("AHEAD", "ahead"),
+    column("BEHIND", "behind"),
+    column("OPEN MR", "openMergeRequestId"),
+  ];
+  withWorkspace(
+    fork
+      .command("create <collectionId>")
+      .description("Copy a collection into a workspace, remembering where it came from")
+      .option("--name <name>", "Name of the fork (default: '<name> (fork)')"),
+  ).action(
+    act(async (ctx, [collectionId], command) =>
+      ctx.show(
+        await ctx.api.request("POST", `/api/folders/${enc(collectionId)}/forks`, {
+          body: { workspaceId: await ctx.workspace(), name: command.opts<{ name?: string }>().name },
+        }),
+      ),
+    ),
+  );
+  withWorkspace(withList(fork.command("list").description("List forks in a workspace"))).action(
+    act(async (ctx) =>
+      ctx.list(
+        await ctx.api.request<Row[]>("GET", "/api/forks", { query: { workspaceId: await ctx.workspace() } }),
+        forkColumns,
+      ),
+    ),
+  );
+  fork
+    .command("status <id>")
+    .description("Show a fork and how far it is from its original")
+    .option(
+      "--fail-on <states>",
+      "Exit 1 if the status is one of these (comma separated: ahead, behind, diverged, parent-unavailable)",
+    )
+    .action(
+      act(async (ctx, [forkId], command) => {
+        const view = await ctx.api.request<Row>("GET", `/api/forks/${enc(forkId)}`);
+        ctx.show(view);
+        const failOn = String(command.opts<{ failOn?: string }>().failOn ?? "")
+          .split(",")
+          .map((state) => state.trim())
+          .filter(Boolean);
+        if (failOn.includes(String(view.status)))
+          throw new CliError(`Fork ${forkId} is ${view.status}.`, EXIT.failure);
+      }),
+    );
+  fork
+    .command("sync <id>")
+    .description("Pull the original's changes into the fork (--preview to only look)")
+    .option("--preview", "Show what would change and exit")
+    .option("--fail-on-conflict", "With --preview, exit 1 when changes collide with the fork's edits")
+    .option(
+      "--strategy <strategy>",
+      "On conflicts: abort (default), keep-local or take-incoming",
+      strategyOption,
+      "abort",
+    )
+    .action(
+      act(async (ctx, [forkId], command) => {
+        const options = command.opts<{ preview?: boolean; failOnConflict?: boolean; strategy: string }>();
+        if (options.preview) {
+          const preview = await ctx.api.request<{ plan: { conflicts: number } }>(
+            "GET",
+            `/api/forks/${enc(forkId)}/sync`,
+          );
+          ctx.show(preview);
+          if (options.failOnConflict && preview.plan.conflicts > 0)
+            throw new CliError(
+              `${preview.plan.conflicts} change(s) collide with the fork's edits.`,
+              EXIT.failure,
+            );
+          return;
+        }
+        ctx.show(
+          await ctx.api.request("POST", `/api/forks/${enc(forkId)}/sync`, {
+            body: { strategy: options.strategy },
+          }),
+        );
+      }),
+    );
+  fork
+    .command("propose <id>")
+    .description("Open a merge request proposing the fork's changes to the original")
+    .requiredOption("--title <text>", "Title of the merge request")
+    .option("--description <text>", "What changed and why")
+    .action(
+      act(async (ctx, [forkId], command) => {
+        const options = command.opts<{ title: string; description?: string }>();
+        ctx.show(
+          await ctx.api.request("POST", `/api/forks/${enc(forkId)}/merge-requests`, {
+            body: { title: options.title, description: options.description ?? "" },
+          }),
+        );
+      }),
+    );
+  fork
+    .command("remove <id>")
+    .description("Stop tracking a fork (its collection is kept unless --delete-copy)")
+    .option("--delete-copy", "Also delete the forked collection")
+    .action(
+      act(async (ctx, [forkId], command) => {
+        const deleteCopy = !!command.opts<{ deleteCopy?: boolean }>().deleteCopy;
+        if (deleteCopy) await ctx.confirm(`Delete the forked collection for ${forkId}?`);
+        await ctx.api.request("DELETE", `/api/forks/${enc(forkId)}`, {
+          query: { deleteCopy: deleteCopy ? "1" : undefined },
+        });
+        out(`Removed ${forkId}${deleteCopy ? " and its collection" : ""}`);
+      }),
+    );
+
+  const mr = group(program, "mr", "Review and merge merge requests from forks");
+  withWorkspace(
+    withList(
+      mr
+        .command("list")
+        .description("List merge requests to review in, or proposed from, a workspace")
+        .option("--status <status>", "open, merged or closed"),
+    ),
+  ).action(
+    act(async (ctx, _args, command) =>
+      ctx.list(
+        await ctx.api.request<Row[]>("GET", "/api/merge-requests", {
+          query: { workspaceId: await ctx.workspace(), status: command.opts<{ status?: string }>().status },
+        }),
+        [
+          id,
+          column("TITLE", "title"),
+          column("STATUS", "status"),
+          column("BY", "createdByName"),
+          column("ROLE", "role"),
+        ],
+      ),
+    ),
+  );
+  mr.command("show <id>")
+    .description("Show a merge request with its diff, conflicts, reviews and whether it can be merged")
+    .option("--fail-unless-mergeable", "Exit 1 (and print why) unless it can be merged right now")
+    .action(
+      act(async (ctx, [mrId], command) => {
+        const view = await ctx.api.request<{
+          status: string;
+          open: { readiness: { ok: boolean; reasons: string[] } } | null;
+        }>("GET", `/api/merge-requests/${enc(mrId)}`);
+        ctx.show(view);
+        if (command.opts<{ failUnlessMergeable?: boolean }>().failUnlessMergeable) {
+          if (view.status !== "open")
+            throw new CliError(`Merge request ${mrId} is ${view.status}.`, EXIT.failure);
+          if (view.open && !view.open.readiness.ok)
+            throw new CliError(`Not mergeable: ${view.open.readiness.reasons.join("; ")}.`, EXIT.failure);
+        }
+      }),
+    );
+  for (const [name, decision, text] of [
+    ["approve", "approve", "Approve the fork's current content"],
+    ["request-changes", "reject", "Ask the author for changes"],
+  ] as const)
+    mr.command(`${name} <id>`)
+      .description(text)
+      .option("--note <text>", "A note for the author")
+      .action(
+        act(async (ctx, [mrId], command) =>
+          ctx.show(
+            await ctx.api.request("POST", `/api/merge-requests/${enc(mrId)}/reviews`, {
+              body: { decision, note: command.opts<{ note?: string }>().note ?? "" },
+            }),
+          ),
+        ),
+      );
+  mr.command("merge <id>")
+    .description("Merge into the original when approved, conflict-free and you are allowed to")
+    .action(
+      act(async (ctx, [mrId]) =>
+        ctx.show(await ctx.api.request("POST", `/api/merge-requests/${enc(mrId)}/merge`)),
+      ),
+    );
+  mr.command("close <id>")
+    .description("Close without merging")
+    .option("--note <text>", "Why it is being closed")
+    .action(
+      act(async (ctx, [mrId], command) =>
+        ctx.show(
+          await ctx.api.request("POST", `/api/merge-requests/${enc(mrId)}/close`, {
+            body: { note: command.opts<{ note?: string }>().note ?? "" },
+          }),
+        ),
+      ),
+    );
+
   const globals = group(program, "globals", "Manage workspace global variables");
   withWorkspace(globals.command("get").description("Show global variables")).action(
     act(async (ctx) =>
