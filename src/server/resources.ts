@@ -27,6 +27,8 @@ export type ResourceKind =
   | "governanceRuleSet"
   | "qualityScorecard"
   | "comment"
+  | "dependency"
+  | "dependencyRelease"
   | "telemetrySource";
 export const RESOURCE_TABLES: Record<ResourceKind, string> = {
   workspace: "workspaces",
@@ -54,6 +56,8 @@ export const RESOURCE_TABLES: Record<ResourceKind, string> = {
   governanceRuleSet: "governance_rule_sets",
   qualityScorecard: "quality_scorecards",
   comment: "comments",
+  dependency: "dependency_installs",
+  dependencyRelease: "dependency_releases",
   telemetrySource: "telemetry_sources",
 };
 export function resourceWorkspace(kind: ResourceKind, id: string): string {

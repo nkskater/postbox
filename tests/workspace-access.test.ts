@@ -242,6 +242,47 @@ beforeAll(async () => {
       updatedAt: Date.now(),
     })
     .run();
+  const snapshot = {
+    schema: 1 as const,
+    name: "Shared",
+    root: { sid: "root", kind: "folder" as const, data: { name: "Shared" }, children: [] },
+    variables: [],
+  };
+  ids.dependencyRelease = "access-release";
+  getDb()
+    .insert(schema.dependencyReleases)
+    .values({
+      id: ids.dependencyRelease,
+      workspaceId,
+      folderId: ids.folder,
+      name: "Shared",
+      version: "1.0.0",
+      seq: 1,
+      visibility: "workspace",
+      checksum: "x",
+      snapshot,
+      createdAt: 1,
+    })
+    .run();
+  ids.dependency = "access-dependency";
+  getDb()
+    .insert(schema.dependencyInstalls)
+    .values({
+      id: ids.dependency,
+      workspaceId,
+      folderId: ids.folder,
+      releaseId: ids.dependencyRelease,
+      sourceWorkspaceId: workspaceId,
+      sourceFolderId: ids.folder,
+      sourceName: "Shared",
+      version: "1.0.0",
+      checksum: "x",
+      baseSnapshot: snapshot,
+      nodeMap: {},
+      installedAt: 1,
+      updatedAt: 1,
+    })
+    .run();
   ids.run = "saved-run";
   getDb()
     .insert(schema.runs)

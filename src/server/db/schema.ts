@@ -1501,3 +1501,66 @@ export const telemetryObservations = sqliteTable(
     index("telemetry_source_time_idx").on(t.sourceId, t.at),
   ],
 );
+
+/** A published, immutable, secret-free version of a collection that other workspaces can install. */
+export const dependencyReleases = sqliteTable(
+  "dependency_releases",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    /** The source collection. Not a foreign key: a release outlives edits and deletion of its source. */
+    folderId: text("folder_id").notNull(),
+    name: text("name").notNull(),
+    version: text("version").notNull(),
+    /** Publication order within the collection; "newer" means a higher seq, not a higher version string. */
+    seq: integer("seq").notNull(),
+    notes: text("notes").notNull().default(""),
+    visibility: text("visibility").$type<import("@/core/dependencies/model").ReleaseVisibility>().notNull(),
+    checksum: text("checksum").notNull(),
+    snapshot: text("snapshot", { mode: "json" }).$type<import("@/core/dependencies/model").Snapshot>().notNull(),
+    folderCount: integer("folder_count").notNull().default(0),
+    requestCount: integer("request_count").notNull().default(0),
+    revokedAt: integer("revoked_at"),
+    revokedReason: text("revoked_reason"),
+    revokedBy: text("revoked_by"),
+    createdBy: text("created_by"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("dependency_releases_version_idx").on(t.folderId, t.version),
+    index("dependency_releases_workspace_idx").on(t.workspaceId),
+  ],
+);
+/** A collection in this workspace that was installed from a release, and what is needed to update it. */
+export const dependencyInstalls = sqliteTable(
+  "dependency_installs",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    /** The local collection. */
+    folderId: text("folder_id").notNull(),
+    releaseId: text("release_id").notNull(),
+    sourceWorkspaceId: text("source_workspace_id").notNull(),
+    sourceFolderId: text("source_folder_id").notNull(),
+    sourceName: text("source_name").notNull(),
+    version: text("version").notNull(),
+    checksum: text("checksum").notNull(),
+    /** What was installed, kept here so updates and diffs still work if the source goes away. */
+    baseSnapshot: text("base_snapshot", { mode: "json" })
+      .$type<import("@/core/dependencies/model").Snapshot>()
+      .notNull(),
+    /** Source node id -> local node id. */
+    nodeMap: text("node_map", { mode: "json" }).$type<Record<string, string>>().notNull(),
+    installedBy: text("installed_by"),
+    installedAt: integer("installed_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("dependency_installs_folder_idx").on(t.folderId),
+    index("dependency_installs_workspace_idx").on(t.workspaceId),
+  ],
+);

@@ -674,3 +674,4 @@ Share pinned helpers across collections using **Packages** and `pm.require`. See
 - [Production telemetry](docs/telemetry.md): opt-in OTLP/HTTP JSON traces, inferred endpoints, sampled latency/error metrics and bounded retention.
 - [API quality scorecards](docs/scorecards.md): weighted catalog, monitoring and governance quality with freshness, coverage and historical reports.
 - [Comments and review discussions](docs/comments.md): threaded comments, @mentions, resolve/reopen and notifications on requests, collections and specifications.
+- [Shared collection dependencies](docs/shared-dependencies.md): publish versioned, secret-free collections, install them in other workspaces and update with a three-way merge that keeps local edits.

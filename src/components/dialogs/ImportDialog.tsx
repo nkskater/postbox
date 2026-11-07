@@ -22,6 +22,7 @@ import { useDialogs } from "@/stores/dialogs";
 import { parseCurl } from "@/core/convert/curl";
 import { paramsFromUrl } from "@/lib/url-params";
 import { SoapUiImport } from "./SoapUiImport";
+import { SharedImport } from "./SharedImport";
 import { OpenApiImport } from "./OpenApiImport";
 import { DEFAULT_SETTINGS } from "@/core/types";
 
@@ -514,6 +515,9 @@ export function ImportDialog() {
             <TabsTrigger value="link" disabled={blocked}>
               Link
             </TabsTrigger>
+            <TabsTrigger value="shared" disabled={blocked}>
+              Shared
+            </TabsTrigger>
           </TabsList>
           <TabsContent value="file" className="space-y-3">
             <label
@@ -657,6 +661,15 @@ export function ImportDialog() {
                 {blocked && <Loader2 className="size-4 animate-spin" />} Import
               </Button>
             </div>
+          </TabsContent>
+          <TabsContent value="shared">
+            <SharedImport
+              workspaceId={workspaceId}
+              disabled={blocked || busy}
+              onImported={async () => {
+                await Promise.all([refreshTree(), refreshEnvironments(), refreshVariables()]);
+              }}
+            />
           </TabsContent>
           <TabsContent value="openapi">
             <OpenApiImport

@@ -17,6 +17,7 @@ import { AuthEditor } from "@/components/request/AuthEditor";
 import { KeyValueEditor } from "@/components/request/KeyValueEditor";
 import { ScriptEditor } from "@/components/request/ScriptEditor";
 import { CatalogPublisher } from "@/components/catalog/CatalogPublisher";
+import { SharedPanel } from "./SharedPanel";
 import { CollectionSpecificationPanel } from "@/components/specifications/SpecificationSyncPanel";
 import { DocumentationEditor } from "./DocumentationEditor";
 import { VariablesEditor } from "@/components/env/VariablesEditor";
@@ -121,6 +122,11 @@ export function FolderEditor({ folderId }: { folderId: string }) {
             </TabsTrigger>
           )}
           {isCollection && (
+            <TabsTrigger value="sharing" className="text-xs">
+              Sharing
+            </TabsTrigger>
+          )}
+          {isCollection && (
             <TabsTrigger value="documentation" className="text-xs">
               Documentation
             </TabsTrigger>
@@ -156,6 +162,11 @@ export function FolderEditor({ folderId }: { folderId: string }) {
           {isCollection && (
             <TabsContent value="documentation" className="mt-0">
               <DocumentationEditor key={folderId} folderId={folderId} />
+            </TabsContent>
+          )}
+          {isCollection && (
+            <TabsContent value="sharing" className="mt-0">
+              <SharedPanel key={folderId} folderId={folderId} />
             </TabsContent>
           )}
           {isCollection && (

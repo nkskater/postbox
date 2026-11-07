@@ -123,6 +123,9 @@ describe("contract and access policy", () => {
       "/api/requests/[id]/comments",
       "/api/folders/[id]/comments",
       "/api/comments",
+      "/api/dependencies",
+      "/api/dependency-releases",
+      "/api/folders/[id]/releases",
       "/api/notifications",
     ];
     const documented = new Set(OPERATIONS.map(policyKey));
