@@ -1,0 +1,185 @@
+/**
+ * Collections as repository files (src/core/repository/model.ts): read them out, write them back with a
+ * guard against overwriting newer work, or create a new collection from them.
+ *
+ * Git (or any file tool) does the versioning, branching and merging of the files themselves; this module is
+ * the bridge. Pushing is refused unless the files were pulled from the collection as it is now, so what a
+ * push replaces is always what the author saw.
+ */
+import { z } from "zod";
+import {
+  buildSnapshot,
+  checksumOf,
+  countNodes,
+  diffSnapshots,
+  planMerge,
+  type MergePlan,
+  type Snapshot,
+} from "@/core/dependencies/model";
+import {
+  RepositoryError,
+  REPOSITORY_FORMAT,
+  filesToSnapshot,
+  snapshotToFiles,
+  type FileSet,
+} from "@/core/repository/model";
+import { currentCaller } from "./access-context";
+import { authorize } from "./authorize";
+import { applyPlan, materializeCollection, type CopyRef } from "./collection-merge";
+import { getDb } from "./db";
+import { HttpError } from "./errors";
+import * as repo from "./repo";
+import { assertStorage } from "./usage";
+
+const files = z.record(z.string().max(400), z.string());
+export const pushInput = z.object({
+  files,
+  /** Checksum from the pull the files came from. */
+  baseChecksum: z.string().optional(),
+  /** Remove requests and folders whose files are gone, and variables that were deleted. */
+  prune: z.boolean().default(false),
+  /** Push even though the collection changed since the pull. */
+  force: z.boolean().default(false),
+  dryRun: z.boolean().default(false),
+});
+export const importInput = z.object({ workspaceId: z.string().min(1), files });
+
+const asHttp = <T>(work: () => T): T => {
+  try {
+    return work();
+  } catch (error) {
+    if (error instanceof RepositoryError) throw new HttpError(400, error.message);
+    throw error;
+  }
+};
+
+function currentSnapshot(folderId: string, keepSecrets = false): { snapshot: Snapshot; workspaceId: string } {
+  const folder = repo.getFolder(folderId);
+  if (!folder) throw new HttpError(404, "Collection not found");
+  if (folder.parentId) throw new HttpError(400, "Only a whole collection can be exported, not a folder");
+  const tree = repo.getFolderTree(folderId);
+  if (!tree) throw new HttpError(404, "Collection not found");
+  return {
+    snapshot: buildSnapshot(
+      tree,
+      repo.listVariables(folder.workspaceId, "collection", folderId),
+      keepSecrets,
+    ),
+    workspaceId: folder.workspaceId,
+  };
+}
+
+/** The collection as files, with a checksum that identifies exactly this state. */
+export function exportFiles(folderId: string) {
+  const { snapshot, workspaceId } = currentSnapshot(folderId);
+  authorize(currentCaller(), workspaceId, "read");
+  return {
+    format: REPOSITORY_FORMAT,
+    collectionId: folderId,
+    checksum: checksumOf(snapshot),
+    files: snapshotToFiles(snapshot),
+  };
+}
+
+const identity = (snapshot: Snapshot, workspaceId: string, rootId: string): CopyRef => {
+  const map: Record<string, string> = {};
+  const walk = (n: Snapshot["root"]) => {
+    map[n.sid] = n.sid;
+    n.children.forEach(walk);
+  };
+  walk(snapshot.root);
+  return { workspaceId, kind: "collection", rootId, map, rootSid: rootId };
+};
+
+/** Put the children of each folder into the order the files record. */
+function applyOrder(incoming: Snapshot["root"], map: Record<string, string>) {
+  const visit = (node: Snapshot["root"]) => {
+    if (node.kind !== "folder") return;
+    const folderId = map[node.sid];
+    const wanted = node.children.map((c) => map[c.sid]).filter((id): id is string => !!id);
+    const tree = repo.getFolderTree(folderId);
+    const have = tree?.children.map((c) => c.id) ?? [];
+    const sameOrder = wanted.every((id, i) => have.filter((h) => wanted.includes(h))[i] === id);
+    if (!sameOrder)
+      wanted.forEach((id, i) => {
+        const child = node.children.find((c) => map[c.sid] === id)!;
+        repo.reorder(child.kind, id, folderId, i);
+      });
+    node.children.forEach(visit);
+  };
+  visit(incoming);
+}
+
+export function pushFiles(folderId: string, input: z.infer<typeof pushInput>) {
+  const { snapshot: current, workspaceId } = currentSnapshot(folderId);
+  authorize(currentCaller(), workspaceId, "write");
+  const checksum = checksumOf(current);
+  if (!input.force) {
+    if (!input.baseChecksum)
+      throw new HttpError(400, "baseChecksum is required: pull the collection first, or set force");
+    if (input.baseChecksum !== checksum)
+      throw new HttpError(
+        409,
+        "The collection changed since these files were pulled. Pull again, merge the changes in your repository, and push.",
+      );
+  }
+  const parsed = asHttp(() => filesToSnapshot(input.files));
+  if (parsed.snapshot.root.sid !== folderId && !parsed.snapshot.root.sid.startsWith("new:"))
+    throw new HttpError(409, "These files belong to a different collection");
+  // Address the files' own root as this collection regardless of how the file named it.
+  const incoming: Snapshot = {
+    ...parsed.snapshot,
+    root: { ...parsed.snapshot.root, sid: folderId },
+  };
+  let plan: MergePlan = planMerge(current, incoming, current);
+  let kept = 0;
+  if (!input.prune) {
+    // Without prune, what is missing from the files is left alone.
+    plan = {
+      ...plan,
+      entries: plan.entries.map((e) =>
+        e.action === "remove" ? (kept++, { ...e, action: "keep" as const }) : e,
+      ),
+      variables: plan.variables.map((v) =>
+        v.action === "remove" ? (kept++, { ...v, action: "keep" as const }) : v,
+      ),
+    };
+  }
+  const diff = diffSnapshots(current, incoming);
+  if (input.dryRun)
+    return { dryRun: true as const, diff, plan, ignored: parsed.ignored, checksum, skippedRemovals: kept };
+
+  assertStorage(workspaceId);
+  const own = currentSnapshot(folderId, true).snapshot;
+  const applied = getDb().transaction(() => {
+    const result = applyPlan(identity(current, workspaceId, folderId), plan, incoming, current, own);
+    applyOrder(incoming.root, result.map);
+    return result.counts;
+  });
+  const after = currentSnapshot(folderId).snapshot;
+  return {
+    dryRun: false as const,
+    applied,
+    ignored: parsed.ignored,
+    skippedRemovals: kept,
+    checksum: checksumOf(after),
+  };
+}
+
+/** Create a new collection in a workspace from repository files. */
+export function importFiles(input: z.infer<typeof importInput>) {
+  authorize(currentCaller(), input.workspaceId, "write");
+  assertStorage(input.workspaceId);
+  const parsed = asHttp(() => filesToSnapshot(input.files));
+  const made = getDb().transaction(() => materializeCollection(input.workspaceId, parsed.snapshot));
+  const after = currentSnapshot(made.rootId).snapshot;
+  return {
+    collectionId: made.rootId,
+    name: parsed.snapshot.name,
+    ...countNodes(parsed.snapshot),
+    ignored: parsed.ignored,
+    checksum: checksumOf(after),
+  };
+}
+
+export type { FileSet };

@@ -1,6 +1,8 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import nodePath from "node:path";
 import { createInterface } from "node:readline/promises";
 import { Command, InvalidArgumentError } from "commander";
+import { isRepositoryPath, validatePath } from "../core/repository/model";
 import { ApiClient } from "./client";
 import { CliError, EXIT } from "./errors";
 import { column, defaultFormat, printItem, printList, type Column, type Format } from "./output";
@@ -325,6 +327,108 @@ export function registerManagement(program: Command) {
         }),
       ),
     ),
+  );
+  collection
+    .command("pull <id>")
+    .description("Write a collection to a directory as stable, secret-free files you can keep in Git")
+    .requiredOption("-d, --dir <path>", "Directory to write into (created if missing)")
+    .option("--force", "Overwrite a directory that was pulled from a different collection")
+    .action(
+      act(async (ctx, [collectionId], command) => {
+        const options = command.opts<{ dir: string; force?: boolean }>();
+        const previous = await readRepoState(options.dir);
+        if (previous && previous.collectionId !== collectionId && !options.force)
+          throw new CliError(
+            `${options.dir} holds collection ${previous.collectionId}. Use --force to replace it.`,
+            EXIT.usage,
+          );
+        const pulled = await ctx.api.request<{ checksum: string; files: Record<string, string> }>(
+          "GET",
+          `/api/folders/${enc(collectionId)}/files`,
+        );
+        await mkdir(options.dir, { recursive: true });
+        // Files from the previous pull that the collection no longer has are removed; yours are left alone.
+        const stale = (previous?.files ?? []).filter((file) => !(file in pulled.files));
+        for (const rel of stale) {
+          try {
+            validatePath(rel);
+            await rm(nodePath.join(options.dir, ...rel.split("/")), { force: true });
+          } catch {
+            /* ignore a state entry that is not a safe path */
+          }
+        }
+        await writeRepositoryFiles(options.dir, pulled.files);
+        const state: RepoState = {
+          format: 1,
+          collectionId,
+          checksum: pulled.checksum,
+          files: Object.keys(pulled.files).sort(),
+        };
+        await writeFile(nodePath.join(options.dir, REPO_STATE), JSON.stringify(state, null, 2) + "\n");
+        out(
+          `Pulled ${state.files.length} file(s) to ${options.dir} (checksum ${pulled.checksum.slice(0, 12)})`,
+        );
+      }),
+    );
+  collection
+    .command("push")
+    .description("Apply edited files from a pulled directory back to the collection")
+    .requiredOption("-d, --dir <path>", "Directory created by `collection pull`")
+    .option("--prune", "Also remove requests, folders and variables whose files are gone")
+    .option("--force", "Push even if the collection changed since the pull")
+    .option("--dry-run", "Show what would change without changing anything")
+    .action(
+      act(async (ctx, _args, command) => {
+        const options = command.opts<{ dir: string; prune?: boolean; force?: boolean; dryRun?: boolean }>();
+        const state = await readRepoState(options.dir);
+        if (!state)
+          throw new CliError(
+            `${options.dir} was not created by \`collection pull\` (no ${REPO_STATE}).`,
+            EXIT.usage,
+          );
+        const files = await readRepositoryDir(options.dir);
+        const result = await ctx.api.request<Record<string, unknown>>(
+          "PUT",
+          `/api/folders/${enc(state.collectionId)}/files`,
+          {
+            body: {
+              files,
+              baseChecksum: state.checksum,
+              prune: !!options.prune,
+              force: !!options.force,
+              dryRun: !!options.dryRun,
+            },
+          },
+        );
+        ctx.show(result);
+        if (!options.dryRun && typeof result.checksum === "string") {
+          await writeFile(
+            nodePath.join(options.dir, REPO_STATE),
+            JSON.stringify(
+              { ...state, checksum: result.checksum, files: Object.keys(files).sort() },
+              null,
+              2,
+            ) + "\n",
+          );
+          console.error("Pushed. Run `postbox collection pull` again to give new files their ids.");
+        }
+      }),
+    );
+  withWorkspace(
+    collection
+      .command("import-dir <path>")
+      .description("Create a new collection from a directory of repository files"),
+  ).action(
+    act(async (ctx, [dirPath]) => {
+      const files = await readRepositoryDir(dirPath);
+      if (!Object.keys(files).length)
+        throw new CliError(`No repository files found in ${dirPath}.`, EXIT.usage);
+      ctx.show(
+        await ctx.api.request("POST", "/api/import/files", {
+          body: { workspaceId: await ctx.workspace(), files },
+        }),
+      );
+    }),
   );
   for (const [kind, parent] of [
     ["collection", collection],
@@ -1533,6 +1637,58 @@ export function registerManagement(program: Command) {
       );
     }),
   );
+}
+
+// ------------------------------------------------------------ repository files (LAB-96)
+
+const REPO_STATE = ".postbox-repo.json";
+interface RepoState {
+  format: number;
+  collectionId: string;
+  checksum: string;
+  files: string[];
+}
+
+/** Every repository file under `root`, as forward-slash relative paths. Symlinks and VCS folders are skipped. */
+async function readRepositoryDir(root: string): Promise<Record<string, string>> {
+  const found: Record<string, string> = {};
+  const walk = async (relative: string) => {
+    for (const entry of await readdir(nodePath.join(root, relative), { withFileTypes: true })) {
+      if (entry.isSymbolicLink() || entry.name === ".git" || entry.name === "node_modules") continue;
+      const rel = relative ? `${relative}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) await walk(rel);
+      else if (entry.isFile() && rel !== REPO_STATE && isRepositoryPath(rel))
+        found[rel] = await readFile(nodePath.join(root, rel), "utf8");
+    }
+  };
+  try {
+    await walk("");
+  } catch (error) {
+    throw new CliError(`Cannot read ${root}: ${(error as Error).message}`, EXIT.usage);
+  }
+  return found;
+}
+
+async function readRepoState(dir: string): Promise<RepoState | null> {
+  try {
+    return JSON.parse(await readFile(nodePath.join(dir, REPO_STATE), "utf8")) as RepoState;
+  } catch {
+    return null;
+  }
+}
+
+/** Write files below `dir`, refusing any path that would leave it. */
+async function writeRepositoryFiles(dir: string, files: Record<string, string>) {
+  for (const rel of Object.keys(files)) {
+    try {
+      validatePath(rel);
+    } catch {
+      throw new CliError(`The server sent an unsafe file path: ${rel}`, EXIT.server);
+    }
+    const target = nodePath.join(dir, ...rel.split("/"));
+    await mkdir(nodePath.dirname(target), { recursive: true });
+    await writeFile(target, files[rel]);
+  }
 }
 
 const enc = encodeURIComponent;
