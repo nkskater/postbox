@@ -17,22 +17,17 @@ import {
   checksumOf,
   countNodes,
   diffSnapshots,
-  flatten,
   planMerge,
-  resolveConflicts,
-  restoreLocalSecrets,
   type ConflictStrategy,
   type DependencyKind,
-  type MergePlan,
-  type SnapNode,
   type Snapshot,
 } from "@/core/dependencies/model";
-import type { FolderDef, FolderNode, RequestDef, TreeNode, Variable } from "@/core/types";
 import { currentCaller } from "./access-context";
 import { authorize, workspaceRole } from "./authorize";
 import { getDb, schema } from "./db";
 import { newId } from "./defaults";
 import { HttpError } from "./errors";
+import { applyPlan, materializeCollection, settle, snapshotOfCopy, type CopyRef } from "./collection-merge";
 import * as repo from "./repo";
 import { assertStorage } from "./usage";
 
@@ -205,22 +200,6 @@ function rootAndBase(row: ReleaseRow) {
   return { snapshot: row.snapshot, root: row.snapshot.root };
 }
 
-/** Create the folders and requests of `node` under `parent`, recording where each source node went. */
-function materialize(
-  workspaceId: string,
-  node: SnapNode,
-  parent: string | null,
-  map: Record<string, string>,
-) {
-  if (node.kind === "folder") {
-    const folder = repo.createFolder(workspaceId, parent, node.data as Partial<FolderDef>);
-    map[node.sid] = folder.id;
-    for (const child of node.children) materialize(workspaceId, child, folder.id, map);
-  } else {
-    map[node.sid] = repo.createRequest(workspaceId, parent!, node.data as Partial<RequestDef>).id;
-  }
-}
-
 export function installRelease(input: z.infer<typeof installInput>) {
   const caller = currentCaller();
   authorize(caller, input.workspaceId, "write");
@@ -229,17 +208,16 @@ export function installRelease(input: z.infer<typeof installInput>) {
   if (release.workspaceId === input.workspaceId)
     throw new HttpError(409, "This collection already lives in this workspace; install it into another one");
   assertStorage(input.workspaceId);
-  const { snapshot, root } = rootAndBase(release);
+  const { snapshot } = rootAndBase(release);
   const map: Record<string, string> = {};
   return getDb().transaction(() => {
     let folderId: string;
     if (release.kind === "environment") {
       folderId = repo.createEnvironment(input.workspaceId, snapshot.name, snapshot.variables).id;
     } else {
-      materialize(input.workspaceId, root, null, map);
-      folderId = map[root.sid];
-      if (snapshot.variables.length)
-        repo.replaceVariables(input.workspaceId, "collection", folderId, snapshot.variables);
+      const made = materializeCollection(input.workspaceId, snapshot);
+      folderId = made.rootId;
+      Object.assign(map, made.map);
     }
     const now = Date.now();
     const row: InstallRow = {
@@ -266,37 +244,15 @@ export function installRelease(input: z.infer<typeof installInput>) {
 
 // ------------------------------------------------------------------ the local copy
 
-const reverse = (map: Record<string, string>) =>
-  Object.fromEntries(Object.entries(map).map(([sid, id]) => [id, sid]));
-
 /** The local copy as a snapshot whose node ids are the source's, so it can be compared with a release. */
-function localSnapshot(row: InstallRow, keepSecrets = false): Snapshot | null {
-  if (row.kind === "environment") {
-    const env = repo.getEnvironment(row.folderId);
-    if (!env) return null;
-    return buildEnvironmentSnapshot(
-      { id: row.baseSnapshot.root.sid, name: env.name },
-      env.variables,
-      keepSecrets,
-    );
-  }
-  const tree = repo.getFolderTree(row.folderId);
-  if (!tree) return null;
-  const back = reverse(row.nodeMap);
-  const rename = (node: TreeNode): TreeNode =>
-    node.kind === "folder"
-      ? ({
-          ...node,
-          id: back[node.id] ?? `local:${node.id}`,
-          children: node.children.map(rename),
-        } as FolderNode)
-      : { ...node, id: back[node.id] ?? `local:${node.id}` };
-  return buildSnapshot(
-    rename(tree) as FolderNode,
-    repo.listVariables(row.workspaceId, "collection", row.folderId),
-    keepSecrets,
-  );
-}
+const copyOf = (row: InstallRow): CopyRef => ({
+  workspaceId: row.workspaceId,
+  kind: row.kind,
+  rootId: row.folderId,
+  map: row.nodeMap,
+  rootSid: row.baseSnapshot.root.sid,
+});
+const localSnapshot = (row: InstallRow, keepSecrets = false) => snapshotOfCopy(copyOf(row), keepSecrets);
 
 function sourceReleases(row: InstallRow): ReleaseRow[] {
   return getDb()
@@ -387,12 +343,6 @@ export function previewUpdate(id: string, releaseId?: string) {
   };
 }
 
-const depth = (nodes: ReturnType<typeof flatten>, sid: string) => {
-  let d = 0;
-  for (let c = nodes.get(sid)?.parent; c; c = nodes.get(c)?.parent) d++;
-  return d;
-};
-
 export function updateInstall(id: string, input: z.infer<typeof updateInput>) {
   const row = requireInstall(id);
   authorize(currentCaller(), row.workspaceId, "write");
@@ -401,96 +351,16 @@ export function updateInstall(id: string, input: z.infer<typeof updateInput>) {
   if (target.id === row.releaseId) throw new HttpError(409, `Already on ${target.version}`);
   const local = localSnapshot(row);
   if (!local) throw new HttpError(409, "The local copy no longer exists");
-  let plan: MergePlan = planMerge(row.baseSnapshot, target.snapshot, local);
-  if (plan.conflicts) {
-    if (input.strategy === "abort") {
-      const where = [
-        ...plan.entries.filter((e) => e.action === "conflict").map((e) => `${e.path} (${e.reason})`),
-        ...plan.variables
-          .filter((v) => v.action === "conflict")
-          .map((v) => `variable ${v.key} (${v.reason})`),
-      ];
-      throw new HttpError(
-        409,
-        `${plan.conflicts} conflict(s) with your edits: ${where.slice(0, 5).join("; ")}. Retry with strategy keep-local or take-incoming.`,
-      );
-    }
-    plan = resolveConflicts(plan, input.strategy);
-  }
-
-  const incoming = flatten(target.snapshot);
-  const current = flatten(local);
+  const plan = settle(
+    planMerge(row.baseSnapshot, target.snapshot, local),
+    input.strategy,
+    "Retry with strategy keep-local or take-incoming.",
+  );
   // The user's own credentials, which a comparison snapshot leaves out but an update must not lose.
-  const own = flatten(localSnapshot(row, true)!);
-  const map = { ...row.nodeMap };
-  const rootLocal = row.folderId;
-  const parentLocal = (sid: string | null) => (sid ? (map[sid] ?? rootLocal) : rootLocal);
-  const counts = { added: 0, updated: 0, removed: 0 };
+  const own = localSnapshot(row, true)!;
 
-  getDb().transaction(() => {
-    const action = new Map(plan.entries.map((e) => [e.sid, e.action]));
-    // Parents before children, so a new folder exists before the nodes that go inside it.
-    const isCollection = row.kind === "collection";
-    if (!isCollection) {
-      // An environment has no tree, only a name and its variables.
-      const rootEntry = plan.entries.find((e) => e.sid === target.snapshot.root.sid);
-      if (rootEntry?.action === "update") {
-        repo.renameEnvironment(rootLocal, String(target.snapshot.root.data.name ?? ""));
-        counts.updated++;
-      }
-    }
-    const ordered = isCollection
-      ? [...incoming.values()].sort((a, b) => depth(incoming, a.sid) - depth(incoming, b.sid))
-      : [];
-    for (const node of ordered) {
-      const act = action.get(node.sid);
-      if (act === "add") {
-        const parent = parentLocal(node.parent);
-        const data = node.data;
-        map[node.sid] =
-          node.kind === "folder"
-            ? repo.createFolder(row.workspaceId, parent, data as Partial<FolderDef>).id
-            : repo.createRequest(row.workspaceId, parent, data as Partial<RequestDef>).id;
-        counts.added++;
-      } else if (act === "update" && map[node.sid]) {
-        const merged = restoreLocalSecrets(node.data, own.get(node.sid)?.data) as Record<string, unknown>;
-        if (node.kind === "folder") repo.updateFolder(map[node.sid], merged as Partial<FolderDef>);
-        else repo.updateRequest(map[node.sid], merged as Partial<RequestDef>);
-        const before = current.get(node.sid);
-        if (before && before.parent !== node.parent && node.parent)
-          repo.reorder(node.kind, map[node.sid], parentLocal(node.parent), Number.MAX_SAFE_INTEGER);
-        counts.updated++;
-      }
-    }
-    // Deepest first, so a folder is removed after what was inside it.
-    const gone = (isCollection ? plan.entries : [])
-      .filter((e) => e.action === "remove" && map[e.sid])
-      .sort((a, b) => depth(current, b.sid) - depth(current, a.sid));
-    for (const e of gone) {
-      if (!repo.getFolder(map[e.sid]) && e.kind === "folder") {
-        delete map[e.sid];
-        continue;
-      }
-      if (e.kind === "folder") repo.deleteFolder(map[e.sid]);
-      else repo.deleteRequest(map[e.sid]);
-      delete map[e.sid];
-      counts.removed++;
-    }
-
-    // Variables: apply the plan key by key, never overwriting a secret the user filled in.
-    const scope = isCollection ? "collection" : "environment";
-    const have = new Map(repo.listVariables(row.workspaceId, scope, rootLocal).map((v) => [v.key, v]));
-    const wanted = new Map(target.snapshot.variables.map((v) => [v.key, v]));
-    for (const v of plan.variables) {
-      if (v.action === "remove") have.delete(v.key);
-      else if (v.action === "add" || v.action === "update") {
-        const next = wanted.get(v.key);
-        if (!next) have.delete(v.key);
-        else have.set(v.key, restoreLocalSecrets(next, have.get(v.key)) as Variable);
-      }
-    }
-    repo.replaceVariables(row.workspaceId, scope, rootLocal, [...have.values()]);
-
+  const applied = getDb().transaction(() => {
+    const result = applyPlan(copyOf(row), plan, target.snapshot, local, own);
     getDb()
       .update(installs)
       .set({
@@ -498,13 +368,14 @@ export function updateInstall(id: string, input: z.infer<typeof updateInput>) {
         version: target.version,
         checksum: target.checksum,
         baseSnapshot: target.snapshot,
-        nodeMap: map,
+        nodeMap: result.map,
         updatedAt: Date.now(),
       })
       .where(eq(installs.id, id))
       .run();
+    return result.counts;
   });
-  return { applied: counts, dependency: installView(requireInstall(id)) };
+  return { applied, dependency: installView(requireInstall(id)) };
 }
 
 /** Stop tracking a dependency. The local collection or environment stays unless `deleteCopy` is set. */

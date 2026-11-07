@@ -283,6 +283,39 @@ beforeAll(async () => {
       updatedAt: 1,
     })
     .run();
+  ids.fork = "access-fork";
+  getDb()
+    .insert(schema.collectionForks)
+    .values({
+      id: ids.fork,
+      workspaceId,
+      folderId: ids.folder,
+      parentWorkspaceId: workspaceId,
+      parentFolderId: ids.folder,
+      parentName: "Shared",
+      baseSnapshot: snapshot,
+      nodeMap: {},
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    .run();
+  ids.mergeRequest = "access-merge-request";
+  getDb()
+    .insert(schema.mergeRequests)
+    .values({
+      id: ids.mergeRequest,
+      workspaceId,
+      forkId: ids.fork,
+      forkWorkspaceId: workspaceId,
+      forkFolderId: ids.folder,
+      parentFolderId: ids.folder,
+      title: "Access",
+      status: "open",
+      createdByName: "x",
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    .run();
   ids.run = "saved-run";
   getDb()
     .insert(schema.runs)

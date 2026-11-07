@@ -11,6 +11,7 @@ import type { CatalogPublishInput, CatalogMetadataInput, CatalogSearchInput } fr
 import type * as graphServer from "@/server/graph";
 import type * as discussions from "@/server/comments";
 import type * as shared from "@/server/dependencies";
+import type * as forkServer from "@/server/forks";
 import type { ConflictStrategy, DependencyKind } from "@/core/dependencies/model";
 import type { CommentTarget } from "@/core/comments/model";
 import type { getDocumentation, publishDocumentation } from "@/server/documentation";
@@ -105,6 +106,7 @@ const COMMENT_ROUTES: Record<CommentTarget, string> = {
   request: "requests",
   folder: "folders",
   specification: "specifications",
+  mergeRequest: "merge-requests",
 };
 export const api = {
   telemetry: {
@@ -326,6 +328,48 @@ export const api = {
     delete: (id: string) => call<{ ok: boolean }>("DELETE", `/api/monitors/${id}`),
     retry: (id: string, deliveryId: string) =>
       call<{ ok: boolean }>("POST", `/api/monitors/${id}/retry-email`, { deliveryId }),
+  },
+  forks: {
+    listOf: (folderId: string) =>
+      call<ReturnType<typeof forkServer.listForksOf>>("GET", `/api/folders/${folderId}/forks`),
+    create: (folderId: string, workspaceId: string, name?: string) =>
+      call<ReturnType<typeof forkServer.forkCollection>>("POST", `/api/folders/${folderId}/forks`, {
+        workspaceId,
+        name,
+      }),
+    list: (workspaceId: string) =>
+      call<ReturnType<typeof forkServer.listForks>>("GET", `/api/forks?${q({ workspaceId })}`),
+    previewSync: (id: string) =>
+      call<ReturnType<typeof forkServer.previewSync>>("GET", `/api/forks/${id}/sync`),
+    sync: (id: string, strategy: ConflictStrategy) =>
+      call<ReturnType<typeof forkServer.syncFork>>("POST", `/api/forks/${id}/sync`, { strategy }),
+    remove: (id: string, deleteCopy = false) =>
+      call<{ removed: boolean }>("DELETE", `/api/forks/${id}${deleteCopy ? "?deleteCopy=1" : ""}`),
+    propose: (id: string, title: string, description: string) =>
+      call<ReturnType<typeof forkServer.mergeRequestView>>("POST", `/api/forks/${id}/merge-requests`, {
+        title,
+        description,
+      }),
+  },
+  mergeRequests: {
+    list: (workspaceId: string, status?: string) =>
+      call<ReturnType<typeof forkServer.listMergeRequests>>(
+        "GET",
+        `/api/merge-requests?${q({ workspaceId, status })}`,
+      ),
+    get: (id: string) =>
+      call<ReturnType<typeof forkServer.mergeRequestView>>("GET", `/api/merge-requests/${id}`),
+    review: (id: string, decision: "approve" | "reject", note: string) =>
+      call<ReturnType<typeof forkServer.mergeRequestView>>("POST", `/api/merge-requests/${id}/reviews`, {
+        decision,
+        note,
+      }),
+    merge: (id: string) =>
+      call<ReturnType<typeof forkServer.mergeMergeRequest>>("POST", `/api/merge-requests/${id}/merge`),
+    close: (id: string, note: string) =>
+      call<ReturnType<typeof forkServer.mergeRequestView>>("POST", `/api/merge-requests/${id}/close`, {
+        note,
+      }),
   },
   dependencies: {
     releases: (id: string, kind: DependencyKind = "collection") =>

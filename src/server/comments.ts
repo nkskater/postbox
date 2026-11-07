@@ -27,6 +27,9 @@ function resolveTarget(kind: CommentTarget, id: string): { workspaceId: string; 
   } else if (kind === "folder") {
     const f = db.select().from(schema.folders).where(eq(schema.folders.id, id)).get();
     if (f) return { workspaceId: f.workspaceId, revision: String(f.updatedAt) };
+  } else if (kind === "mergeRequest") {
+    const m = db.select().from(schema.mergeRequests).where(eq(schema.mergeRequests.id, id)).get();
+    if (m) return { workspaceId: m.workspaceId, revision: String(m.updatedAt) };
   } else {
     const s = db.select().from(schema.specifications).where(eq(schema.specifications.id, id)).get();
     if (s) return { workspaceId: s.workspaceId, revision: `v${s.revision}` };

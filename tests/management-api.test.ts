@@ -126,6 +126,9 @@ describe("contract and access policy", () => {
       "/api/dependencies",
       "/api/dependency-releases",
       "/api/folders/[id]/releases",
+      "/api/folders/[id]/forks",
+      "/api/forks",
+      "/api/merge-requests",
       "/api/environments/[id]/releases",
       "/api/notifications",
     ];

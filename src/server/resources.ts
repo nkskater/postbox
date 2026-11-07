@@ -29,6 +29,8 @@ export type ResourceKind =
   | "comment"
   | "dependency"
   | "dependencyRelease"
+  | "fork"
+  | "mergeRequest"
   | "telemetrySource";
 export const RESOURCE_TABLES: Record<ResourceKind, string> = {
   workspace: "workspaces",
@@ -58,6 +60,8 @@ export const RESOURCE_TABLES: Record<ResourceKind, string> = {
   comment: "comments",
   dependency: "dependency_installs",
   dependencyRelease: "dependency_releases",
+  fork: "collection_forks",
+  mergeRequest: "merge_requests",
   telemetrySource: "telemetry_sources",
 };
 export function resourceWorkspace(kind: ResourceKind, id: string): string {
