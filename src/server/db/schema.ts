@@ -1574,3 +1574,84 @@ export const dependencyInstalls = sqliteTable(
     index("dependency_installs_workspace_idx").on(t.workspaceId),
   ],
 );
+
+/** A collection created from another collection, remembering where it came from and what it started as. */
+export const collectionForks = sqliteTable(
+  "collection_forks",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    /** The fork: a collection in `workspaceId`. */
+    folderId: text("folder_id").notNull(),
+    parentWorkspaceId: text("parent_workspace_id").notNull(),
+    parentFolderId: text("parent_folder_id").notNull(),
+    parentName: text("parent_name").notNull(),
+    /** The parent as the fork last agreed with it (at forking, after a sync, or after a merge). */
+    baseSnapshot: text("base_snapshot", { mode: "json" })
+      .$type<import("@/core/dependencies/model").Snapshot>()
+      .notNull(),
+    /** Parent node id -> fork node id. */
+    nodeMap: text("node_map", { mode: "json" }).$type<Record<string, string>>().notNull(),
+    createdBy: text("created_by"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("collection_forks_folder_idx").on(t.folderId),
+    index("collection_forks_workspace_idx").on(t.workspaceId),
+    index("collection_forks_parent_idx").on(t.parentFolderId),
+  ],
+);
+/** A proposal to bring a fork's changes back into its parent collection. */
+export const mergeRequests = sqliteTable(
+  "merge_requests",
+  {
+    id: text("id").primaryKey(),
+    /** The parent's workspace: its members review and merge. */
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    forkId: text("fork_id")
+      .notNull()
+      .references(() => collectionForks.id, { onDelete: "cascade" }),
+    forkWorkspaceId: text("fork_workspace_id").notNull(),
+    forkFolderId: text("fork_folder_id").notNull(),
+    parentFolderId: text("parent_folder_id").notNull(),
+    title: text("title").notNull(),
+    description: text("description").notNull().default(""),
+    status: text("status").$type<import("@/core/review/model").MergeRequestStatus>().notNull(),
+    createdBy: text("created_by"),
+    createdByName: text("created_by_name").notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    closedAt: integer("closed_at"),
+    closedNote: text("closed_note"),
+    mergedAt: integer("merged_at"),
+    mergedByName: text("merged_by_name"),
+    /** What was merged, so a merged request still says what it did. */
+    mergedSummary: text("merged_summary", { mode: "json" }).$type<Record<string, number>>(),
+  },
+  (t) => [
+    index("merge_requests_workspace_idx").on(t.workspaceId, t.status),
+    index("merge_requests_fork_idx").on(t.forkId),
+  ],
+);
+export const mergeRequestReviews = sqliteTable(
+  "merge_request_reviews",
+  {
+    id: text("id").primaryKey(),
+    mergeRequestId: text("merge_request_id")
+      .notNull()
+      .references(() => mergeRequests.id, { onDelete: "cascade" }),
+    reviewerId: text("reviewer_id"),
+    reviewerName: text("reviewer_name").notNull(),
+    decision: text("decision").$type<import("@/core/review/model").ReviewDecision>().notNull(),
+    note: text("note").notNull().default(""),
+    /** Checksum of the fork's content when reviewed; a later change makes the review stale. */
+    headChecksum: text("head_checksum").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("merge_request_reviews_idx").on(t.mergeRequestId, t.createdAt)],
+);

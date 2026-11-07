@@ -675,3 +675,4 @@ Share pinned helpers across collections using **Packages** and `pm.require`. See
 - [API quality scorecards](docs/scorecards.md): weighted catalog, monitoring and governance quality with freshness, coverage and historical reports.
 - [Comments and review discussions](docs/comments.md): threaded comments, @mentions, resolve/reopen and notifications on requests, collections and specifications.
 - [Shared collection dependencies](docs/shared-dependencies.md): publish versioned, secret-free collections, install them in other workspaces and update with a three-way merge that keeps local edits.
+- [Forks and merge requests](docs/forks-and-merge-requests.md): fork a collection, keep it current with the original, and propose changes back through review with conflict detection and owner-only script changes.

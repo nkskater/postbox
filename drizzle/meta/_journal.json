@@ -288,6 +288,13 @@
       "when": 1794073705902,
       "tag": "0040_light_kulan_gath",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "6",
+      "when": 1794075435841,
+      "tag": "0041_demonic_santa_claus",
+      "breakpoints": true
     }
   ]
 }

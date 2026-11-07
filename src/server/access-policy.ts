@@ -60,6 +60,23 @@ export const REST_POLICIES: Record<string, Policy> = {
   "POST /api/folders/[id]/releases": p("resource", "write", "folder"),
   "GET /api/environments/[id]/releases": p("resource", "read", "environment"),
   "POST /api/environments/[id]/releases": p("resource", "write", "environment"),
+  "GET /api/folders/[id]/forks": p("resource", "read", "folder"),
+  // The destination workspace needs write access too; that is checked against it inside the handler.
+  "POST /api/folders/[id]/forks": p("resource", "read", "folder"),
+  "GET /api/forks": p("query", "read"),
+  "GET /api/forks/[id]": p("resource", "read", "fork"),
+  "DELETE /api/forks/[id]": p("resource", "write", "fork"),
+  "GET /api/forks/[id]/sync": p("resource", "read", "fork"),
+  "POST /api/forks/[id]/sync": p("resource", "write", "fork"),
+  "POST /api/forks/[id]/merge-requests": p("resource", "write", "fork"),
+  "GET /api/merge-requests": p("query", "read"),
+  "GET /api/merge-requests/[id]": p("resource", "read", "mergeRequest"),
+  "POST /api/merge-requests/[id]/reviews": p("resource", "write", "mergeRequest"),
+  "POST /api/merge-requests/[id]/merge": p("resource", "write", "mergeRequest"),
+  // Authors close their own requests, so this checks authorship or the owner role inside the handler.
+  "POST /api/merge-requests/[id]/close": p("resource", "read", "mergeRequest"),
+  "GET /api/merge-requests/[id]/comments": p("resource", "read", "mergeRequest"),
+  "POST /api/merge-requests/[id]/comments": p("resource", "read", "mergeRequest"),
   "GET /api/dependency-releases": p("query", "read"),
   // Visibility is decided per release (instance-wide or members of the source), so no single workspace applies.
   "GET /api/dependency-releases/[id]": p("account"),

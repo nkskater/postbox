@@ -354,6 +354,23 @@ export function deleteFolder(id: string) {
       .run();
     // A deleted collection is no longer an installed dependency.
     tx.delete(schema.dependencyInstalls).where(inArray(schema.dependencyInstalls.folderId, ids)).run();
+    // A deleted fork takes its merge requests, and their discussions, with it.
+    const forkIds = tx
+      .select({ id: schema.collectionForks.id })
+      .from(schema.collectionForks)
+      .where(inArray(schema.collectionForks.folderId, ids))
+      .all()
+      .map((f) => f.id);
+    if (forkIds.length) {
+      const mergeIds = tx
+        .select({ id: schema.mergeRequests.id })
+        .from(schema.mergeRequests)
+        .where(inArray(schema.mergeRequests.forkId, forkIds))
+        .all()
+        .map((m) => m.id);
+      discardComments(tx, "mergeRequest", mergeIds);
+      tx.delete(schema.collectionForks).where(inArray(schema.collectionForks.id, forkIds)).run();
+    }
     tx.delete(folders).where(inArray(folders.id, ids)).run();
   });
 }
@@ -457,13 +474,18 @@ export function updateRequest(id: string, patch: Partial<RequestDef>) {
 /** A discussion belongs to its element: remove it with the element. */
 function discardComments(
   tx: Pick<ReturnType<typeof getDb>, "delete">,
-  kind: "request" | "folder" | "specification",
+  kind: "request" | "folder" | "specification" | "mergeRequest",
   ids: string[],
 ) {
   if (ids.length)
     tx.delete(comments)
       .where(and(eq(comments.targetKind, kind), inArray(comments.targetId, ids)))
       .run();
+}
+
+/** Remove the discussion of merge requests that are going away. */
+export function discardMergeRequestComments(tx: Pick<ReturnType<typeof getDb>, "delete">, ids: string[]) {
+  discardComments(tx, "mergeRequest", ids);
 }
 
 export function deleteRequest(id: string) {

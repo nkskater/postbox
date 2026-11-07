@@ -17,6 +17,7 @@ import { AuthEditor } from "@/components/request/AuthEditor";
 import { KeyValueEditor } from "@/components/request/KeyValueEditor";
 import { ScriptEditor } from "@/components/request/ScriptEditor";
 import { CatalogPublisher } from "@/components/catalog/CatalogPublisher";
+import { ForkPanel } from "./ForkPanel";
 import { SharedPanel } from "./SharedPanel";
 import { CollectionSpecificationPanel } from "@/components/specifications/SpecificationSyncPanel";
 import { DocumentationEditor } from "./DocumentationEditor";
@@ -127,6 +128,11 @@ export function FolderEditor({ folderId }: { folderId: string }) {
             </TabsTrigger>
           )}
           {isCollection && (
+            <TabsTrigger value="forks" className="text-xs">
+              Forks
+            </TabsTrigger>
+          )}
+          {isCollection && (
             <TabsTrigger value="documentation" className="text-xs">
               Documentation
             </TabsTrigger>
@@ -162,6 +168,11 @@ export function FolderEditor({ folderId }: { folderId: string }) {
           {isCollection && (
             <TabsContent value="documentation" className="mt-0">
               <DocumentationEditor key={folderId} folderId={folderId} />
+            </TabsContent>
+          )}
+          {isCollection && (
+            <TabsContent value="forks" className="mt-0">
+              <ForkPanel key={folderId} folderId={folderId} name={data.name} />
             </TabsContent>
           )}
           {isCollection && (
