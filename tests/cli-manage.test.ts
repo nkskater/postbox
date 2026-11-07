@@ -107,6 +107,50 @@ function handler(req: http.IncomingMessage, res: http.ServerResponse) {
         return reply(200, { id: "rel1", revokedReason: JSON.parse(body).reason });
       case "DELETE /api/dependencies/d1":
         return reply(200, { removed: true });
+      case "POST /api/folders/c1/forks":
+        return reply(201, { id: "fk1", ...JSON.parse(body), status: "in-sync" });
+      case "GET /api/forks":
+        return reply(200, [
+          { id: "fk1", folderId: "c9", parentName: "Pets", status: "ahead", ahead: 2, behind: 0 },
+        ]);
+      case "GET /api/forks/fk1":
+        return reply(200, { id: "fk1", status: "behind" });
+      case "GET /api/forks/fk2":
+        return reply(200, { id: "fk2", status: "in-sync" });
+      case "GET /api/forks/fk1/sync":
+        return reply(200, { plan: { conflicts: 1 } });
+      case "POST /api/forks/fk1/sync":
+        return JSON.parse(body).strategy === "abort"
+          ? reply(409, { error: "1 conflict(s): List (changed here and upstream)" })
+          : reply(200, { applied: { added: 0, updated: 1, removed: 0 } });
+      case "POST /api/forks/fk1/merge-requests":
+        return reply(201, { id: "mr1", status: "open", ...JSON.parse(body) });
+      case "DELETE /api/forks/fk1":
+        return reply(200, { removed: true });
+      case "GET /api/merge-requests":
+        return reply(200, [
+          { id: "mr1", title: "Better", status: url.searchParams.get("status") ?? "open", role: "parent" },
+        ]);
+      case "GET /api/merge-requests/mr1":
+        return reply(200, {
+          id: "mr1",
+          status: "open",
+          open: {
+            readiness: { ok: false, reasons: ["It needs approval from someone other than its author"] },
+          },
+        });
+      case "GET /api/merge-requests/mr2":
+        return reply(200, { id: "mr2", status: "open", open: { readiness: { ok: true, reasons: [] } } });
+      case "GET /api/merge-requests/mr3":
+        return reply(200, { id: "mr3", status: "merged", open: null });
+      case "POST /api/merge-requests/mr1/reviews":
+        return reply(201, { id: "mr1", reviewed: JSON.parse(body) });
+      case "POST /api/merge-requests/mr1/merge":
+        return reply(409, { error: "It needs approval from someone other than its author" });
+      case "POST /api/merge-requests/mr2/merge":
+        return reply(200, { applied: { added: 1, updated: 0, removed: 0 } });
+      case "POST /api/merge-requests/mr1/close":
+        return reply(200, { id: "mr1", status: "closed", closedNote: JSON.parse(body).note });
       case "GET /api/mocks":
         return reply(200, [
           { id: "m1", name: "Pets mock", workspaceId: url.searchParams.get("workspaceId") },
@@ -644,6 +688,76 @@ describe("postbox management commands", () => {
     expect((await invoke(["dependency", "remove", "d1"], authed())).code).toBe(0);
     expect((await invoke(["dependency", "remove", "d1", "--delete-copy"], authed())).code).toBe(2);
     expect((await invoke(["dependency", "remove", "d1", "--delete-copy", "-y"], authed())).code).toBe(0);
+  });
+
+  it("forks, syncs and proposes changes through the command line", async () => {
+    const created = JSON.parse(
+      (await invoke(["fork", "create", "c1", "-w", "w2", "--name", "My fork", "-o", "json"], authed()))
+        .stdout,
+    );
+    expect(created).toMatchObject({ workspaceId: "w2", name: "My fork" });
+    const list = JSON.parse((await invoke(["fork", "list", "-w", "w2", "-o", "json"], authed())).stdout);
+    expect(list.items[0]).toMatchObject({ status: "ahead", ahead: 2 });
+
+    expect((await invoke(["fork", "status", "fk1"], authed())).code).toBe(0);
+    expect((await invoke(["fork", "status", "fk1", "--fail-on", "behind,diverged"], authed())).code).toBe(1);
+    expect((await invoke(["fork", "status", "fk2", "--fail-on", "behind,diverged"], authed())).code).toBe(0);
+
+    expect((await invoke(["fork", "sync", "fk1", "--preview"], authed())).code).toBe(0);
+    expect((await invoke(["fork", "sync", "fk1", "--preview", "--fail-on-conflict"], authed())).code).toBe(1);
+    // The default strategy stops on conflicts (a rejection, exit 5); choosing one applies.
+    expect((await invoke(["fork", "sync", "fk1"], authed())).code).toBe(5);
+    const synced = JSON.parse(
+      (await invoke(["fork", "sync", "fk1", "--strategy", "keep-local", "-o", "json"], authed())).stdout,
+    );
+    expect(synced.applied.updated).toBe(1);
+    expect((await invoke(["fork", "sync", "fk1", "--strategy", "nope"], authed())).code).toBe(2);
+
+    const proposed = JSON.parse(
+      (
+        await invoke(
+          ["fork", "propose", "fk1", "--title", "Better", "--description", "why", "-o", "json"],
+          authed(),
+        )
+      ).stdout,
+    );
+    expect(proposed).toMatchObject({ status: "open", title: "Better", description: "why" });
+    expect((await invoke(["fork", "propose", "fk1"], authed())).code).toBe(2);
+    expect((await invoke(["fork", "remove", "fk1"], authed())).code).toBe(0);
+    expect((await invoke(["fork", "remove", "fk1", "--delete-copy"], authed())).code).toBe(2);
+    expect((await invoke(["fork", "remove", "fk1", "--delete-copy", "-y"], authed())).code).toBe(0);
+  });
+
+  it("reviews and merges merge requests with CI-friendly exit codes", async () => {
+    const list = JSON.parse(
+      (await invoke(["mr", "list", "-w", "w1", "--status", "open", "-o", "json"], authed())).stdout,
+    );
+    expect(list.items[0]).toMatchObject({ id: "mr1", status: "open", role: "parent" });
+    expect((await invoke(["mr", "show", "mr1"], authed())).code).toBe(0);
+    const blocked = await invoke(["mr", "show", "mr1", "--fail-unless-mergeable"], authed());
+    expect(blocked.code).toBe(1);
+    expect(blocked.stderr).toContain("needs approval");
+    expect((await invoke(["mr", "show", "mr2", "--fail-unless-mergeable"], authed())).code).toBe(0);
+    expect((await invoke(["mr", "show", "mr3", "--fail-unless-mergeable"], authed())).code).toBe(1);
+
+    const approved = JSON.parse(
+      (await invoke(["mr", "approve", "mr1", "--note", "lgtm", "-o", "json"], authed())).stdout,
+    );
+    expect(approved.reviewed).toEqual({ decision: "approve", note: "lgtm" });
+    const rejected = JSON.parse(
+      (await invoke(["mr", "request-changes", "mr1", "-o", "json"], authed())).stdout,
+    );
+    expect(rejected.reviewed).toEqual({ decision: "reject", note: "" });
+
+    // A refused merge is a rejection (exit 5) that says why; an allowed one succeeds.
+    const refused = await invoke(["mr", "merge", "mr1"], authed());
+    expect(refused.code).toBe(5);
+    expect(refused.stderr).toContain("needs approval");
+    expect((await invoke(["mr", "merge", "mr2"], authed())).code).toBe(0);
+    const closed = JSON.parse(
+      (await invoke(["mr", "close", "mr1", "--note", "dropped", "-o", "json"], authed())).stdout,
+    );
+    expect(closed).toMatchObject({ status: "closed", closedNote: "dropped" });
   });
 
   it("keeps `run` available alongside management commands", async () => {
