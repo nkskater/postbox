@@ -76,7 +76,26 @@ All routes need an API key or session with access to the workspace involved.
 
 Status is one of `current`, `update-available`, `withdrawn`, `source-unavailable`.
 
+## Command line
+
+```sh
+postbox dependency publish <collectionId> 1.2.0 --notes "Adds paging" [--everyone]
+postbox dependency releases <collectionId>
+postbox dependency browse -w <workspace>             # releases you could install
+postbox dependency install <releaseId> -w <workspace>
+postbox dependency list -w <workspace>               # installed, with status and latest version
+postbox dependency status <id> --fail-on update-available,withdrawn
+postbox dependency preview <id> [--release <releaseId>] [--fail-on-conflict]
+postbox dependency update <id> [--release <releaseId>] [--strategy abort|keep-local|take-incoming]
+postbox dependency withdraw <releaseId> --reason "Broke auth"
+postbox dependency remove <id> [--delete-copy]
+```
+
+For CI: `status --fail-on` and `preview --fail-on-conflict` exit 1 when the state matches. `update` with the
+default `abort` strategy exits 5 (rejected) when your edits collide with the new version, and applies nothing.
+Deleting the copy asks for confirmation (`--yes` to skip).
+
 ## Not covered yet
 
-Environments and mock servers as dependency kinds, a CLI command, and review before publishing (waiting on
-the review workflow) are not part of this first version.
+Environments and mock servers as dependency kinds, and review before publishing (waiting on the review
+workflow), are not part of this first version.

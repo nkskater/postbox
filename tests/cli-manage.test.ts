@@ -74,6 +74,35 @@ function handler(req: http.IncomingMessage, res: http.ServerResponse) {
         return reply(200, JSON.parse(body).variables);
       case "POST /api/import":
         return reply(201, { kind: "imported", received: JSON.parse(body) });
+      case "GET /api/folders/c1/releases":
+        return reply(200, [
+          { id: "rel2", name: "Pets", version: "1.1.0", workspaceId: "w1", visibility: "workspace" },
+          { id: "rel1", name: "Pets", version: "1.0.0", workspaceId: "w1", visibility: "workspace" },
+        ]);
+      case "POST /api/folders/c1/releases":
+        return reply(201, { id: "rel3", ...JSON.parse(body) });
+      case "GET /api/dependency-releases":
+        return reply(200, [{ id: "rel1", name: "Pets", version: "1.0.0", workspaceId: "w1" }]);
+      case "GET /api/dependencies":
+        return reply(200, [
+          { id: "d1", name: "Pets", version: "1.0.0", status: "update-available", latestVersion: "1.1.0" },
+        ]);
+      case "POST /api/dependencies":
+        return reply(201, { id: "d2", ...JSON.parse(body), status: "current" });
+      case "GET /api/dependencies/d1":
+        return reply(200, { id: "d1", status: "update-available" });
+      case "GET /api/dependencies/d3":
+        return reply(200, { id: "d3", status: "current" });
+      case "GET /api/dependencies/d1/preview":
+        return reply(200, { plan: { conflicts: url.searchParams.get("releaseId") === "clean" ? 0 : 2 } });
+      case "POST /api/dependencies/d1/update":
+        return JSON.parse(body).strategy === "abort"
+          ? reply(409, { error: "2 conflict(s) with your edits" })
+          : reply(200, { applied: { added: 1, updated: 2, removed: 0 } });
+      case "POST /api/dependency-releases/rel1/revoke":
+        return reply(200, { id: "rel1", revokedReason: JSON.parse(body).reason });
+      case "DELETE /api/dependencies/d1":
+        return reply(200, { removed: true });
       case "GET /api/mocks":
         return reply(200, [
           { id: "m1", name: "Pets mock", workspaceId: url.searchParams.get("workspaceId") },
@@ -529,6 +558,78 @@ describe("postbox management commands", () => {
     expect((await invoke(["workspace", "list"], {})).code).toBe(3);
     expect((await invoke(["profile", "remove", "nope"])).code).toBe(2);
     expect((await invoke(["profile", "add", "bad", "https://u:p@example.com"])).code).toBe(2);
+  });
+
+  it("publishes, installs and updates shared collection dependencies", async () => {
+    seen.length = 0;
+    const releases = JSON.parse(
+      (await invoke(["dependency", "releases", "c1", "-o", "json"], authed())).stdout,
+    );
+    expect(releases.items.map((r: { version: string }) => r.version)).toEqual(["1.1.0", "1.0.0"]);
+
+    const published = JSON.parse(
+      (
+        await invoke(
+          ["dependency", "publish", "c1", "2.0.0", "--notes", "Big", "--everyone", "-o", "json"],
+          authed(),
+        )
+      ).stdout,
+    );
+    expect(published).toMatchObject({ version: "2.0.0", notes: "Big", visibility: "instance" });
+    const workspaceOnly = JSON.parse(
+      (await invoke(["dependency", "publish", "c1", "2.1.0", "-o", "json"], authed())).stdout,
+    );
+    expect(workspaceOnly).toMatchObject({ notes: "", visibility: "workspace" });
+
+    expect((await invoke(["dependency", "browse", "-w", "w2", "-o", "json"], authed())).code).toBe(0);
+    const installed = JSON.parse(
+      (await invoke(["dependency", "install", "rel1", "-w", "w2", "-o", "json"], authed())).stdout,
+    );
+    expect(installed).toMatchObject({ workspaceId: "w2", releaseId: "rel1" });
+    const list = JSON.parse(
+      (await invoke(["dependency", "list", "-w", "w2", "-o", "json"], authed())).stdout,
+    );
+    expect(list.items[0]).toMatchObject({ status: "update-available", latestVersion: "1.1.0" });
+  });
+
+  it("gives scripts exit codes for stale dependencies and conflicting updates", async () => {
+    // Informational by default; --fail-on turns a state into exit 1.
+    expect((await invoke(["dependency", "status", "d1"], authed())).code).toBe(0);
+    expect(
+      (await invoke(["dependency", "status", "d1", "--fail-on", "update-available"], authed())).code,
+    ).toBe(1);
+    expect((await invoke(["dependency", "status", "d1", "--fail-on", "withdrawn"], authed())).code).toBe(0);
+    expect(
+      (await invoke(["dependency", "status", "d3", "--fail-on", "update-available"], authed())).code,
+    ).toBe(0);
+
+    expect((await invoke(["dependency", "preview", "d1"], authed())).code).toBe(0);
+    expect((await invoke(["dependency", "preview", "d1", "--fail-on-conflict"], authed())).code).toBe(1);
+    expect(
+      (await invoke(["dependency", "preview", "d1", "--release", "clean", "--fail-on-conflict"], authed()))
+        .code,
+    ).toBe(0);
+
+    // The default strategy stops on conflicts (the server's 409 is a rejection, exit 5).
+    expect((await invoke(["dependency", "update", "d1"], authed())).code).toBe(5);
+    const resolved = JSON.parse(
+      (await invoke(["dependency", "update", "d1", "--strategy", "keep-local", "-o", "json"], authed()))
+        .stdout,
+    );
+    expect(resolved.applied).toEqual({ added: 1, updated: 2, removed: 0 });
+    expect((await invoke(["dependency", "update", "d1", "--strategy", "nope"], authed())).code).toBe(2);
+  });
+
+  it("withdraws a release and removes a dependency, confirming destructive actions", async () => {
+    const withdrawn = JSON.parse(
+      (await invoke(["dependency", "withdraw", "rel1", "--reason", "bad auth", "-o", "json"], authed()))
+        .stdout,
+    );
+    expect(withdrawn.revokedReason).toBe("bad auth");
+    expect((await invoke(["dependency", "withdraw", "rel1"], authed())).code).toBe(2);
+    expect((await invoke(["dependency", "remove", "d1"], authed())).code).toBe(0);
+    expect((await invoke(["dependency", "remove", "d1", "--delete-copy"], authed())).code).toBe(2);
+    expect((await invoke(["dependency", "remove", "d1", "--delete-copy", "-y"], authed())).code).toBe(0);
   });
 
   it("keeps `run` available alongside management commands", async () => {
