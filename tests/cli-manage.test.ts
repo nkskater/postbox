@@ -199,6 +199,26 @@ function handler(req: http.IncomingMessage, res: http.ServerResponse) {
           checksum: "env-chk-bbbbbbbbbbbbbbbb",
         });
       }
+      case "GET /api/specifications/s1/files":
+        return reply(200, {
+          checksum: "4",
+          files: {
+            "specification.json":
+              '{"format":1,"id":"s1","name":"Pets","specification":"openapi","entrypoint":"openapi.yaml"}\n',
+            "source/openapi.yaml": "openapi: 3.0.0\n",
+            "source/schemas/pet.yaml": "type: object\n",
+          },
+        });
+      case "PUT /api/specifications/s1/files": {
+        const input = JSON.parse(body);
+        return reply(200, {
+          dryRun: !!input.dryRun,
+          received: Object.keys(input.files).sort(),
+          baseChecksum: input.baseChecksum,
+          checksum: "5",
+          revision: 5,
+        });
+      }
       case "GET /api/mocks":
         return reply(200, [
           { id: "m1", name: "Pets mock", workspaceId: url.searchParams.get("workspaceId") },
@@ -920,6 +940,37 @@ describe("postbox management commands", () => {
     const collectionDir = path.join(directory, "env-b");
     await invoke(["collection", "pull", "c1", "--dir", collectionDir], authed());
     expect((await invoke(["env", "push", "--dir", collectionDir], authed())).code).toBe(2);
+  });
+
+  it("pulls and pushes a specification, writing its sources under source/", async () => {
+    const specDir = path.join(directory, "spec-a");
+    const pulled = await invoke(["spec", "pull", "s1", "--dir", specDir], authed());
+    expect(pulled.code).toBe(0);
+    expect(pulled.stdout).toContain("Pulled 3 file(s)");
+    expect(await readFile(path.join(specDir, "source", "schemas", "pet.yaml"), "utf8")).toBe(
+      "type: object\n",
+    );
+    expect(JSON.parse(await readFile(path.join(specDir, ".postbox-repo.json"), "utf8"))).toMatchObject({
+      kind: "specification",
+      collectionId: "s1",
+      checksum: "4",
+    });
+
+    await writeFile(path.join(specDir, "source", "openapi.yaml"), "openapi: 3.0.1\n");
+    await writeFile(path.join(specDir, "notes.txt"), "not sent");
+    const pushed = JSON.parse(
+      (await invoke(["spec", "push", "--dir", specDir, "-o", "json"], authed())).stdout,
+    );
+    expect(pushed).toMatchObject({
+      baseChecksum: "4",
+      revision: 5,
+      received: ["source/openapi.yaml", "source/schemas/pet.yaml", "specification.json"],
+    });
+    expect(JSON.parse(await readFile(path.join(specDir, ".postbox-repo.json"), "utf8")).checksum).toBe("5");
+    // A specification directory is not a collection one.
+    const wrong = await invoke(["collection", "push", "--dir", specDir], authed());
+    expect(wrong.code).toBe(2);
+    expect(wrong.stderr).toContain("spec push");
   });
 
   it("creates a collection from a directory of files", async () => {

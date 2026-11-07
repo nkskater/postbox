@@ -12,6 +12,7 @@ const repo = await import("@/server/repo");
 const { withCaller } = await import("@/server/access-context");
 const { setMember } = await import("@/server/authorize");
 const svc = await import("@/server/repository");
+const specs = await import("@/server/specifications");
 const caller = (user: UserRow): Caller => ({ kind: "user", user, via: "session" });
 const as = <T>(u: UserRow, fn: () => T) => withCaller(caller(u), fn);
 
@@ -375,6 +376,134 @@ describe("environments as repository files", () => {
     ).toEqual({ host: "stg.test", token: "" });
     expect(() =>
       as(owner, () => svc.importFiles({ workspaceId: ws2, files: { "variables.json": "[]" } })),
-    ).toThrow(/Neither/);
+    ).toThrow(/None of/);
+  });
+});
+
+describe("specifications as repository files", () => {
+  const openapi = (title: string) => `openapi: 3.0.0\ninfo:\n  title: ${title}\n  version: "1"\npaths: {}\n`;
+  const makeSpec = (name: string) =>
+    as(owner, () =>
+      specs.createSpecification({
+        workspaceId: ws,
+        name,
+        format: "openapi",
+        entrypoint: "openapi.yaml",
+        files: [{ path: "openapi.yaml", content: openapi("v1") }],
+        label: "first",
+      }),
+    ).id;
+  const pullSpec = (id: string) => as(owner, () => svc.exportSpecificationFiles(id));
+  const pushSpec = (
+    id: string,
+    files: Record<string, string>,
+    extra: Partial<Parameters<typeof svc.pushSpecificationFiles>[1]> = {},
+    who = owner,
+  ) =>
+    as(who, () =>
+      svc.pushSpecificationFiles(id, { files, prune: false, force: false, dryRun: false, ...extra }),
+    );
+  const stored = (id: string) => as(owner, () => specs.getSpecification(id));
+
+  it("pulls the current revision as files", () => {
+    const id = makeSpec("Pull spec");
+    const p = pullSpec(id);
+    expect(p).toMatchObject({ kind: "specification", revision: 1, checksum: "1" });
+    expect(Object.keys(p.files).sort()).toEqual(["source/openapi.yaml", "specification.json"]);
+    expect(p.files["source/openapi.yaml"]).toBe(openapi("v1"));
+    expect(pullSpec(id)).toEqual(p);
+    expect(() => as(outsider, () => svc.exportSpecificationFiles(id))).toThrow(/not found/i);
+  });
+
+  it("saves edited files as the next revision, with added and removed sources", () => {
+    const id = makeSpec("Edit spec");
+    const p = pullSpec(id);
+    const files = {
+      ...p.files,
+      "source/openapi.yaml": openapi("v2"),
+      "source/schemas/pet.yaml": "type: object\n",
+      "specification.json": JSON.stringify({
+        ...JSON.parse(p.files["specification.json"]),
+        name: "Edit spec (renamed)",
+        label: "second",
+      }),
+    };
+    const r = pushSpec(id, files, { baseChecksum: p.checksum });
+    expect(r).toMatchObject({ dryRun: false, changed: true, revision: 2, checksum: "2" });
+    expect(r.dryRun === false && r.diff).toMatchObject({
+      added: ["schemas/pet.yaml"],
+      changed: ["openapi.yaml"],
+      renamed: "Edit spec (renamed)",
+    });
+    const now = stored(id);
+    expect(now).toMatchObject({ name: "Edit spec (renamed)", revision: 2, label: "second" });
+    expect(now.files.map((f) => f.path).sort()).toEqual(["openapi.yaml", "schemas/pet.yaml"]);
+    // Dropping a source file removes it from the new revision; the old revision is kept.
+    const p2 = pullSpec(id);
+    const slim = { ...p2.files };
+    delete slim["source/schemas/pet.yaml"];
+    const r2 = pushSpec(id, slim, { baseChecksum: p2.checksum });
+    expect(r2.dryRun === false && r2.diff.removed).toEqual(["schemas/pet.yaml"]);
+    expect(as(owner, () => specs.getSpecification(id, 2)).files).toHaveLength(2);
+    expect(stored(id).files).toHaveLength(1);
+  });
+
+  it("does nothing for unchanged files, previews with a dry run, and refuses stale pushes", () => {
+    const id = makeSpec("Guard spec");
+    const p = pullSpec(id);
+    expect(pushSpec(id, p.files, { baseChecksum: p.checksum })).toMatchObject({
+      changed: false,
+      revision: 1,
+    });
+    expect(stored(id).revision).toBe(1);
+    const edited = { ...p.files, "source/openapi.yaml": openapi("edited") };
+    const dry = pushSpec(id, edited, { baseChecksum: p.checksum, dryRun: true });
+    expect(dry.dryRun && dry.diff.changed).toEqual(["openapi.yaml"]);
+    expect(stored(id).revision).toBe(1);
+    pushSpec(id, edited, { baseChecksum: p.checksum });
+    expect(() =>
+      pushSpec(id, { ...p.files, "source/openapi.yaml": openapi("late") }, { baseChecksum: p.checksum }),
+    ).toThrow(/changed since/);
+    expect(() => pushSpec(id, edited)).toThrow(/baseChecksum is required/);
+    expect(
+      pushSpec(id, { ...p.files, "source/openapi.yaml": openapi("forced") }, { force: true }),
+    ).toMatchObject({ revision: 3 });
+  });
+
+  it("rejects other specifications, a changed format, bad files and unauthorized pushes", () => {
+    const a = makeSpec("A spec");
+    const b = makeSpec("B spec");
+    const pa = pullSpec(a);
+    expect(() => pushSpec(b, pa.files, { force: true })).toThrow(/different specification/);
+    const asGraphql = {
+      ...pa.files,
+      "specification.json": JSON.stringify({
+        ...JSON.parse(pa.files["specification.json"]),
+        specification: "graphql",
+      }),
+    };
+    expect(() => pushSpec(a, asGraphql, { baseChecksum: pa.checksum })).toThrow(/cannot become/);
+    expect(() =>
+      pushSpec(a, { ...pa.files, "specification.json": "{ nope" }, { baseChecksum: pa.checksum }),
+    ).toThrow(/specification\.json/);
+    expect(() => pushSpec(a, pull(setup("Coll").root).files, { force: true })).toThrow(
+      /do not describe a specification/,
+    );
+    expect(() => pushSpec(a, pa.files, { baseChecksum: pa.checksum }, viewer)).toThrow(/Insufficient/);
+    expect(() => pushSpec(a, pa.files, { baseChecksum: pa.checksum }, outsider)).toThrow(/not found/i);
+  });
+
+  it("imports a specification as a new document", () => {
+    const id = makeSpec("Source spec");
+    const p = pullSpec(id);
+    const made = as(owner, () => svc.importFiles({ workspaceId: ws2, files: p.files })) as Extract<
+      ReturnType<typeof svc.importFiles>,
+      { kind: "specification" }
+    >;
+    expect(made).toMatchObject({ kind: "specification", name: "Source spec", revision: 1, files: 1 });
+    expect(made.specificationId).not.toBe(id);
+    expect(as(owner, () => specs.getSpecification(made.specificationId)).files[0].content).toBe(
+      openapi("v1"),
+    );
   });
 });

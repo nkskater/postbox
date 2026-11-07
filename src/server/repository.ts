@@ -23,8 +23,10 @@ import {
   environmentToFiles,
   filesToEnvironment,
   filesToSnapshot,
+  filesToSpecification,
   repositoryKind,
   snapshotToFiles,
+  specificationToFiles,
   type FileSet,
 } from "@/core/repository/model";
 import { currentCaller } from "./access-context";
@@ -33,6 +35,12 @@ import { applyPlan, materializeCollection, type CopyRef } from "./collection-mer
 import { getDb } from "./db";
 import { HttpError } from "./errors";
 import * as repo from "./repo";
+import {
+  createSpecification,
+  getSpecification,
+  requireSpecification,
+  saveSpecification,
+} from "./specifications";
 import { assertStorage } from "./usage";
 
 const files = z.record(z.string().max(400), z.string());
@@ -190,6 +198,24 @@ export function importFiles(input: z.infer<typeof importInput>) {
       checksum: checksumOf(after),
     };
   }
+  if (kind === "specification") {
+    const spec = asHttp(() => filesToSpecification(input.files));
+    const created = createSpecification({
+      workspaceId: input.workspaceId,
+      name: spec.name,
+      label: spec.label,
+      ...spec.source,
+    });
+    return {
+      kind,
+      specificationId: created.id,
+      name: created.name,
+      revision: created.revision,
+      files: spec.source.files.length,
+      ignored: spec.ignored,
+      checksum: String(created.revision),
+    };
+  }
   const parsed = asHttp(() => filesToSnapshot(input.files));
   const made = getDb().transaction(() => materializeCollection(input.workspaceId, parsed.snapshot));
   const after = currentSnapshot(made.rootId).snapshot;
@@ -276,6 +302,96 @@ export function pushEnvironmentFiles(id: string, input: z.infer<typeof pushInput
     ignored: parsed.ignored,
     skippedRemovals: kept,
     checksum: checksumOf(currentEnvironment(id).snapshot),
+  };
+}
+
+// ------------------------------------------------------------------ specifications
+
+/**
+ * A specification as files. Its saved revision is the checksum: a push is only accepted against the
+ * revision it was pulled from, and becomes the next revision.
+ */
+export function exportSpecificationFiles(id: string) {
+  requireSpecification(id);
+  const spec = getSpecification(id);
+  return {
+    format: REPOSITORY_FORMAT,
+    kind: "specification" as const,
+    specificationId: id,
+    revision: spec.revision,
+    checksum: String(spec.revision),
+    files: specificationToFiles({
+      id,
+      name: spec.name,
+      label: spec.label,
+      format: spec.format,
+      entrypoint: spec.entrypoint,
+      files: spec.files,
+    }),
+  };
+}
+
+export function pushSpecificationFiles(id: string, input: z.infer<typeof pushInput>) {
+  const row = requireSpecification(id, "write");
+  if (!input.force) {
+    if (!input.baseChecksum)
+      throw new HttpError(400, "baseChecksum is required: pull the specification first, or set force");
+    if (input.baseChecksum !== String(row.revision))
+      throw new HttpError(
+        409,
+        "The specification changed since these files were pulled. Pull again, merge the changes in your repository, and push.",
+      );
+  }
+  if (asHttp(() => repositoryKind(input.files)) !== "specification")
+    throw new HttpError(409, "These files do not describe a specification");
+  const parsed = asHttp(() => filesToSpecification(input.files));
+  if (parsed.id && parsed.id !== id)
+    throw new HttpError(409, "These files belong to a different specification");
+  if (parsed.source.format !== row.format)
+    throw new HttpError(409, `A ${row.format} specification cannot become ${parsed.source.format}`);
+  const current = getSpecification(id);
+  const before = new Map(current.files.map((f) => [f.path, f.content]));
+  const after = new Map(parsed.source.files.map((f) => [f.path, f.content]));
+  const diff = {
+    added: [...after.keys()].filter((p) => !before.has(p)).sort(),
+    removed: [...before.keys()].filter((p) => !after.has(p)).sort(),
+    changed: [...after.keys()].filter((p) => before.has(p) && before.get(p) !== after.get(p)).sort(),
+    entrypoint: current.entrypoint === parsed.source.entrypoint ? null : parsed.source.entrypoint,
+    renamed: current.name === parsed.name ? null : parsed.name,
+  };
+  const identical =
+    !diff.added.length && !diff.removed.length && !diff.changed.length && !diff.entrypoint && !diff.renamed;
+  if (input.dryRun)
+    return {
+      dryRun: true as const,
+      diff,
+      identical,
+      ignored: parsed.ignored,
+      checksum: String(row.revision),
+    };
+  if (identical)
+    return {
+      dryRun: false as const,
+      changed: false,
+      diff,
+      ignored: parsed.ignored,
+      checksum: String(row.revision),
+      revision: row.revision,
+    };
+  const saved = saveSpecification(id, {
+    expectedRevision: row.revision,
+    entrypoint: parsed.source.entrypoint,
+    files: parsed.source.files,
+    name: parsed.name,
+    label: parsed.label,
+  });
+  return {
+    dryRun: false as const,
+    changed: true,
+    diff,
+    ignored: parsed.ignored,
+    checksum: String(saved.revision),
+    revision: saved.revision,
   };
 }
 

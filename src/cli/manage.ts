@@ -357,7 +357,9 @@ export function registerManagement(program: Command) {
   withWorkspace(
     collection
       .command("import-dir <path>")
-      .description("Create a new collection (or environment) from a directory of repository files"),
+      .description(
+        "Create a new collection, environment or specification from a directory of repository files",
+      ),
   ).action(
     act(async (ctx, [dirPath]) => {
       const files = await readRepositoryDir(dirPath);
@@ -1364,6 +1366,33 @@ export function registerManagement(program: Command) {
       throw new InvalidArgumentError("Use abort, keep-local or take-incoming.");
     return value;
   };
+  const spec = group(program, "spec", "Keep API specifications as files in a repository");
+  spec
+    .command("pull <id>")
+    .description("Write a specification to a directory (specification.json + source/) you can keep in Git")
+    .requiredOption("-d, --dir <path>", "Directory to write into (created if missing)")
+    .option("--force", "Overwrite a directory that was pulled from something else")
+    .action(
+      act(async (ctx, [specId], command) =>
+        pullRepository(ctx, "specification", specId, command.opts<PullOptions>()),
+      ),
+    );
+  spec
+    .command("push")
+    .description("Save edited files from a pulled directory as the specification's next revision")
+    .requiredOption("-d, --dir <path>", "Directory created by `spec pull`")
+    .option("--force", "Push even if the specification changed since the pull")
+    .option("--dry-run", "Show which files would change without saving")
+    .action(
+      act(async (ctx, _args, command) =>
+        pushRepository(
+          ctx,
+          "specification",
+          command.opts<{ dir: string; force?: boolean; dryRun?: boolean }>(),
+        ),
+      ),
+    );
+
   const fork = group(program, "fork", "Fork collections, keep forks current and propose changes back");
   const forkColumns = [
     id,
@@ -1611,15 +1640,25 @@ const REPO_STATE = ".postbox-repo.json";
 interface RepoState {
   format: number;
   /** Absent in directories written before environments were supported: those are collections. */
-  kind?: "collection" | "environment";
+  kind?: "collection" | "environment" | "specification";
   /** The id of the collection or environment this directory mirrors. */
   collectionId: string;
   checksum: string;
   files: string[];
 }
-type RepoKind = "collection" | "environment";
-const repoPath = (kind: RepoKind, id: string) =>
-  `/api/${kind === "environment" ? "environments" : "folders"}/${encodeURIComponent(id)}/files`;
+type RepoKind = "collection" | "environment" | "specification";
+const REPO_ROUTES: Record<RepoKind, string> = {
+  collection: "folders",
+  environment: "environments",
+  specification: "specifications",
+};
+/** The command word that owns each kind, used in messages. */
+const REPO_COMMAND: Record<RepoKind, string> = {
+  collection: "collection",
+  environment: "env",
+  specification: "spec",
+};
+const repoPath = (kind: RepoKind, id: string) => `/api/${REPO_ROUTES[kind]}/${encodeURIComponent(id)}/files`;
 
 /** Every repository file under `root`, as forward-slash relative paths. Symlinks and VCS folders are skipped. */
 async function readRepositoryDir(root: string): Promise<Record<string, string>> {
@@ -1711,7 +1750,7 @@ async function pushRepository(
   options: { dir: string; prune?: boolean; force?: boolean; dryRun?: boolean },
 ) {
   const state = await readRepoState(options.dir);
-  const command = kind === "environment" ? "env" : "collection";
+  const command = REPO_COMMAND[kind];
   if (!state)
     throw new CliError(
       `${options.dir} was not created by \`${command} pull\` (no ${REPO_STATE}).`,
@@ -1719,7 +1758,7 @@ async function pushRepository(
     );
   if ((state.kind ?? "collection") !== kind)
     throw new CliError(
-      `${options.dir} holds a ${state.kind ?? "collection"}; use \`${state.kind === "environment" ? "env" : "collection"} push\`.`,
+      `${options.dir} holds a ${state.kind ?? "collection"}; use \`${REPO_COMMAND[state.kind ?? "collection"]} push\`.`,
       EXIT.usage,
     );
   const files = await readRepositoryDir(options.dir);
