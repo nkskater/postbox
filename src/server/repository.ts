@@ -8,6 +8,7 @@
  */
 import { z } from "zod";
 import {
+  buildEnvironmentSnapshot,
   buildSnapshot,
   checksumOf,
   countNodes,
@@ -19,7 +20,10 @@ import {
 import {
   RepositoryError,
   REPOSITORY_FORMAT,
+  environmentToFiles,
+  filesToEnvironment,
   filesToSnapshot,
+  repositoryKind,
   snapshotToFiles,
   type FileSet,
 } from "@/core/repository/model";
@@ -166,19 +170,112 @@ export function pushFiles(folderId: string, input: z.infer<typeof pushInput>) {
   };
 }
 
-/** Create a new collection in a workspace from repository files. */
+/** Create a new collection, or environment, in a workspace from repository files. */
 export function importFiles(input: z.infer<typeof importInput>) {
   authorize(currentCaller(), input.workspaceId, "write");
   assertStorage(input.workspaceId);
+  const kind = asHttp(() => repositoryKind(input.files));
+  if (kind === "environment") {
+    const parsed = asHttp(() => filesToEnvironment(input.files));
+    const env = getDb().transaction(() =>
+      repo.createEnvironment(input.workspaceId, parsed.snapshot.name, parsed.snapshot.variables),
+    );
+    const after = buildEnvironmentSnapshot(env, env.variables);
+    return {
+      kind,
+      environmentId: env.id,
+      name: env.name,
+      variables: env.variables.length,
+      ignored: parsed.ignored,
+      checksum: checksumOf(after),
+    };
+  }
   const parsed = asHttp(() => filesToSnapshot(input.files));
   const made = getDb().transaction(() => materializeCollection(input.workspaceId, parsed.snapshot));
   const after = currentSnapshot(made.rootId).snapshot;
   return {
+    kind,
     collectionId: made.rootId,
     name: parsed.snapshot.name,
     ...countNodes(parsed.snapshot),
     ignored: parsed.ignored,
     checksum: checksumOf(after),
+  };
+}
+
+// ------------------------------------------------------------------ environments
+
+function currentEnvironment(id: string, keepSecrets = false) {
+  const env = repo.getEnvironment(id);
+  if (!env) throw new HttpError(404, "Environment not found");
+  return { env, snapshot: buildEnvironmentSnapshot(env, env.variables, keepSecrets) };
+}
+
+/** An environment as files (`environment.json`, `variables.json`), with the checksum to push against. */
+export function exportEnvironmentFiles(id: string) {
+  const { env, snapshot } = currentEnvironment(id);
+  authorize(currentCaller(), env.workspaceId, "read");
+  return {
+    format: REPOSITORY_FORMAT,
+    kind: "environment" as const,
+    environmentId: id,
+    checksum: checksumOf(snapshot),
+    files: environmentToFiles(snapshot),
+  };
+}
+
+export function pushEnvironmentFiles(id: string, input: z.infer<typeof pushInput>) {
+  const { env, snapshot: current } = currentEnvironment(id);
+  authorize(currentCaller(), env.workspaceId, "write");
+  const checksum = checksumOf(current);
+  if (!input.force) {
+    if (!input.baseChecksum)
+      throw new HttpError(400, "baseChecksum is required: pull the environment first, or set force");
+    if (input.baseChecksum !== checksum)
+      throw new HttpError(
+        409,
+        "The environment changed since these files were pulled. Pull again, merge the changes in your repository, and push.",
+      );
+  }
+  if (asHttp(() => repositoryKind(input.files)) !== "environment")
+    throw new HttpError(409, "These files describe a collection, not an environment");
+  const parsed = asHttp(() => filesToEnvironment(input.files));
+  if (parsed.snapshot.root.sid !== id && !parsed.snapshot.root.sid.startsWith("new:"))
+    throw new HttpError(409, "These files belong to a different environment");
+  const incoming: Snapshot = { ...parsed.snapshot, root: { ...parsed.snapshot.root, sid: id } };
+  let plan: MergePlan = planMerge(current, incoming, current);
+  let kept = 0;
+  if (!input.prune)
+    plan = {
+      ...plan,
+      variables: plan.variables.map((v) =>
+        v.action === "remove" ? (kept++, { ...v, action: "keep" as const }) : v,
+      ),
+    };
+  if (input.dryRun)
+    return {
+      dryRun: true as const,
+      diff: diffSnapshots(current, incoming),
+      plan,
+      ignored: parsed.ignored,
+      checksum,
+      skippedRemovals: kept,
+    };
+  const own = currentEnvironment(id, true).snapshot;
+  const ref: CopyRef = {
+    workspaceId: env.workspaceId,
+    kind: "environment",
+    rootId: id,
+    map: {},
+    rootSid: id,
+  };
+  const applied = getDb().transaction(() => applyPlan(ref, plan, incoming, current, own).counts);
+  return {
+    dryRun: false as const,
+    applied,
+    ignored: parsed.ignored,
+    skippedRemovals: kept,
+    checksum: checksumOf(currentEnvironment(id).snapshot),
   };
 }
 

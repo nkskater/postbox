@@ -1,8 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { buildSnapshot, canonicalJson, diffSnapshots } from "@/core/dependencies/model";
+import {
+  buildEnvironmentSnapshot,
+  buildSnapshot,
+  canonicalJson,
+  diffSnapshots,
+} from "@/core/dependencies/model";
 import {
   RepositoryError,
+  environmentToFiles,
+  filesToEnvironment,
   filesToSnapshot,
+  isRepositoryPath,
+  repositoryKind,
   slugify,
   snapshotToFiles,
   stableJson,
@@ -230,5 +239,56 @@ describe("reading files", () => {
     expect(() =>
       filesToSnapshot({ ...snapshotToFiles(sample()), "big.txt": "x".repeat(3 * 1024 * 1024) }),
     ).toThrow(/too large/);
+  });
+});
+
+describe("environment files", () => {
+  const env = () =>
+    buildEnvironmentSnapshot({ id: "env1", name: "Staging" }, [
+      { key: "host", value: "stg.test", type: "default", enabled: true },
+      { key: "token", value: "hunter2", type: "secret", enabled: true },
+    ]);
+
+  it("writes two stable files without the secret and reads them back", () => {
+    const files = environmentToFiles(env());
+    expect(Object.keys(files).sort()).toEqual(["environment.json", "variables.json"]);
+    expect(JSON.stringify(files)).not.toContain("hunter2");
+    expect(environmentToFiles(env())).toEqual(files);
+    const { snapshot, ignored } = filesToEnvironment({ ...files, "README.md": "x" });
+    expect(ignored).toEqual(["README.md"]);
+    expect(canonicalJson(snapshot)).toBe(canonicalJson(env()));
+    expect(diffSnapshots(env(), snapshot).identical).toBe(true);
+    expect(environmentToFiles(snapshot)).toEqual(files);
+  });
+
+  it("tells the two kinds apart and refuses ambiguity", () => {
+    expect(repositoryKind(environmentToFiles(env()))).toBe("environment");
+    expect(repositoryKind(snapshotToFiles(sample()))).toBe("collection");
+    expect(() => repositoryKind({ "collection.json": "{}", "environment.json": "{}" })).toThrow(/one/);
+    expect(() => repositoryKind({})).toThrow(/Neither/);
+    expect(isRepositoryPath("deep/dir/environment.json")).toBe(true);
+    expect(isRepositoryPath("notes.md")).toBe(false);
+  });
+
+  it("gives a new id to an environment file without one and rejects mistakes by file", () => {
+    const made = filesToEnvironment({ "environment.json": JSON.stringify({ format: 1, name: "Hand made" }) });
+    expect(made.snapshot.root.sid).toBe("new:environment.json");
+    expect(made.snapshot.variables).toEqual([]);
+    const bad = (files: FileSet, where: string) => {
+      try {
+        filesToEnvironment(files);
+        throw new Error("should fail");
+      } catch (e) {
+        expect((e as RepositoryError).path).toBe(where);
+      }
+    };
+    bad({ "environment.json": "{ nope" }, "environment.json");
+    bad({ "environment.json": JSON.stringify({ format: 1, name: "x", surprise: true }) }, "environment.json");
+    bad({ "environment.json": JSON.stringify({ format: 2, name: "x" }) }, "environment.json");
+    bad(
+      { "environment.json": JSON.stringify({ format: 1, name: "x" }), "variables.json": '[{"value":"x"}]' },
+      "variables.json",
+    );
+    expect(() => filesToEnvironment({ "variables.json": "[]" })).toThrow(/environment\.json is missing/);
   });
 });

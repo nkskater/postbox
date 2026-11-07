@@ -11,7 +11,7 @@
  * Pure functions over snapshots: no database, no file system, no HTTP.
  */
 import { z } from "zod";
-import { canonicalJson, type SnapNode, type Snapshot } from "../dependencies/model";
+import { buildEnvironmentSnapshot, canonicalJson, type SnapNode, type Snapshot } from "../dependencies/model";
 import { requestInputSchema } from "../schemas";
 import type { Variable } from "../types";
 
@@ -139,6 +139,7 @@ export function isRepositoryPath(path: string): boolean {
   const name = path.slice(path.lastIndexOf("/") + 1);
   return (
     name === "collection.json" ||
+    name === "environment.json" ||
     name === "folder.json" ||
     name === "variables.json" ||
     REQUEST_FILE.test(name) ||
@@ -291,5 +292,72 @@ export function filesToSnapshot(files: FileSet): ParsedRepository {
   return {
     snapshot: { schema: 1, name: String(root.data.name ?? ""), root, variables },
     ignored,
+  };
+}
+
+// ------------------------------------------------------------------ environments
+
+/** What a set of files describes: a collection (`collection.json`) or an environment (`environment.json`). */
+export function repositoryKind(files: FileSet): "collection" | "environment" {
+  const collection = "collection.json" in files;
+  const environment = "environment.json" in files;
+  if (collection && environment)
+    throw new RepositoryError("Both collection.json and environment.json are present; a directory holds one");
+  if (environment) return "environment";
+  if (collection) return "collection";
+  throw new RepositoryError("Neither collection.json nor environment.json is present");
+}
+
+/**
+ * An environment as files: `environment.json` (id, name) and `variables.json`. Secret variables carry no
+ * value, so nothing secret is written.
+ */
+export function environmentToFiles(snapshot: Snapshot): FileSet {
+  return {
+    "environment.json": stableJson({
+      format: REPOSITORY_FORMAT,
+      id: snapshot.root.sid,
+      name: snapshot.root.data.name,
+    }),
+    "variables.json": stableJson(snapshot.variables.map(({ id: _id, ...v }) => v)),
+  };
+}
+
+const environmentFile = z
+  .object({
+    format: z.literal(REPOSITORY_FORMAT),
+    id: z.string().regex(SAFE_ID).optional(),
+    name: z.string().min(1).max(300),
+  })
+  .strict();
+
+export function filesToEnvironment(files: FileSet): ParsedRepository {
+  checkFileLimits(files);
+  if (!("environment.json" in files)) throw new RepositoryError("environment.json is missing");
+  const parsed = environmentFile.safeParse(parseJson(files, "environment.json"));
+  if (!parsed.success)
+    throw new RepositoryError(
+      parsed.error.issues[0]?.message ?? "Invalid environment file",
+      "environment.json",
+    );
+  let variables: Variable[] = [];
+  const claimed = new Set(["environment.json"]);
+  if ("variables.json" in files) {
+    claimed.add("variables.json");
+    const v = variableFile.safeParse(parseJson(files, "variables.json"));
+    if (!v.success)
+      throw new RepositoryError(v.error.issues[0]?.message ?? "Invalid variables", "variables.json");
+    variables = v.data;
+  }
+  const snapshot = buildEnvironmentSnapshot(
+    { id: parsed.data.id ?? "new:environment.json", name: parsed.data.name },
+    variables,
+    true,
+  );
+  return {
+    snapshot,
+    ignored: Object.keys(files)
+      .filter((p) => !claimed.has(p))
+      .sort(),
   };
 }

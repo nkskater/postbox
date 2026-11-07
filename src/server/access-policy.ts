@@ -60,6 +60,8 @@ export const REST_POLICIES: Record<string, Policy> = {
   "POST /api/folders/[id]/releases": p("resource", "write", "folder"),
   "GET /api/environments/[id]/releases": p("resource", "read", "environment"),
   "POST /api/environments/[id]/releases": p("resource", "write", "environment"),
+  "GET /api/environments/[id]/files": p("resource", "read", "environment"),
+  "PUT /api/environments/[id]/files": p("resource", "write", "environment"),
   "GET /api/folders/[id]/files": p("resource", "read", "folder"),
   "PUT /api/folders/[id]/files": p("resource", "write", "folder"),
   "POST /api/import/files": p("body", "write"),

@@ -334,41 +334,9 @@ export function registerManagement(program: Command) {
     .requiredOption("-d, --dir <path>", "Directory to write into (created if missing)")
     .option("--force", "Overwrite a directory that was pulled from a different collection")
     .action(
-      act(async (ctx, [collectionId], command) => {
-        const options = command.opts<{ dir: string; force?: boolean }>();
-        const previous = await readRepoState(options.dir);
-        if (previous && previous.collectionId !== collectionId && !options.force)
-          throw new CliError(
-            `${options.dir} holds collection ${previous.collectionId}. Use --force to replace it.`,
-            EXIT.usage,
-          );
-        const pulled = await ctx.api.request<{ checksum: string; files: Record<string, string> }>(
-          "GET",
-          `/api/folders/${enc(collectionId)}/files`,
-        );
-        await mkdir(options.dir, { recursive: true });
-        // Files from the previous pull that the collection no longer has are removed; yours are left alone.
-        const stale = (previous?.files ?? []).filter((file) => !(file in pulled.files));
-        for (const rel of stale) {
-          try {
-            validatePath(rel);
-            await rm(nodePath.join(options.dir, ...rel.split("/")), { force: true });
-          } catch {
-            /* ignore a state entry that is not a safe path */
-          }
-        }
-        await writeRepositoryFiles(options.dir, pulled.files);
-        const state: RepoState = {
-          format: 1,
-          collectionId,
-          checksum: pulled.checksum,
-          files: Object.keys(pulled.files).sort(),
-        };
-        await writeFile(nodePath.join(options.dir, REPO_STATE), JSON.stringify(state, null, 2) + "\n");
-        out(
-          `Pulled ${state.files.length} file(s) to ${options.dir} (checksum ${pulled.checksum.slice(0, 12)})`,
-        );
-      }),
+      act(async (ctx, [collectionId], command) =>
+        pullRepository(ctx, "collection", collectionId, command.opts<PullOptions>()),
+      ),
     );
   collection
     .command("push")
@@ -378,46 +346,18 @@ export function registerManagement(program: Command) {
     .option("--force", "Push even if the collection changed since the pull")
     .option("--dry-run", "Show what would change without changing anything")
     .action(
-      act(async (ctx, _args, command) => {
-        const options = command.opts<{ dir: string; prune?: boolean; force?: boolean; dryRun?: boolean }>();
-        const state = await readRepoState(options.dir);
-        if (!state)
-          throw new CliError(
-            `${options.dir} was not created by \`collection pull\` (no ${REPO_STATE}).`,
-            EXIT.usage,
-          );
-        const files = await readRepositoryDir(options.dir);
-        const result = await ctx.api.request<Record<string, unknown>>(
-          "PUT",
-          `/api/folders/${enc(state.collectionId)}/files`,
-          {
-            body: {
-              files,
-              baseChecksum: state.checksum,
-              prune: !!options.prune,
-              force: !!options.force,
-              dryRun: !!options.dryRun,
-            },
-          },
-        );
-        ctx.show(result);
-        if (!options.dryRun && typeof result.checksum === "string") {
-          await writeFile(
-            nodePath.join(options.dir, REPO_STATE),
-            JSON.stringify(
-              { ...state, checksum: result.checksum, files: Object.keys(files).sort() },
-              null,
-              2,
-            ) + "\n",
-          );
-          console.error("Pushed. Run `postbox collection pull` again to give new files their ids.");
-        }
-      }),
+      act(async (ctx, _args, command) =>
+        pushRepository(
+          ctx,
+          "collection",
+          command.opts<{ dir: string; prune?: boolean; force?: boolean; dryRun?: boolean }>(),
+        ),
+      ),
     );
   withWorkspace(
     collection
       .command("import-dir <path>")
-      .description("Create a new collection from a directory of repository files"),
+      .description("Create a new collection (or environment) from a directory of repository files"),
   ).action(
     act(async (ctx, [dirPath]) => {
       const files = await readRepositoryDir(dirPath);
@@ -1111,6 +1051,32 @@ export function registerManagement(program: Command) {
 
   // ------------------------------------------------------------ environments and globals
   const env = group(program, "env", "Manage environments");
+  env
+    .command("pull <id>")
+    .description("Write an environment to a directory as stable, secret-free files you can keep in Git")
+    .requiredOption("-d, --dir <path>", "Directory to write into (created if missing)")
+    .option("--force", "Overwrite a directory that was pulled from something else")
+    .action(
+      act(async (ctx, [environmentId], command) =>
+        pullRepository(ctx, "environment", environmentId, command.opts<PullOptions>()),
+      ),
+    );
+  env
+    .command("push")
+    .description("Apply edited files from a pulled directory back to the environment")
+    .requiredOption("-d, --dir <path>", "Directory created by `env pull`")
+    .option("--prune", "Also remove variables whose entries are gone")
+    .option("--force", "Push even if the environment changed since the pull")
+    .option("--dry-run", "Show what would change without changing anything")
+    .action(
+      act(async (ctx, _args, command) =>
+        pushRepository(
+          ctx,
+          "environment",
+          command.opts<{ dir: string; prune?: boolean; force?: boolean; dryRun?: boolean }>(),
+        ),
+      ),
+    );
   withWorkspace(withList(env.command("list").description("List environments"))).action(
     act(async (ctx) =>
       ctx.list(
@@ -1644,10 +1610,16 @@ export function registerManagement(program: Command) {
 const REPO_STATE = ".postbox-repo.json";
 interface RepoState {
   format: number;
+  /** Absent in directories written before environments were supported: those are collections. */
+  kind?: "collection" | "environment";
+  /** The id of the collection or environment this directory mirrors. */
   collectionId: string;
   checksum: string;
   files: string[];
 }
+type RepoKind = "collection" | "environment";
+const repoPath = (kind: RepoKind, id: string) =>
+  `/api/${kind === "environment" ? "environments" : "folders"}/${encodeURIComponent(id)}/files`;
 
 /** Every repository file under `root`, as forward-slash relative paths. Symlinks and VCS folders are skipped. */
 async function readRepositoryDir(root: string): Promise<Record<string, string>> {
@@ -1688,6 +1660,86 @@ async function writeRepositoryFiles(dir: string, files: Record<string, string>) 
     const target = nodePath.join(dir, ...rel.split("/"));
     await mkdir(nodePath.dirname(target), { recursive: true });
     await writeFile(target, files[rel]);
+  }
+}
+
+interface PullOptions {
+  dir: string;
+  force?: boolean;
+}
+async function pullRepository(ctx: Ctx, kind: RepoKind, id: string, options: PullOptions) {
+  const previous = await readRepoState(options.dir);
+  if (
+    previous &&
+    (previous.collectionId !== id || (previous.kind ?? "collection") !== kind) &&
+    !options.force
+  )
+    throw new CliError(
+      `${options.dir} holds ${previous.kind ?? "collection"} ${previous.collectionId}. Use --force to replace it.`,
+      EXIT.usage,
+    );
+  const pulled = await ctx.api.request<{ checksum: string; files: Record<string, string> }>(
+    "GET",
+    repoPath(kind, id),
+  );
+  await mkdir(options.dir, { recursive: true });
+  // Files from the previous pull that are no longer part of it are removed; yours are left alone.
+  const stale = (previous?.files ?? []).filter((file) => !(file in pulled.files));
+  for (const rel of stale) {
+    try {
+      validatePath(rel);
+      await rm(nodePath.join(options.dir, ...rel.split("/")), { force: true });
+    } catch {
+      /* ignore a state entry that is not a safe path */
+    }
+  }
+  await writeRepositoryFiles(options.dir, pulled.files);
+  const state: RepoState = {
+    format: 1,
+    kind,
+    collectionId: id,
+    checksum: pulled.checksum,
+    files: Object.keys(pulled.files).sort(),
+  };
+  await writeFile(nodePath.join(options.dir, REPO_STATE), JSON.stringify(state, null, 2) + "\n");
+  out(`Pulled ${state.files.length} file(s) to ${options.dir} (checksum ${pulled.checksum.slice(0, 12)})`);
+}
+
+async function pushRepository(
+  ctx: Ctx,
+  kind: RepoKind,
+  options: { dir: string; prune?: boolean; force?: boolean; dryRun?: boolean },
+) {
+  const state = await readRepoState(options.dir);
+  const command = kind === "environment" ? "env" : "collection";
+  if (!state)
+    throw new CliError(
+      `${options.dir} was not created by \`${command} pull\` (no ${REPO_STATE}).`,
+      EXIT.usage,
+    );
+  if ((state.kind ?? "collection") !== kind)
+    throw new CliError(
+      `${options.dir} holds a ${state.kind ?? "collection"}; use \`${state.kind === "environment" ? "env" : "collection"} push\`.`,
+      EXIT.usage,
+    );
+  const files = await readRepositoryDir(options.dir);
+  const result = await ctx.api.request<Record<string, unknown>>("PUT", repoPath(kind, state.collectionId), {
+    body: {
+      files,
+      baseChecksum: state.checksum,
+      prune: !!options.prune,
+      force: !!options.force,
+      dryRun: !!options.dryRun,
+    },
+  });
+  ctx.show(result);
+  if (!options.dryRun && typeof result.checksum === "string") {
+    await writeFile(
+      nodePath.join(options.dir, REPO_STATE),
+      JSON.stringify({ ...state, checksum: result.checksum, files: Object.keys(files).sort() }, null, 2) +
+        "\n",
+    );
+    console.error(`Pushed. Run \`postbox ${command} pull\` again to refresh the files.`);
   }
 }
 
