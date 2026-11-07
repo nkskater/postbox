@@ -13,6 +13,7 @@
 import { z } from "zod";
 import { buildEnvironmentSnapshot, canonicalJson, type SnapNode, type Snapshot } from "../dependencies/model";
 import { requestInputSchema } from "../schemas";
+import { specificationFormat, specificationSource, type SpecificationSource } from "../specifications/model";
 import type { Variable } from "../types";
 
 export const REPOSITORY_FORMAT = 1;
@@ -136,8 +137,10 @@ const SCRIPT_SUFFIXES = SCRIPT_FIELDS.map(([, suffix]) => suffix);
 
 /** Whether a path is one this format reads (so tools can skip unrelated files in a repository). */
 export function isRepositoryPath(path: string): boolean {
+  if (path.startsWith("source/")) return true;
   const name = path.slice(path.lastIndexOf("/") + 1);
   return (
+    name === "specification.json" ||
     name === "collection.json" ||
     name === "environment.json" ||
     name === "folder.json" ||
@@ -297,15 +300,19 @@ export function filesToSnapshot(files: FileSet): ParsedRepository {
 
 // ------------------------------------------------------------------ environments
 
-/** What a set of files describes: a collection (`collection.json`) or an environment (`environment.json`). */
-export function repositoryKind(files: FileSet): "collection" | "environment" {
-  const collection = "collection.json" in files;
-  const environment = "environment.json" in files;
-  if (collection && environment)
-    throw new RepositoryError("Both collection.json and environment.json are present; a directory holds one");
-  if (environment) return "environment";
-  if (collection) return "collection";
-  throw new RepositoryError("Neither collection.json nor environment.json is present");
+/** What a set of files describes: a collection, an environment or an API specification. */
+export type RepositoryKind = "collection" | "environment" | "specification";
+export function repositoryKind(files: FileSet): RepositoryKind {
+  const present = (["collection", "environment", "specification"] as const).filter(
+    (k) => `${k}.json` in files,
+  );
+  if (present.length > 1)
+    throw new RepositoryError(
+      `${present.map((k) => `${k}.json`).join(" and ")} are both present; a directory holds one`,
+    );
+  if (present.length === 0)
+    throw new RepositoryError("None of collection.json, environment.json or specification.json is present");
+  return present[0];
 }
 
 /**
@@ -358,6 +365,91 @@ export function filesToEnvironment(files: FileSet): ParsedRepository {
     snapshot,
     ignored: Object.keys(files)
       .filter((p) => !claimed.has(p))
+      .sort(),
+  };
+}
+
+// ------------------------------------------------------------------ specifications
+
+const SOURCE_DIR = "source/";
+const specificationFile = z
+  .object({
+    format: z.literal(REPOSITORY_FORMAT),
+    id: z.string().regex(SAFE_ID).optional(),
+    name: z.string().trim().min(1).max(200),
+    specification: specificationFormat,
+    entrypoint: z.string().min(1).max(200),
+    label: z.string().max(200).default(""),
+  })
+  .strict();
+
+export interface SpecificationFiles {
+  id?: string;
+  name: string;
+  label: string;
+  source: SpecificationSource;
+  ignored: string[];
+}
+
+/**
+ * An API specification as files: `specification.json` (id, name, kind of spec, entrypoint, label) and the
+ * source files themselves, untouched, under `source/` so they diff like any other source.
+ */
+export function specificationToFiles(spec: {
+  id: string;
+  name: string;
+  label?: string;
+  format: SpecificationSource["format"];
+  entrypoint: string;
+  files: { path: string; content: string }[];
+}): FileSet {
+  const out: FileSet = {
+    "specification.json": stableJson({
+      format: REPOSITORY_FORMAT,
+      id: spec.id,
+      name: spec.name,
+      specification: spec.format,
+      entrypoint: spec.entrypoint,
+      label: spec.label ?? "",
+    }),
+  };
+  for (const file of [...spec.files].sort((a, b) => a.path.localeCompare(b.path)))
+    out[`${SOURCE_DIR}${file.path}`] = file.content;
+  return out;
+}
+
+export function filesToSpecification(files: FileSet): SpecificationFiles {
+  checkFileLimits(files);
+  if (!("specification.json" in files)) throw new RepositoryError("specification.json is missing");
+  const parsed = specificationFile.safeParse(parseJson(files, "specification.json"));
+  if (!parsed.success)
+    throw new RepositoryError(
+      parsed.error.issues[0]?.message ?? "Invalid specification file",
+      "specification.json",
+    );
+  const sources = Object.keys(files)
+    .filter((p) => p.startsWith(SOURCE_DIR))
+    .sort();
+  const candidate = {
+    format: parsed.data.specification,
+    entrypoint: parsed.data.entrypoint,
+    files: sources.map((p) => ({ path: p.slice(SOURCE_DIR.length), content: files[p] })),
+  };
+  const source = specificationSource.safeParse(candidate);
+  if (!source.success)
+    throw new RepositoryError(source.error.issues[0]?.message ?? "Invalid specification sources", "source/");
+  if (!source.data.files.some((f) => f.path === source.data.entrypoint))
+    throw new RepositoryError(
+      `The entrypoint ${source.data.entrypoint} has no file under source/`,
+      "specification.json",
+    );
+  return {
+    id: parsed.data.id,
+    name: parsed.data.name,
+    label: parsed.data.label,
+    source: source.data,
+    ignored: Object.keys(files)
+      .filter((p) => p !== "specification.json" && !p.startsWith(SOURCE_DIR))
       .sort(),
   };
 }

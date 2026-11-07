@@ -10,10 +10,12 @@ import {
   environmentToFiles,
   filesToEnvironment,
   filesToSnapshot,
+  filesToSpecification,
   isRepositoryPath,
   repositoryKind,
   slugify,
   snapshotToFiles,
+  specificationToFiles,
   stableJson,
   validatePath,
   type FileSet,
@@ -265,7 +267,7 @@ describe("environment files", () => {
     expect(repositoryKind(environmentToFiles(env()))).toBe("environment");
     expect(repositoryKind(snapshotToFiles(sample()))).toBe("collection");
     expect(() => repositoryKind({ "collection.json": "{}", "environment.json": "{}" })).toThrow(/one/);
-    expect(() => repositoryKind({})).toThrow(/Neither/);
+    expect(() => repositoryKind({})).toThrow(/None of/);
     expect(isRepositoryPath("deep/dir/environment.json")).toBe(true);
     expect(isRepositoryPath("notes.md")).toBe(false);
   });
@@ -290,5 +292,87 @@ describe("environment files", () => {
       "variables.json",
     );
     expect(() => filesToEnvironment({ "variables.json": "[]" })).toThrow(/environment\.json is missing/);
+  });
+});
+
+describe("specification files", () => {
+  const spec = {
+    id: "sp1",
+    name: "Pets API",
+    label: "draft",
+    format: "openapi" as const,
+    entrypoint: "openapi.yaml",
+    files: [
+      { path: "schemas/pet.yaml", content: "type: object\n" },
+      { path: "openapi.yaml", content: "openapi: 3.0.0\ninfo: {title: Pets, version: '1'}\npaths: {}\n" },
+    ],
+  };
+
+  it("writes the sources untouched under source/ and is stable", () => {
+    const files = specificationToFiles(spec);
+    expect(Object.keys(files).sort()).toEqual([
+      "source/openapi.yaml",
+      "source/schemas/pet.yaml",
+      "specification.json",
+    ]);
+    expect(files["source/schemas/pet.yaml"]).toBe("type: object\n");
+    expect(JSON.parse(files["specification.json"])).toMatchObject({
+      id: "sp1",
+      name: "Pets API",
+      specification: "openapi",
+      entrypoint: "openapi.yaml",
+      label: "draft",
+    });
+    expect(specificationToFiles({ ...spec, files: [...spec.files].reverse() })).toEqual(files);
+  });
+
+  it("round-trips through files", () => {
+    const parsed = filesToSpecification({ ...specificationToFiles(spec), "README.md": "x" });
+    expect(parsed).toMatchObject({ id: "sp1", name: "Pets API", label: "draft", ignored: ["README.md"] });
+    expect(parsed.source).toEqual({
+      format: "openapi",
+      entrypoint: "openapi.yaml",
+      files: [...spec.files].sort((a, b) => a.path.localeCompare(b.path)),
+    });
+    expect(
+      specificationToFiles({ ...spec, ...parsed.source, id: "sp1", name: parsed.name, label: parsed.label }),
+    ).toEqual(specificationToFiles(spec));
+  });
+
+  it("recognises the kind and rejects mistakes by file", () => {
+    expect(repositoryKind(specificationToFiles(spec))).toBe("specification");
+    expect(isRepositoryPath("source/deep/x.yaml")).toBe(true);
+    const base = specificationToFiles(spec);
+    const bad = (files: FileSet, where: string, match: RegExp) => {
+      try {
+        filesToSpecification(files);
+        throw new Error("should fail");
+      } catch (e) {
+        expect((e as RepositoryError).path).toBe(where);
+        expect((e as Error).message).toMatch(match);
+      }
+    };
+    bad({ ...base, "specification.json": "{ nope" }, "specification.json", /valid JSON/);
+    bad(
+      {
+        ...base,
+        "specification.json": JSON.stringify({
+          format: 1,
+          name: "x",
+          specification: "wsdl",
+          entrypoint: "a",
+        }),
+      },
+      "specification.json",
+      /./,
+    );
+    const noEntry = { ...base };
+    delete noEntry["source/openapi.yaml"];
+    bad(noEntry, "specification.json", /no file under source/);
+    bad({ ...base, "source/../x.yaml": "x" }, "source/../x.yaml", /Unsafe/);
+    expect(() => filesToSpecification({ "source/a.yaml": "x" })).toThrow(/specification\.json is missing/);
+    expect(() => repositoryKind({ "collection.json": "{}", "specification.json": "{}" })).toThrow(
+      /both present/,
+    );
   });
 });

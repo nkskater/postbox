@@ -34,7 +34,7 @@ admin--Qx91/delete-pet--Pp40.request.json
 
 An environment is two files: `environment.json` (`format`, `id`, `name`) and `variables.json`. Secret variables
 are written with an empty value, so nothing secret is in the files, and a push never overwrites a secret already
-stored in Postbox. A directory holds either a collection or an environment, never both.
+stored in Postbox. A directory holds one thing: a collection, an environment or a specification.
 
 ```sh
 postbox env pull <environmentId> --dir ./staging
@@ -45,6 +45,22 @@ postbox collection import-dir ./staging -w <workspace>      # a directory with e
 `push` has the same guard as collections (refused if the environment changed since the pull). Without `--prune`,
 variables missing from the file are left alone. `env push` refuses a collection directory and `collection push`
 refuses an environment one.
+
+## API specifications
+
+A specification is `specification.json` (`format`, `id`, `name`, `specification` kind, `entrypoint`, `label`)
+and its source files, untouched, under `source/` (so `source/openapi.yaml`, `source/schemas/pet.yaml`, ...). A
+spec already has numbered revisions, so the **revision** is the checksum: a push is only accepted against the
+revision it was pulled from and becomes the next revision (earlier revisions are kept). Pushing unchanged files
+does nothing; the spec's kind cannot change; sources removed from `source/` are removed from the new revision.
+
+```sh
+postbox spec pull <specificationId> --dir ./petstore-spec
+postbox spec push --dir ./petstore-spec [--dry-run] [--force]
+postbox collection import-dir ./petstore-spec -w <workspace>    # specification.json creates a specification
+```
+
+REST: `GET/PUT /api/specifications/{id}/files`.
 
 ## Command line
 
@@ -73,6 +89,7 @@ Exit codes follow the other management commands (`push` refused: 5; usage mistak
 | `GET /api/folders/{id}/files` | `{ format, checksum, files }` for the collection |
 | `PUT /api/folders/{id}/files` | `{ files, baseChecksum, prune?, force?, dryRun? }` apply edited files |
 | `GET /api/environments/{id}/files` · `PUT` | The same for an environment |
+| `GET /api/specifications/{id}/files` · `PUT` | The same for a specification (revision as checksum) |
 | `POST /api/import/files` | `{ workspaceId, files }` create a new collection, or an environment if the files have `environment.json` |
 
 Reading needs the *viewer* role; push and import need *editor*. Malformed files are rejected with the offending
@@ -83,4 +100,4 @@ refused.
 
 This is the file format and the pull/push/import path. Not yet part of it: Postbox running `git` itself
 (connecting a repository, status, commit, branch, push and pull against a remote, with repository hooks
-disabled), a workspace UI for it, and API specifications.
+disabled) and a workspace UI for it.
