@@ -1580,10 +1580,11 @@ export const collectionForks = sqliteTable(
   "collection_forks",
   {
     id: text("id").primaryKey(),
+    kind: text("kind").$type<"collection" | "specification">().notNull().default("collection"),
     workspaceId: text("workspace_id")
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
-    /** The fork: a collection in `workspaceId`. */
+    /** The fork: a collection (or, for kind "specification", a specification) in `workspaceId`. */
     folderId: text("folder_id").notNull(),
     parentWorkspaceId: text("parent_workspace_id").notNull(),
     parentFolderId: text("parent_folder_id").notNull(),
@@ -1592,6 +1593,8 @@ export const collectionForks = sqliteTable(
     baseSnapshot: text("base_snapshot", { mode: "json" })
       .$type<import("@/core/dependencies/model").Snapshot>()
       .notNull(),
+    /** For kind "specification": the parent's entrypoint and files at the last agreement (baseSnapshot is empty). */
+    baseFiles: text("base_files", { mode: "json" }).$type<import("@/core/review/files").FileState>(),
     /** Parent node id -> fork node id. */
     nodeMap: text("node_map", { mode: "json" }).$type<Record<string, string>>().notNull(),
     createdBy: text("created_by"),
@@ -1609,6 +1612,7 @@ export const mergeRequests = sqliteTable(
   "merge_requests",
   {
     id: text("id").primaryKey(),
+    kind: text("kind").$type<"collection" | "specification">().notNull().default("collection"),
     /** The parent's workspace: its members review and merge. */
     workspaceId: text("workspace_id")
       .notNull()

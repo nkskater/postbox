@@ -1396,6 +1396,7 @@ export function registerManagement(program: Command) {
   const fork = group(program, "fork", "Fork collections, keep forks current and propose changes back");
   const forkColumns = [
     id,
+    column("KIND", "kind"),
     column("FOLDER", "folderId"),
     column("PARENT", "parentName"),
     column("STATUS", "status"),
@@ -1405,17 +1406,25 @@ export function registerManagement(program: Command) {
   ];
   withWorkspace(
     fork
-      .command("create <collectionId>")
-      .description("Copy a collection into a workspace, remembering where it came from")
+      .command("create <id>")
+      .description(
+        "Copy a collection (or with --spec, an API specification) into a workspace, remembering where it came from",
+      )
+      .option("--spec", "The id is an API specification")
       .option("--name <name>", "Name of the fork (default: '<name> (fork)')"),
   ).action(
-    act(async (ctx, [collectionId], command) =>
+    act(async (ctx, [sourceId], command) => {
+      const options = command.opts<{ name?: string; spec?: boolean }>();
       ctx.show(
-        await ctx.api.request("POST", `/api/folders/${enc(collectionId)}/forks`, {
-          body: { workspaceId: await ctx.workspace(), name: command.opts<{ name?: string }>().name },
-        }),
-      ),
-    ),
+        await ctx.api.request(
+          "POST",
+          `/api/${options.spec ? "specifications" : "folders"}/${enc(sourceId)}/forks`,
+          {
+            body: { workspaceId: await ctx.workspace(), name: options.name },
+          },
+        ),
+      );
+    }),
   );
   withWorkspace(withList(fork.command("list").description("List forks in a workspace"))).action(
     act(async (ctx) =>

@@ -72,7 +72,7 @@ describe("forks and merge requests", () => {
     await context.close();
     ({ page, context, errors } = await openApp(browser, baseUrl));
     await page.getByRole("combobox").first().click();
-    await page.getByRole("option", { name: "ForkSpace" }).click();
+    await page.getByRole("option", { name: "ForkSpace", exact: true }).click();
     await openTab(page, "ForkSource (fork)", "Forks");
     const thisFork = page.getByRole("region", { name: "This fork" });
     await thisFork.getByText("Has changes the original does not").waitFor();

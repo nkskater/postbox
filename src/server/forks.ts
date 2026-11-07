@@ -42,6 +42,8 @@ import { getDb, schema } from "./db";
 import { newId } from "./defaults";
 import { HttpError } from "./errors";
 import * as repo from "./repo";
+import { deleteSpecification } from "./specifications";
+import { mergeSpecProposal, previewSpecSync, specForkView, specProposal, syncSpecFork } from "./spec-forks";
 import { assertStorage } from "./usage";
 
 const { collectionForks: forks, mergeRequests, mergeRequestReviews: reviewsTable } = schema;
@@ -136,6 +138,8 @@ export function forkCollection(folderId: string, input: z.infer<typeof forkInput
     const now = Date.now();
     const row: ForkRow = {
       id: newId(),
+      kind: "collection",
+      baseFiles: null,
       workspaceId: input.workspaceId,
       folderId: made.rootId,
       parentWorkspaceId: source.workspaceId,
@@ -159,6 +163,7 @@ function requireFork(id: string): ForkRow {
 }
 
 export function forkView(row: ForkRow) {
+  if (row.kind === "specification") return specForkView(row);
   const parent = parentSnapshot(row);
   const mine = snapshotOfCopy(forkCopy(row));
   const name = mine ? rootNameOf(mine) : row.parentName;
@@ -216,7 +221,7 @@ export function listForksOf(folderId: string) {
   return getDb()
     .select()
     .from(forks)
-    .where(eq(forks.parentFolderId, folderId))
+    .where(and(eq(forks.parentFolderId, folderId), eq(forks.kind, "collection")))
     .orderBy(desc(forks.createdAt))
     .all()
     .filter((f) => readable(f.workspaceId))
@@ -244,6 +249,7 @@ function syncState(fork: ForkRow) {
 export function previewSync(id: string) {
   const fork = requireFork(id);
   authorize(currentCaller(), fork.workspaceId, "read");
+  if (fork.kind === "specification") return previewSpecSync(fork);
   const s = syncState(fork);
   return { diff: diffSnapshots(s.base, s.incoming), plan: s.plan };
 }
@@ -251,6 +257,8 @@ export function previewSync(id: string) {
 export function syncFork(id: string, strategy: ConflictStrategy) {
   const fork = requireFork(id);
   authorize(currentCaller(), fork.workspaceId, "write");
+  if (fork.kind === "specification")
+    return { ...syncSpecFork(fork, strategy), fork: forkView(requireFork(id)) };
   const s = syncState(fork);
   const plan = settle(s.plan, strategy, "Retry with strategy keep-local or take-incoming.");
   const own = snapshotOfCopy(forkCopy(fork), true)!;
@@ -280,7 +288,10 @@ export function removeFork(id: string, deleteCopy: boolean) {
     repo.discardMergeRequestComments(tx, ids);
     tx.delete(forks).where(eq(forks.id, id)).run();
   });
-  if (deleteCopy) repo.deleteFolder(fork.folderId);
+  if (deleteCopy) {
+    if (fork.kind === "specification") deleteSpecification(fork.folderId);
+    else repo.deleteFolder(fork.folderId);
+  }
   return { removed: true, deletedCopy: deleteCopy };
 }
 
@@ -327,10 +338,13 @@ export function openMergeRequest(forkId: string, input: z.infer<typeof openMerge
   authorize(currentCaller(), fork.workspaceId, "write");
   authorize(currentCaller(), fork.parentWorkspaceId, "read");
   if (openOne(forkId)) throw new HttpError(409, "This fork already has an open merge request");
-  if (proposal(fork).diff.identical) throw new HttpError(409, "This fork has no changes to propose");
+  const identical =
+    fork.kind === "specification" ? specProposal(fork).identical : proposal(fork).diff.identical;
+  if (identical) throw new HttpError(409, "This fork has no changes to propose");
   const now = Date.now();
   const row: MergeRow = {
     id: newId(),
+    kind: fork.kind,
     workspaceId: fork.parentWorkspaceId,
     forkId,
     forkWorkspaceId: fork.workspaceId,
@@ -407,6 +421,49 @@ export function mergeRequestView(mr: MergeRow) {
     .all()
     .map((r) => ({ ...r, current: false }));
   if (mr.status !== "open" || !fork) return { ...base, reviews: history, open: null as null };
+
+  if (fork.kind === "specification") {
+    let sp: ReturnType<typeof specProposal>;
+    try {
+      sp = specProposal(fork);
+    } catch (e) {
+      return {
+        ...base,
+        reviews: history,
+        open: { unavailable: (e as Error).message } as { unavailable: string },
+      };
+    }
+    const { all: allReviews, standing: st } = reviewsOf(mr, sp.checksum);
+    const isOwner = can(mr.workspaceId, "manage");
+    const ready = mergeReadiness({
+      conflicts: sp.plan.conflicts,
+      approvals: st!.approvals.length,
+      rejections: st!.rejections.length,
+      protectedCount: 0,
+      mergerIsOwner: isOwner,
+      hasChanges: !sp.identical,
+    });
+    const standingIds = new Set([...st!.approvals, ...st!.rejections].map((r) => r.id));
+    return {
+      ...base,
+      reviews: allReviews.map((r) => ({ ...r, current: standingIds.has(r.id) })),
+      open: <OpenDetails>{
+        diff: sp.diff,
+        protectedChanges: [],
+        conflicts: sp.conflicts,
+        variableConflicts: [],
+        approvals: st!.approvals.length,
+        rejections: st!.rejections.length,
+        staleReviews: st!.stale.length,
+        readiness: ready,
+        can: {
+          review: can(mr.workspaceId, "write") && !(mr.createdBy !== null && mr.createdBy === userId()),
+          merge: can(mr.workspaceId, "write") && ready.ok,
+          close: can(mr.workspaceId, "manage") || isAuthor(mr),
+        },
+      },
+    };
+  }
 
   let p: ReturnType<typeof proposal>;
   try {
@@ -489,7 +546,7 @@ export function reviewMergeRequest(id: string, input: z.infer<typeof reviewInput
   if (input.decision === "approve" && mr.createdBy !== null && mr.createdBy === userId())
     throw new HttpError(403, "You cannot approve your own merge request");
   const fork = requireFork(mr.forkId);
-  const p = proposal(fork);
+  const checksum = fork.kind === "specification" ? specProposal(fork).checksum : proposal(fork).checksum;
   getDb()
     .insert(reviewsTable)
     .values({
@@ -499,7 +556,7 @@ export function reviewMergeRequest(id: string, input: z.infer<typeof reviewInput
       reviewerName: userName(),
       decision: input.decision,
       note: input.note,
-      headChecksum: p.checksum,
+      headChecksum: checksum,
       createdAt: Date.now(),
     })
     .run();
@@ -527,6 +584,7 @@ export function mergeMergeRequest(id: string) {
   authorize(currentCaller(), mr.workspaceId, "write");
   if (mr.status !== "open") throw new HttpError(409, `This request is already ${mr.status}`);
   const fork = requireFork(mr.forkId);
+  if (fork.kind === "specification") return mergeSpecMergeRequest(mr, fork);
   const p = proposal(fork);
   const { standing } = reviewsOf(mr, p.checksum);
   const owner = can(mr.workspaceId, "manage");
@@ -582,4 +640,31 @@ export function mergeMergeRequest(id: string) {
     return result.counts;
   });
   return { applied: merged, mergeRequest: mergeRequestView(requireMergeRequest(id)) };
+}
+
+/** Merge a specification fork's request: same rules as collections, minus script protection. */
+function mergeSpecMergeRequest(mr: MergeRow, fork: ForkRow) {
+  const p = specProposal(fork);
+  const { standing } = reviewsOf(mr, p.checksum);
+  const owner = can(mr.workspaceId, "manage");
+  const readiness = mergeReadiness({
+    conflicts: p.plan.conflicts,
+    approvals: standing!.approvals.length,
+    rejections: standing!.rejections.length,
+    protectedCount: 0,
+    mergerIsOwner: owner,
+    hasChanges: !p.identical,
+  });
+  if (!readiness.ok) throw new HttpError(409, readiness.reasons.join("; "));
+  const counts = getDb().transaction(() => {
+    const done = mergeSpecProposal(fork, mr.title, p);
+    const now = Date.now();
+    getDb()
+      .update(mergeRequests)
+      .set({ status: "merged", mergedAt: now, mergedByName: userName(), mergedSummary: done, updatedAt: now })
+      .where(eq(mergeRequests.id, mr.id))
+      .run();
+    return done;
+  });
+  return { applied: counts, mergeRequest: mergeRequestView(requireMergeRequest(mr.id)) };
 }

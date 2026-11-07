@@ -89,10 +89,30 @@ discussion. Deleting the original leaves forks working, marked "original not ava
 
 `strategy` is `abort` (default), `keep-local` or `take-incoming`.
 
+## API specifications
+
+Specifications fork and merge the same way. Open a specification → **Forks and merge requests**. The differences:
+
+- The original and the fork are sets of source files plus an entrypoint, compared **file by file**: a file
+  changed on only one side is taken, a file changed differently on both sides is a **conflict**, and the
+  entrypoint counts as one more file. There is no line-level merge; resolve a conflict by updating the fork
+  (keep yours, or use the original's) and merge again.
+- The request lists files added, removed and changed. Review, approval, staleness, rejection, closing and
+  comments are exactly as for collections. There are no scripts to protect, so any editor with an approval can
+  merge; an owner can merge without one.
+- A merge becomes the **next revision** of the original (labelled `Merged: <title>`). Earlier revisions stay.
+  The original keeps its own name. Updating a fork from the original also saves a new revision of the fork.
+
+```sh
+postbox fork create <specificationId> --spec -w <workspace>
+```
+
+`fork status | sync | propose | remove` and `mr ...` work the same for both kinds.
+
 ## Command line
 
 ```sh
-postbox fork create <collectionId> -w <workspace> [--name "My fork"]
+postbox fork create <collectionId> -w <workspace> [--name "My fork"] [--spec]
 postbox fork list -w <workspace>
 postbox fork status <id> [--fail-on behind,diverged]
 postbox fork sync <id> [--preview [--fail-on-conflict]] [--strategy abort|keep-local|take-incoming]
@@ -114,4 +134,4 @@ collection asks for confirmation (`--yes` to skip).
 
 ## Not covered yet
 
-Forking API specifications and merging into a specific past version are not part of this first version.
+Merging into a specific past version, and line-level merging inside a file, are not part of this version.

@@ -107,6 +107,8 @@ function handler(req: http.IncomingMessage, res: http.ServerResponse) {
         return reply(200, { id: "rel1", revokedReason: JSON.parse(body).reason });
       case "DELETE /api/dependencies/d1":
         return reply(200, { removed: true });
+      case "POST /api/specifications/s1/forks":
+        return reply(201, { id: "fk9", kind: "specification", ...JSON.parse(body) });
       case "POST /api/folders/c1/forks":
         return reply(201, { id: "fk1", ...JSON.parse(body), status: "in-sync" });
       case "GET /api/forks":
@@ -764,6 +766,10 @@ describe("postbox management commands", () => {
         .stdout,
     );
     expect(created).toMatchObject({ workspaceId: "w2", name: "My fork" });
+    const specFork = JSON.parse(
+      (await invoke(["fork", "create", "s1", "--spec", "-w", "w2", "-o", "json"], authed())).stdout,
+    );
+    expect(specFork).toMatchObject({ kind: "specification", workspaceId: "w2" });
     const list = JSON.parse((await invoke(["fork", "list", "-w", "w2", "-o", "json"], authed())).stdout);
     expect(list.items[0]).toMatchObject({ status: "ahead", ahead: 2 });
 
