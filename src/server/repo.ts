@@ -352,6 +352,8 @@ export function deleteFolder(id: string) {
     tx.delete(variables)
       .where(and(eq(variables.scope, "collection"), inArray(variables.ownerId, ids)))
       .run();
+    // A deleted collection is no longer an installed dependency.
+    tx.delete(schema.dependencyInstalls).where(inArray(schema.dependencyInstalls.folderId, ids)).run();
     tx.delete(folders).where(inArray(folders.id, ids)).run();
   });
 }

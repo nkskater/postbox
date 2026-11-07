@@ -10,6 +10,8 @@ import type { getFolderCatalog, searchCatalog, getCatalogEntry, publishCatalog }
 import type { CatalogPublishInput, CatalogMetadataInput, CatalogSearchInput } from "@/core/catalog/model";
 import type * as graphServer from "@/server/graph";
 import type * as discussions from "@/server/comments";
+import type * as shared from "@/server/dependencies";
+import type { ConflictStrategy } from "@/core/dependencies/model";
 import type { CommentTarget } from "@/core/comments/model";
 import type { getDocumentation, publishDocumentation } from "@/server/documentation";
 import type { PublicationInput } from "@/core/documentation/model";
@@ -324,6 +326,36 @@ export const api = {
     delete: (id: string) => call<{ ok: boolean }>("DELETE", `/api/monitors/${id}`),
     retry: (id: string, deliveryId: string) =>
       call<{ ok: boolean }>("POST", `/api/monitors/${id}/retry-email`, { deliveryId }),
+  },
+  dependencies: {
+    releases: (folderId: string) =>
+      call<ReturnType<typeof shared.listReleases>>("GET", `/api/folders/${folderId}/releases`),
+    publish: (
+      folderId: string,
+      input: { version: string; notes?: string; visibility: "workspace" | "instance" },
+    ) => call<ReturnType<typeof shared.publishRelease>>("POST", `/api/folders/${folderId}/releases`, input),
+    revoke: (releaseId: string, reason: string) =>
+      call<ReturnType<typeof shared.revokeRelease>>("POST", `/api/dependency-releases/${releaseId}/revoke`, {
+        reason,
+      }),
+    browse: (workspaceId: string) =>
+      call<ReturnType<typeof shared.browseReleases>>("GET", `/api/dependency-releases?${q({ workspaceId })}`),
+    list: (workspaceId: string) =>
+      call<ReturnType<typeof shared.listInstalls>>("GET", `/api/dependencies?${q({ workspaceId })}`),
+    install: (workspaceId: string, releaseId: string) =>
+      call<ReturnType<typeof shared.installRelease>>("POST", "/api/dependencies", { workspaceId, releaseId }),
+    preview: (id: string, releaseId?: string) =>
+      call<ReturnType<typeof shared.previewUpdate>>(
+        "GET",
+        `/api/dependencies/${id}/preview${releaseId ? `?${q({ releaseId })}` : ""}`,
+      ),
+    update: (id: string, strategy: ConflictStrategy, releaseId?: string) =>
+      call<ReturnType<typeof shared.updateInstall>>("POST", `/api/dependencies/${id}/update`, {
+        strategy,
+        releaseId,
+      }),
+    remove: (id: string, deleteCopy = false) =>
+      call<{ removed: boolean }>("DELETE", `/api/dependencies/${id}${deleteCopy ? "?deleteCopy=1" : ""}`),
   },
   comments: {
     list: (kind: CommentTarget, id: string) =>

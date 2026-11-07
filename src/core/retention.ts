@@ -6,7 +6,7 @@ export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 export const MAX_UPLOAD_BASE64_CHARS = Math.ceil(MAX_UPLOAD_BYTES / 3) * 4;
 export const base64ByteLength = (value: string) =>
   Math.max(0, Math.floor((value.length * 3) / 4) - (value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0));
-const SENSITIVE_NAME =
+export const SENSITIVE_NAME =
   /authorization|cookie|token|password|passwd|secret|api[-_]?key|session|credential|^jwt$|^signature$|^sig$|^code$/i;
 
 /**
