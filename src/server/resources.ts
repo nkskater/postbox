@@ -31,7 +31,8 @@ export type ResourceKind =
   | "dependencyRelease"
   | "fork"
   | "mergeRequest"
-  | "telemetrySource";
+  | "telemetrySource"
+  | "runner";
 export const RESOURCE_TABLES: Record<ResourceKind, string> = {
   workspace: "workspaces",
   folder: "folders",
@@ -54,6 +55,7 @@ export const RESOURCE_TABLES: Record<ResourceKind, string> = {
   captureSession: "capture_sessions",
   mcpCall: "mcp_calls",
   monitor: "monitors",
+  runner: "runners",
   specification: "specifications",
   governanceRuleSet: "governance_rule_sets",
   qualityScorecard: "quality_scorecards",

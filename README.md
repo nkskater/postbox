@@ -663,7 +663,7 @@ Share pinned helpers across collections using **Packages** and `pm.require`. See
 
 [External MCP client](docs/mcp-client.md) discovers tools, resources and prompts on Streamable HTTP servers, executes operations, and saves variable-driven calls.
 
-[API monitoring](docs/monitoring.md) adds scheduled thresholds, retained check history, incident/recovery dashboards, and deduplicated webhook and SMTP alerts.
+[API monitoring](docs/monitoring.md) adds scheduled thresholds, retained check history, incident/recovery dashboards, and deduplicated webhook and SMTP alerts. [Private runners](docs/private-runners.md) run those monitors from inside other networks, connecting out to your server with per-runner secrets and host rules.
 
 - [API specification workspace](docs/specifications.md): versioned definitions, diagnostics, references and documentation preview.
 

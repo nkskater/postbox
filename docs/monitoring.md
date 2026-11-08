@@ -156,3 +156,5 @@ Request timeouts are 100..60,000 ms; admitted check deadlines are 1..300 seconds
 The SMTP implementation uses [Nodemailer’s SMTP transport](https://nodemailer.com/smtp) with an explicit policy-checked socket.
 
 Workspace backups include monitor configuration, but not samples, incidents or notification queues. Restored monitors start paused with unknown state and no pending alerts; review and enable them explicitly. Backup restore waits for active/queued runs and monitor email sends to finish.
+
+See [private-runners.md](private-runners.md) to run monitors from inside other networks.

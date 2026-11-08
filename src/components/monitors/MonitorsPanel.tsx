@@ -6,11 +6,13 @@ import { monitorRulesSchema } from "@/core/monitoring/model";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { getMonitor, listMonitors } from "@/server/monitors";
+import { RunnersSection } from "./RunnersSection";
 type Document = ReturnType<typeof getMonitor>;
 const blank = () => ({
   name: "API monitor",
   folderId: "",
   environmentId: "",
+  runnerId: "",
   cron: "*/5 * * * *",
   enabled: true,
   maxLatencyMs: "",
@@ -42,6 +44,7 @@ function MonitorDashboard({ workspaceId }: { workspaceId: string }) {
     [hours, setHours] = useState(168),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
+    [runnerList, setRunnerList] = useState<Awaited<ReturnType<typeof api.runners.list>>>([]),
     [sampleId, setSampleId] = useState(""),
     [runId, setRunId] = useState("");
   useEffect(() => {
@@ -69,6 +72,20 @@ function MonitorDashboard({ workspaceId }: { workspaceId: string }) {
     };
   }, [workspaceId, selected, hours]);
   useEffect(() => {
+    const controller = new AbortController();
+    const load = () =>
+      api.runners
+        .list(workspaceId, controller.signal)
+        .then((list) => !controller.signal.aborted && setRunnerList(list))
+        .catch(() => undefined);
+    void load();
+    const timer = setInterval(() => void load(), 5000);
+    return () => {
+      controller.abort();
+      clearInterval(timer);
+    };
+  }, [workspaceId]);
+  useEffect(() => {
     if (!selected) return;
     const controller = new AbortController();
     api.monitors
@@ -79,6 +96,7 @@ function MonitorDashboard({ workspaceId }: { workspaceId: string }) {
           name: value.name,
           folderId: value.folderId,
           environmentId: value.environmentId ?? "",
+          runnerId: value.runnerId ?? "",
           cron: value.cron,
           enabled: value.enabled,
           maxLatencyMs: value.rules.maxLatencyMs === null ? "" : String(value.rules.maxLatencyMs),
@@ -126,6 +144,7 @@ function MonitorDashboard({ workspaceId }: { workspaceId: string }) {
         name: form.name,
         folderId: form.folderId,
         environmentId: form.environmentId || null,
+        runnerId: form.runnerId || null,
         cron: form.cron,
         enabled: form.enabled,
         rules,
@@ -252,6 +271,25 @@ function MonitorDashboard({ workspaceId }: { workspaceId: string }) {
                   ))}
                 </select>
               </label>
+              <label className="text-xs">
+                Where it runs
+                <select
+                  aria-label="Monitor runner"
+                  value={form.runnerId}
+                  onChange={(e) => setForm({ ...form, runnerId: e.target.value })}
+                  className="mt-1 block w-full rounded border bg-background p-2"
+                >
+                  <option value="">Postbox server</option>
+                  {runnerList
+                    .filter((r) => r.status !== "revoked" || r.id === form.runnerId)
+                    .map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.name}
+                        {r.location ? ` (${r.location})` : ""} · {r.status}
+                      </option>
+                    ))}
+                </select>
+              </label>
               {field("cron", "Schedule (UTC cron)")}
               {field("maxLatencyMs", "Maximum p95 latency (ms; blank disables)", "number")}
               {field("minAvailability", "Minimum HTTP availability (%)", "number")}
@@ -319,6 +357,7 @@ function MonitorDashboard({ workspaceId }: { workspaceId: string }) {
               {error}
             </p>
           )}
+          <RunnersSection workspaceId={workspaceId} runners={runnerList} onChanged={setRunnerList} />
           {doc && (
             <>
               <section className="rounded border p-3 space-y-3">
@@ -416,6 +455,7 @@ function MonitorDashboard({ workspaceId }: { workspaceId: string }) {
                     <thead>
                       <tr>
                         <th>Time</th>
+                        <th>From</th>
                         <th>Result</th>
                         <th>Availability</th>
                         <th>Assertions</th>
@@ -429,6 +469,10 @@ function MonitorDashboard({ workspaceId }: { workspaceId: string }) {
                             <button className="underline" onClick={() => setSampleId(s.id)}>
                               {new Date(s.at).toLocaleString()}
                             </button>
+                          </td>
+                          <td>
+                            {runnerList.find((r) => r.id === s.runnerId)?.name ??
+                              (s.runnerId ? "runner" : "server")}
                           </td>
                           <td>{s.outcome}</td>
                           <td>{s.metrics.availability.toFixed(2)}%</td>
