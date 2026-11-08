@@ -170,3 +170,88 @@ async function requestIdOf(folderId: string) {
   };
   return tree.requests.find((r) => r.folderId === folderId)!.id;
 }
+
+describe("shared mock servers", () => {
+  it("publishes a mock server and installs it against a collection elsewhere", async () => {
+    const [home] = (await call("GET", "/api/workspaces")) as { id: string }[];
+    const folder = await call("POST", "/api/folders", {
+      workspaceId: home.id,
+      parentId: null,
+      name: "MockHome",
+    });
+    await call("POST", "/api/requests", {
+      workspaceId: home.id,
+      folderId: folder.id,
+      request: {
+        name: "Get widget",
+        method: "GET",
+        url: `${targetUrl}/widgets/1`,
+        examples: [
+          {
+            id: "ex1",
+            name: "ok",
+            status: 200,
+            statusText: "OK",
+            headers: [{ key: "content-type", value: "application/json", enabled: true }],
+            body: '{"widget":"shared"}',
+            createdAt: Date.now(),
+          },
+        ],
+      },
+    });
+    const mock = await call("POST", "/api/mocks", {
+      workspaceId: home.id,
+      folderId: folder.id,
+      name: "SharedMockSrv",
+    });
+    let { page, context, errors } = await openApp(browser, baseUrl);
+    await page.getByRole("button", { name: "Mocks", exact: true }).click();
+    await page.getByText("SharedMockSrv", { exact: true }).first().click();
+    await page.getByLabel("Release version").fill("1.0.0");
+    await page.getByRole("button", { name: "Publish", exact: true }).click();
+    await page.getByRole("region", { name: "Published versions" }).getByText("1.0.0").waitFor();
+    const releases = (await call("GET", `/api/mocks/${mock.id}/releases`)) as { kind: string }[];
+    expect(releases).toHaveLength(1);
+    expect(releases[0].kind).toBe("mock");
+
+    const other = (await call("POST", "/api/workspaces", { name: "MockConsumerWs" })) as { id: string };
+    const consumerCol = await call("POST", "/api/folders", {
+      workspaceId: other.id,
+      parentId: null,
+      name: "ConsumerCol",
+    });
+    await call("POST", "/api/requests", {
+      workspaceId: other.id,
+      folderId: consumerCol.id,
+      request: {
+        name: "Get widget",
+        method: "GET",
+        url: `${targetUrl}/widgets/1`,
+        examples: [
+          {
+            id: "ex1",
+            name: "ok",
+            status: 200,
+            statusText: "OK",
+            headers: [],
+            body: "{}",
+            createdAt: Date.now(),
+          },
+        ],
+      },
+    });
+    await context.close();
+    ({ page, context, errors } = await openApp(browser, baseUrl));
+    await page.getByRole("combobox").first().click();
+    await page.getByRole("option", { name: "MockConsumerWs", exact: true }).click();
+    await page.getByRole("button", { name: "Import", exact: true }).first().click();
+    await page.getByRole("tab", { name: "Shared" }).click();
+    await page.getByLabel("Collection for mock servers").selectOption({ label: "ConsumerCol" });
+    await page.getByRole("button", { name: "Install SharedMockSrv 1.0.0" }).click();
+    await page.getByRole("status").filter({ hasText: "Mock key" }).waitFor();
+    const mocks = (await call("GET", `/api/mocks?workspaceId=${other.id}`)) as { name: string }[];
+    expect(mocks.map((m) => m.name)).toContain("SharedMockSrv");
+    expect(errors).toEqual([]);
+    await context.close();
+  });
+});

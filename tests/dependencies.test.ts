@@ -14,6 +14,7 @@ const repo = await import("@/server/repo");
 const { withCaller } = await import("@/server/access-context");
 const { setMember } = await import("@/server/authorize");
 const deps = await import("@/server/dependencies");
+const mocks = await import("@/server/mocks");
 const caller = (user: UserRow): Caller => ({ kind: "user", user, via: "session" });
 const as = <T>(u: UserRow, fn: () => T) => withCaller(caller(u), fn);
 
@@ -455,6 +456,225 @@ describe("environments as dependencies", () => {
 
   it("will not mix kinds when updating", () => {
     const inst = envInstall(envRelease("1.0.0").id);
+    const collectionRelease = as(author, () => deps.listReleases(source)).find((r) => !r.revokedAt)!;
+    expect(() =>
+      as(dev, () => deps.updateInstall(inst.id, { releaseId: collectionRelease.id, strategy: "abort" })),
+    ).toThrow(/something else/);
+  });
+});
+
+describe("mock servers as dependencies", () => {
+  const example = (n: string) => ({
+    id: `ex-${n}`,
+    name: "ok",
+    status: 200,
+    statusText: "OK",
+    headers: [],
+    body: '{"ok":true}',
+    createdAt: Date.now(),
+  });
+  /** A collection with one saved example, so a mock has routes to serve. */
+  const collectionWithExample = (workspaceId: string, who: UserRow, name: string) =>
+    as(who, () => {
+      const folder = repo.createFolder(workspaceId, null, { name });
+      repo.createRequest(workspaceId, folder.id, {
+        name: "Get",
+        method: "GET",
+        url: "https://x.test/get",
+        examples: [example(name)],
+      });
+      return folder.id;
+    });
+  const scenario = (id: string, ms: number) => ({
+    id,
+    name: `delay ${id}`,
+    enabled: true,
+    kind: "delay" as const,
+    ms,
+    match: {},
+  });
+  const handler = (id: string, code: string) => ({
+    id,
+    name: `handler ${id}`,
+    enabled: true,
+    match: {},
+    code,
+  });
+  let mockId: string;
+  let srcCollection: string;
+  let dstCollection: string;
+  const mockRelease = (version: string) =>
+    as(author, () => deps.listReleases(mockId, "mock")).find((r) => r.version === version)!;
+  const publishMock = (version: string) =>
+    as(author, () => deps.publishMockRelease(mockId, { version, notes: "", visibility: "workspace" }));
+  const installMock = (releaseId: string, collectionId = dstCollection) =>
+    as(dev, () => deps.installRelease({ workspaceId: wsB, releaseId, collectionId }));
+  const stored = (id: string) => as(dev, () => mocks.getMock(id));
+
+  beforeAll(() => {
+    srcCollection = collectionWithExample(wsA, author, "Mock source");
+    dstCollection = collectionWithExample(wsB, dev, "Mock target");
+    mockId = as(author, () =>
+      mocks.createMock({
+        workspaceId: wsA,
+        folderId: srcCollection,
+        name: "Shared mock",
+        public: true,
+        delayMs: 5,
+        headers: [
+          { key: "X-Mode", value: "stub", enabled: true },
+          { key: "Authorization", value: "Bearer author-mock-secret", enabled: true },
+        ],
+        scenarios: [scenario("slow", 100)],
+        handlers: [
+          handler("greet", "return { json: { hi: 1 } };"),
+          handler("other", "return { json: { n: 2 } };"),
+        ],
+      }),
+    ).id;
+  });
+
+  it("publishes settings, scenarios and handlers, but not the key, the public flag or credentials", () => {
+    const v1 = publishMock("1.0.0");
+    expect(v1).toMatchObject({ kind: "mock", version: "1.0.0", name: "Shared mock", requestCount: 3 });
+    const stored = getDb()
+      .select()
+      .from(schema.dependencyReleases)
+      .where(eq(schema.dependencyReleases.id, v1.id))
+      .get()!;
+    const text = JSON.stringify(stored.snapshot);
+    expect(text).not.toContain("author-mock-secret");
+    expect(text).not.toContain("keyHash");
+    expect(text).not.toContain('"public"');
+    expect(text).toContain("X-Mode");
+    expect(() => publishMock("1.0.1")).toThrow(/Nothing has changed/);
+    expect(() => as(stranger, () => deps.listReleases(mockId, "mock"))).toThrow(/not found/i);
+    expect(as(author, () => deps.listReleases(srcCollection)).every((r) => r.kind === "collection")).toBe(
+      true,
+    );
+  });
+
+  it("installs bound to a chosen collection, private, with its own key", () => {
+    const rel = mockRelease("1.0.0");
+    expect(() => as(dev, () => deps.installRelease({ workspaceId: wsB, releaseId: rel.id }))).toThrow(
+      /Choose the collection/,
+    );
+    expect(() => installMock(rel.id, srcCollection)).toThrow(/not found/i);
+    const inst = installMock(rel.id);
+    expect(inst).toMatchObject({ kind: "mock", status: "current", modified: false, name: "Shared mock" });
+    expect(typeof inst.mockKey).toBe("string");
+    const copy = stored(inst.folderId);
+    expect(copy).toMatchObject({
+      workspaceId: wsB,
+      folderId: dstCollection,
+      public: false,
+      delayMs: 5,
+      routeCount: 1,
+    });
+    expect(copy.scenarios.map((x) => x.id)).toEqual(["slow"]);
+    expect(copy.handlers.map((x) => x.id)).toEqual(["greet", "other"]);
+    expect(JSON.stringify(copy.headers)).not.toContain("author-mock-secret");
+    expect(as(dev, () => deps.listInstalls(wsB)).map((i) => i.kind)).toContain("mock");
+  });
+
+  it("updates changed scenarios and handlers, keeping the copy's edits and public flag", () => {
+    const inst = installMock(mockRelease("1.0.0").id);
+    // Local: edit one handler and make the copy public.
+    as(dev, () =>
+      mocks.updateMock(inst.folderId, {
+        public: true,
+        handlers: [
+          handler("greet", "return { json: { hi: 1 } };"),
+          handler("other", "return { json: { mine: true } };"),
+        ],
+      }),
+    );
+    expect(as(dev, () => deps.getInstall(inst.id)).modified).toBe(true);
+    // Upstream: retune the delay, edit a different handler, add a scenario, change settings.
+    as(author, () =>
+      mocks.updateMock(mockId, {
+        delayMs: 50,
+        scenarios: [scenario("slow", 100), scenario("slower", 900)],
+        handlers: [
+          handler("greet", "return { json: { hi: 2 } };"),
+          handler("other", "return { json: { n: 2 } };"),
+        ],
+      }),
+    );
+    const v2 = publishMock("1.1.0");
+    const preview = as(dev, () => deps.previewUpdate(inst.id));
+    expect(preview.plan.conflicts).toBe(0);
+    const result = as(dev, () => deps.updateInstall(inst.id, { releaseId: v2.id, strategy: "abort" }));
+    expect(result.applied).toMatchObject({ added: 1, updated: 2 });
+    const copy = stored(inst.folderId);
+    expect(copy.delayMs).toBe(50);
+    expect(copy.public).toBe(true);
+    expect(copy.scenarios.map((x) => x.id)).toEqual(["slow", "slower"]);
+    expect(copy.handlers.find((h) => h.id === "greet")?.code).toContain("hi: 2");
+    expect(copy.handlers.find((h) => h.id === "other")?.code).toContain("mine: true");
+    const raw = getDb()
+      .select()
+      .from(schema.mockServers)
+      .where(eq(schema.mockServers.id, inst.folderId))
+      .get()!;
+    // A mock never stores credential-looking header values (its own rule), and none travelled either way.
+    expect(JSON.stringify(raw.headers)).not.toContain("author-mock-secret");
+    expect(raw.headers.find((h) => h.key === "X-Mode")?.value).toBe("stub");
+    expect(as(dev, () => deps.getInstall(inst.id))).toMatchObject({ version: "1.1.0", status: "current" });
+  });
+
+  it("stops when the same handler changed on both sides, then settles it either way", () => {
+    const latest = as(author, () => deps.listReleases(mockId, "mock"))[0];
+    const a = installMock(latest.id);
+    const b = installMock(latest.id);
+    as(author, () =>
+      mocks.updateMock(mockId, {
+        handlers: [
+          handler("greet", "return { json: { hi: 'upstream' } };"),
+          handler("other", "return { json: { n: 2 } };"),
+        ],
+      }),
+    );
+    const next = publishMock("1.2.0");
+    for (const inst of [a, b])
+      as(dev, () =>
+        mocks.updateMock(inst.folderId, {
+          handlers: [
+            handler("greet", "return { json: { hi: 'local' } };"),
+            handler("other", "return { json: { n: 2 } };"),
+          ],
+        }),
+      );
+    expect(as(dev, () => deps.previewUpdate(a.id)).plan.conflicts).toBe(1);
+    expect(() => as(dev, () => deps.updateInstall(a.id, { releaseId: next.id, strategy: "abort" }))).toThrow(
+      /conflict/,
+    );
+    expect(stored(a.folderId).handlers[0].code).toContain("local");
+    as(dev, () => deps.updateInstall(a.id, { releaseId: next.id, strategy: "keep-local" }));
+    expect(stored(a.folderId).handlers[0].code).toContain("local");
+    as(dev, () => deps.updateInstall(b.id, { releaseId: next.id, strategy: "take-incoming" }));
+    expect(stored(b.folderId).handlers[0].code).toContain("upstream");
+  });
+
+  it("flags withdrawn versions, and unlinks or deletes cleanly", () => {
+    const latest = as(author, () => deps.listReleases(mockId, "mock"))[0];
+    const inst = installMock(latest.id);
+    as(author, () => deps.revokeRelease(latest.id, "bad handler"));
+    expect(as(dev, () => deps.getInstall(inst.id))).toMatchObject({
+      status: "withdrawn",
+      withdrawnReason: "bad handler",
+    });
+    as(dev, () => deps.removeInstall(inst.id, true));
+    expect(() => stored(inst.folderId)).toThrow(/not found/i);
+
+    const ok = mockRelease("1.0.0");
+    const other = installMock(ok.id);
+    as(dev, () => mocks.deleteMock(other.folderId));
+    expect(() => as(dev, () => deps.getInstall(other.id))).toThrow(/not found/i);
+  });
+
+  it("will not mix kinds when updating", () => {
+    const inst = installMock(mockRelease("1.0.0").id);
     const collectionRelease = as(author, () => deps.listReleases(source)).find((r) => !r.revokedAt)!;
     expect(() =>
       as(dev, () => deps.updateInstall(inst.id, { releaseId: collectionRelease.id, strategy: "abort" })),

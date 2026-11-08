@@ -15,8 +15,8 @@ import {
 } from "../retention";
 
 export const SNAPSHOT_SCHEMA = 1;
-/** What a release contains. A collection carries folders and requests; an environment only variables. */
-export const DEPENDENCY_KINDS = ["collection", "environment"] as const;
+/** What a release contains: a collection (folders and requests), an environment (variables), or a mock server's configuration. */
+export const DEPENDENCY_KINDS = ["collection", "environment", "mock"] as const;
 export type DependencyKind = (typeof DEPENDENCY_KINDS)[number];
 export const RELEASE_VISIBILITIES = ["workspace", "instance"] as const;
 export type ReleaseVisibility = (typeof RELEASE_VISIBILITIES)[number];
@@ -211,6 +211,73 @@ export function buildEnvironmentSnapshot(
     name: env.name,
     root: { sid: env.id, kind: "folder", data: { name: env.name }, children: [] },
     variables: (keepSecrets ? variables : stripSecrets(variables)).map(({ id: _id, ...v }) => v as Variable),
+  };
+}
+
+/** The parts of a mock server that are shared. Its key, its public flag and its routes stay with each copy. */
+export interface MockParts {
+  id: string;
+  name: string;
+  enabled: boolean;
+  matchQuery: boolean;
+  matchBody: boolean;
+  delayMs: number;
+  status: number | null;
+  headers: { key: string; value: string; enabled: boolean }[];
+  scenarios: { id: string }[];
+  handlers: { id: string }[];
+}
+
+const SCENARIO = "scenario:";
+const HANDLER = "handler:";
+
+/**
+ * A mock as a snapshot: the settings are the root, and each failure scenario and each handler is a node of its
+ * own, so two people changing different ones merge cleanly. Sensitive header values are blanked.
+ */
+export function buildMockSnapshot(mock: MockParts, keepSecrets = false): Snapshot {
+  // Only the fields below are shared. Callers may pass a whole database row; nothing else leaves with it.
+  const settings = {
+    name: mock.name,
+    enabled: mock.enabled,
+    matchQuery: mock.matchQuery,
+    matchBody: mock.matchBody,
+    delayMs: mock.delayMs,
+    status: mock.status,
+    headers: mock.headers.map((h) => ({ key: h.key, value: h.value, enabled: h.enabled })),
+  };
+  const node = (prefix: string, item: { id: string }): SnapNode => ({
+    sid: `${prefix}${item.id}`,
+    kind: "request",
+    data: { ...item },
+    children: [],
+  });
+  return {
+    schema: SNAPSHOT_SCHEMA,
+    name: mock.name,
+    root: {
+      sid: mock.id,
+      kind: "folder",
+      data: keepSecrets ? settings : stripSecrets(settings),
+      children: [
+        ...mock.scenarios.map((s) => node(SCENARIO, s)),
+        ...mock.handlers.map((h) => node(HANDLER, h)),
+      ],
+    },
+    variables: [],
+  };
+}
+
+/** The settings, scenarios and handlers a mock snapshot describes (the inverse of buildMockSnapshot). */
+export function mockPartsOf(snapshot: Snapshot) {
+  const { name: _n, ...rest } = snapshot.root.data as Record<string, unknown>;
+  const pick = (prefix: string) =>
+    snapshot.root.children.filter((c) => c.sid.startsWith(prefix)).map((c) => c.data as { id: string });
+  return {
+    name: String(snapshot.root.data.name ?? snapshot.name),
+    settings: rest,
+    scenarios: pick(SCENARIO),
+    handlers: pick(HANDLER),
   };
 }
 
