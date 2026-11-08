@@ -93,10 +93,12 @@ discussion. Deleting the original leaves forks working, marked "original not ava
 
 Specifications fork and merge the same way. Open a specification → **Forks and merge requests**. The differences:
 
-- The original and the fork are sets of source files plus an entrypoint, compared **file by file**: a file
-  changed on only one side is taken, a file changed differently on both sides is a **conflict**, and the
-  entrypoint counts as one more file. There is no line-level merge; resolve a conflict by updating the fork
-  (keep yours, or use the original's) and merge again.
+- The original and the fork are sets of source files plus an entrypoint. A file changed on only one side is
+  taken. A file both sides changed is **merged line by line** when the edits touch different parts (say, two
+  people editing different paths in the same OpenAPI file); when they touch the same lines, or one side
+  deleted what the other edited, it is a **conflict** that names the file and the first disputed line, and
+  nothing is guessed. The entrypoint counts as one more file and is never line-merged.
+  Resolve a conflict by updating the fork (keep yours, or use the original's) and merging again.
 - The request lists files added, removed and changed. Review, approval, staleness, rejection, closing and
   comments are exactly as for collections. There are no scripts to protect, so any editor with an approval can
   merge; an owner can merge without one.
@@ -134,4 +136,4 @@ collection asks for confirmation (`--yes` to skip).
 
 ## Not covered yet
 
-Merging into a specific past version, and line-level merging inside a file, are not part of this version.
+Merging into a specific past version is not part of this version.

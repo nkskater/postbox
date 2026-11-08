@@ -258,4 +258,71 @@ describe("specification merge requests", () => {
     as(forker, () => forks.removeFork(fork.id, true));
     expect(() => specs.getSpecification(fork.folderId)).toThrow(/not found/i);
   });
+
+  it("combines edits to different parts of the same file, in a sync and in a merge", () => {
+    const lines = (...l: string[]) => l.join("\n") + "\n";
+    const body = lines(
+      "openapi: 3.0.0",
+      "info:",
+      "  title: T",
+      "  version: '1'",
+      "paths:",
+      "  /a:",
+      "    get: {summary: A}",
+      "  /b:",
+      "    get: {summary: B}",
+    );
+    const parent = as(owner, () =>
+      specs.createSpecification({
+        workspaceId: wsP,
+        name: "Lines",
+        format: "openapi",
+        entrypoint: "openapi.yaml",
+        files: [{ path: "openapi.yaml", content: body }],
+      }),
+    ).id;
+    const fork = as(forker, () => specForks.forkSpecification(parent, { workspaceId: wsF }));
+    // The fork edits /a; the original edits /b in the same file.
+    saveFile(forker, fork.folderId, "openapi.yaml", body.replace("summary: A", "summary: A from fork"));
+    saveFile(owner, parent, "openapi.yaml", body.replace("summary: B", "summary: B from original"));
+
+    const preview = as(forker, () => forks.previewSync(fork.id));
+    expect(preview.plan.conflicts).toBe(0);
+    const mr = openMr(fork.id, "Edit A");
+    expect(details(mr).conflicts).toEqual([]);
+    approve(mr.id);
+    as(editor, () => forks.mergeMergeRequest(mr.id));
+    const merged = contentOf(parent, "openapi.yaml")!;
+    expect(merged).toContain("summary: A from fork");
+    expect(merged).toContain("summary: B from original");
+
+    // Syncing brings the original's line into the fork without losing the fork's.
+    as(forker, () => forks.syncFork(fork.id, "abort"));
+    expect(contentOf(fork.folderId, "openapi.yaml")).toBe(merged);
+  });
+
+  it("still refuses when both edit the same lines, naming the lines", () => {
+    const lines = (...l: string[]) => l.join("\n") + "\n";
+    const body = lines("openapi: 3.0.0", "info:", "  title: T", "  version: '1'", "paths: {}");
+    const parent = as(owner, () =>
+      specs.createSpecification({
+        workspaceId: wsP,
+        name: "Same lines",
+        format: "openapi",
+        entrypoint: "openapi.yaml",
+        files: [{ path: "openapi.yaml", content: body }],
+      }),
+    ).id;
+    const fork = as(forker, () => specForks.forkSpecification(parent, { workspaceId: wsF }));
+    saveFile(forker, fork.folderId, "openapi.yaml", body.replace("title: T", "title: Fork title"));
+    const mr = openMr(fork.id, "Title");
+    approve(mr.id);
+    saveFile(owner, parent, "openapi.yaml", body.replace("title: T", "title: Original title"));
+    expect(details(as(editor, () => forks.getMergeRequest(mr.id))).conflicts[0]).toMatchObject({
+      path: "openapi.yaml",
+      reason: "changed here and upstream on the same lines",
+    });
+    expect(() => as(owner, () => forks.mergeMergeRequest(mr.id))).toThrow(/conflict/);
+    expect(contentOf(parent, "openapi.yaml")).toContain("Original title");
+  });
 });

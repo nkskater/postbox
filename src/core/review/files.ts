@@ -3,6 +3,8 @@
  * whole file at a time: whichever side changed a file wins, and both changing it differently is a conflict
  * that is never resolved silently. The entrypoint is treated like one more file.
  */
+import { mergeText } from "./text-merge";
+
 export interface FileState {
   entrypoint: string;
   files: { path: string; content: string }[];
@@ -56,15 +58,23 @@ export function diffFiles(from: FileState, to: FileState): FileDiff {
   };
 }
 
-export type FileAction = "add" | "update" | "remove" | "keep" | "conflict";
+export type FileAction = "add" | "update" | "remove" | "keep" | "conflict" | "merge";
 export interface FileEntry {
   path: string;
   action: FileAction;
   reason?: string;
+  /** For a conflict inside a file: the first disputed line of each region, in the starting text (1-based). */
+  lines?: number[];
 }
 export interface FileMergePlan {
   entries: FileEntry[];
   conflicts: number;
+}
+
+/** A line-by-line merge of a file both sides edited; null when it is the entrypoint or the edits overlap. */
+function lineMerge(key: string, b: string | undefined, i: string | undefined, l: string | undefined) {
+  if (key === ENTRY || b === undefined || i === undefined || l === undefined) return null;
+  return mergeText(b, l, i);
 }
 
 const label = (key: string) => (key === ENTRY ? "the entrypoint" : key);
@@ -84,17 +94,24 @@ export function planFileMerge(base: FileState, incoming: FileState, local: FileS
     else if (l === b)
       entries.push({ path, action: i === undefined ? "remove" : l === undefined ? "add" : "update" });
     else if (i === b) entries.push({ path, action: "keep" });
-    else
-      entries.push({
-        path,
-        action: "conflict",
-        reason:
-          i === undefined
-            ? "removed upstream but changed here"
-            : l === undefined
-              ? "removed here but changed upstream"
-              : "changed here and upstream",
-      });
+    else {
+      const merged = lineMerge(key, b, i, l);
+      if (merged?.clean) entries.push({ path, action: "merge", reason: "edits to different lines combined" });
+      else
+        entries.push({
+          path,
+          action: "conflict",
+          reason:
+            i === undefined
+              ? "removed upstream but changed here"
+              : l === undefined
+                ? "removed here but changed upstream"
+                : merged
+                  ? "changed here and upstream on the same lines"
+                  : "changed here and upstream",
+          ...(merged ? { lines: merged.conflicts.map((c) => c.line) } : {}),
+        });
+    }
   }
   return { entries, conflicts: entries.filter((e) => e.action === "conflict").length };
 }
@@ -120,7 +137,10 @@ export function mergeFiles(
     if (l === i) value = l;
     else if (l === b) value = i;
     else if (i === b) value = l;
-    else value = strategy === "keep-local" ? l : i;
+    else {
+      const merged = lineMerge(key, b, i, l);
+      value = merged?.clean ? merged.text : strategy === "keep-local" ? l : i;
+    }
     if (value !== undefined) out.set(key, value);
   }
   return fromMap(out);
