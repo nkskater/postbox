@@ -71,7 +71,7 @@ describe("shared collection dependencies", () => {
     await context.close();
     ({ page, context, errors } = await openApp(browser, baseUrl));
     await page.getByRole("combobox").first().click();
-    await page.getByRole("option", { name: "ConsumerWs" }).click();
+    await page.getByRole("option", { name: "ConsumerWs", exact: true }).click();
     await page.getByRole("button", { name: "Import", exact: true }).first().click();
     await page.getByRole("tab", { name: "Shared" }).click();
     await page.getByRole("button", { name: "Install SharedSource 1.0.0" }).click();
@@ -94,7 +94,7 @@ describe("shared collection dependencies", () => {
     await page.reload();
     await page.getByRole("button", { name: "Console" }).waitFor();
     await page.getByRole("combobox").first().click();
-    await page.getByRole("option", { name: "ConsumerWs" }).click();
+    await page.getByRole("option", { name: "ConsumerWs", exact: true }).click();
     await openSharing(page, "SharedSource");
     await installed.getByText("Update available").waitFor();
     await installed.getByRole("button", { name: "Check for changes" }).click();
@@ -139,7 +139,7 @@ describe("shared environments", () => {
     await context.close();
     ({ page, context, errors } = await openApp(browser, baseUrl));
     await page.getByRole("combobox").first().click();
-    await page.getByRole("option", { name: "EnvConsumerWs" }).click();
+    await page.getByRole("option", { name: "EnvConsumerWs", exact: true }).click();
     await page.getByRole("button", { name: "Import", exact: true }).first().click();
     await page.getByRole("tab", { name: "Shared" }).click();
     await page.getByRole("button", { name: "Install SharedStaging 1.0.0" }).click();

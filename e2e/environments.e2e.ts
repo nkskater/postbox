@@ -61,7 +61,7 @@ describe("environments and variables", () => {
       .filter({ hasText: /No environment/ })
       .first()
       .click();
-    await page.getByRole("option", { name: "EnvSend" }).click();
+    await page.getByRole("option", { name: "EnvSend", exact: true }).click();
     await page.getByTitle("New request (Alt+T)").click();
     await typeInEditor(page, "Enter URL", "{{host}}/from-env");
     await page.getByTitle(/^Send/).click();

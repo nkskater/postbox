@@ -60,6 +60,9 @@ export const REST_POLICIES: Record<string, Policy> = {
   "POST /api/folders/[id]/releases": p("resource", "write", "folder"),
   "GET /api/environments/[id]/releases": p("resource", "read", "environment"),
   "POST /api/environments/[id]/releases": p("resource", "write", "environment"),
+  "GET /api/specifications/[id]/forks": p("resource", "read", "specification"),
+  // The destination workspace needs write access too; that is checked against it inside the handler.
+  "POST /api/specifications/[id]/forks": p("resource", "read", "specification"),
   "GET /api/specifications/[id]/files": p("resource", "read", "specification"),
   "PUT /api/specifications/[id]/files": p("resource", "write", "specification"),
   "GET /api/environments/[id]/files": p("resource", "read", "environment"),

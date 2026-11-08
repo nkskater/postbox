@@ -26,7 +26,17 @@ const STATUS_TEXT: Record<Forks[number]["status"], string> = {
   "parent-unavailable": "The original is not available",
 };
 
-export function ForkPanel({ folderId, name }: { folderId: string; name: string }) {
+export function ForkPanel({
+  folderId,
+  name,
+  kind = "collection",
+}: {
+  /** The id of the collection or specification this panel is about. */
+  folderId: string;
+  name: string;
+  kind?: "collection" | "specification";
+}) {
+  const noun = kind === "specification" ? "specification" : "collection";
   const workspaceId = useApp((s) => s.workspaceId);
   const workspaces = useApp((s) => s.workspaces);
   const [mine, setMine] = useState<Forks>([]);
@@ -48,7 +58,7 @@ export function ForkPanel({ folderId, name }: { folderId: string; name: string }
     let live = true;
     Promise.all([
       api.forks.list(workspaceId),
-      api.forks.listOf(folderId),
+      api.forks.listOf(folderId, kind),
       api.mergeRequests.list(workspaceId),
     ])
       .then(([f, c, r]) => {
@@ -62,7 +72,7 @@ export function ForkPanel({ folderId, name }: { folderId: string; name: string }
     return () => {
       live = false;
     };
-  }, [folderId, workspaceId, tick]);
+  }, [folderId, kind, workspaceId, tick]);
 
   const reload = () => setTick((n) => n + 1);
   const act = async (work: () => Promise<unknown>, done?: string) => {
@@ -219,11 +229,12 @@ export function ForkPanel({ folderId, name }: { folderId: string; name: string }
         <RequestList title="Requests from this fork" rows={proposed} onOpen={setOpen} />
       )}
 
-      <section className="space-y-3" aria-label="Fork this collection">
-        <h3 className="font-medium">Fork this collection</h3>
+      <section className="space-y-3" aria-label={`Fork this ${noun}`}>
+        <h3 className="font-medium">Fork this {noun}</h3>
         <p className="text-xs text-muted-foreground">
-          A fork is your own copy of {name}, without anyone&apos;s passwords or tokens. Change it freely, keep
-          it up to date, and propose what you changed back.
+          A fork is your own copy of {name}
+          {kind === "collection" ? ", without anyone's passwords or tokens" : ""}. Change it freely, keep it
+          up to date, and propose what you changed back.
         </p>
         <div className="flex flex-wrap items-end gap-2">
           <label className="space-y-1 text-xs">
@@ -256,9 +267,9 @@ export function ForkPanel({ folderId, name }: { folderId: string; name: string }
             disabled={busy || !(target || workspaceId)}
             onClick={() =>
               act(async () => {
-                await api.forks.create(folderId, target || workspaceId!, forkName.trim() || undefined);
+                await api.forks.create(folderId, target || workspaceId!, forkName.trim() || undefined, kind);
                 setForkName("");
-                await useApp.getState().refreshTree();
+                if (kind === "collection") await useApp.getState().refreshTree();
               }, "Forked")
             }
           >
@@ -268,8 +279,8 @@ export function ForkPanel({ folderId, name }: { folderId: string; name: string }
       </section>
 
       {children.length > 0 && (
-        <section className="space-y-1" aria-label="Forks of this collection">
-          <h3 className="font-medium">Forks of this collection</h3>
+        <section className="space-y-1" aria-label={`Forks of this ${noun}`}>
+          <h3 className="font-medium">Forks of this {noun}</h3>
           <ul className="divide-y rounded-md border">
             {children.map((f) => (
               <li key={f.id} className="flex items-center gap-2 p-2 text-xs">

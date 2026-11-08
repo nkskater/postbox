@@ -343,13 +343,22 @@ export const api = {
     },
   },
   forks: {
-    listOf: (folderId: string) =>
-      call<ReturnType<typeof forkServer.listForksOf>>("GET", `/api/folders/${folderId}/forks`),
-    create: (folderId: string, workspaceId: string, name?: string) =>
-      call<ReturnType<typeof forkServer.forkCollection>>("POST", `/api/folders/${folderId}/forks`, {
-        workspaceId,
-        name,
-      }),
+    listOf: (id: string, kind: "collection" | "specification" = "collection") =>
+      call<ReturnType<typeof forkServer.listForksOf>>(
+        "GET",
+        `/api/${kind === "specification" ? "specifications" : "folders"}/${id}/forks`,
+      ),
+    create: (
+      id: string,
+      workspaceId: string,
+      name?: string,
+      kind: "collection" | "specification" = "collection",
+    ) =>
+      call<ReturnType<typeof forkServer.forkCollection>>(
+        "POST",
+        `/api/${kind === "specification" ? "specifications" : "folders"}/${id}/forks`,
+        { workspaceId, name },
+      ),
     list: (workspaceId: string) =>
       call<ReturnType<typeof forkServer.listForks>>("GET", `/api/forks?${q({ workspaceId })}`),
     previewSync: (id: string) =>
