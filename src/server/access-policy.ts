@@ -396,15 +396,42 @@ export const REST_POLICIES: Record<string, Policy> = {
   "DELETE /api/mcp": p("mcp"),
   "OPTIONS /api/mcp": p("mcp"),
 };
-export function restPolicy(method: string, pathname: string) {
+type CompiledPolicy = { pattern: string; regex: RegExp; policy: (typeof REST_POLICIES)[string] };
+let compiled: Map<string, CompiledPolicy[]> | null = null;
+
+/** Route patterns compiled once, grouped by method, in declaration order (the first match wins). */
+function compiledPolicies(): Map<string, CompiledPolicy[]> {
+  if (compiled) return compiled;
+  compiled = new Map();
   for (const [key, policy] of Object.entries(REST_POLICIES)) {
-    const [verb, path] = key.split(" ");
-    if (verb !== method) continue;
-    const match = new RegExp(`^${path.replace(/\[[A-Za-z][A-Za-z0-9]*\]/g, "([^/]+)")}/?$`).exec(pathname);
-    if (match) return { ...policy, pattern: path, id: match[1] ? decodeURIComponent(match[1]) : undefined };
+    const [verb, pattern] = key.split(" ");
+    const source = pattern
+      .split(/(\[[A-Za-z][A-Za-z0-9]*\])/)
+      .map((part, i) => (i % 2 ? "([^/]+)" : part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))
+      .join("");
+    const list = compiled.get(verb) ?? [];
+    list.push({ pattern, regex: new RegExp(`^${source}/?$`), policy });
+    compiled.set(verb, list);
+  }
+  return compiled;
+}
+
+const decodeSegment = (segment: string) => {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    throw new HttpError(400, "Malformed resource ID in the URL");
+  }
+};
+
+export function restPolicy(method: string, pathname: string) {
+  for (const { pattern, regex, policy } of compiledPolicies().get(method) ?? []) {
+    const match = regex.exec(pathname);
+    if (match) return { ...policy, pattern, id: match[1] ? decodeSegment(match[1]) : undefined };
   }
   return null;
 }
+export type ResolvedRestPolicy = NonNullable<ReturnType<typeof restPolicy>>;
 const stringId = (value: unknown) => {
   if (typeof value !== "string" || !value) throw new HttpError(400, "Workspace/resource ID required");
   return value;
@@ -427,11 +454,14 @@ export async function authorizeRest(
   caller: Caller,
   req: Request,
   input: () => Promise<Record<string, unknown>>,
+  /** The policy already resolved for this request, to avoid matching the route table twice. */
+  resolved?: ResolvedRestPolicy | null,
 ) {
-  const policy = restPolicy(req.method, new URL(req.url).pathname);
+  const pathname = new URL(req.url).pathname;
+  const policy = resolved === undefined ? restPolicy(req.method, pathname) : resolved;
   if (!policy) throw new HttpError(403, "Route has no access policy");
   if (policy.source === "admin") return requireAdmin(caller);
-  requireSourceScope(caller, policy.source, req.method, new URL(req.url).pathname);
+  requireSourceScope(caller, policy.source, req.method, pathname);
   let workspaceId: string;
   switch (policy.source) {
     case "body":
