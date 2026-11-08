@@ -1189,19 +1189,24 @@ export function registerManagement(program: Command) {
     column("EDITED", "modified"),
     column("FOLDER", "folderId"),
   ];
-  const sourcePath = (sourceId: string, environment?: boolean) =>
-    `/api/${environment ? "environments" : "folders"}/${enc(sourceId)}/releases`;
+  const sourcePath = (sourceId: string, environment?: boolean, mock?: boolean) =>
+    `/api/${mock ? "mocks" : environment ? "environments" : "folders"}/${enc(sourceId)}/releases`;
   withList(
     dependency
       .command("releases <id>")
       .description("List the published versions of a collection (or environment with --environment)")
-      .option("--environment", "The id is an environment"),
+      .option("--environment", "The id is an environment")
+      .option("--mock", "The id is a mock server"),
   ).action(
     act(async (ctx, [sourceId], command) =>
       ctx.list(
         await ctx.api.request<Row[]>(
           "GET",
-          sourcePath(sourceId, command.opts<{ environment?: boolean }>().environment),
+          sourcePath(
+            sourceId,
+            command.opts<{ environment?: boolean }>().environment,
+            command.opts<{ mock?: boolean }>().mock,
+          ),
         ),
         releaseColumns,
       ),
@@ -1213,6 +1218,7 @@ export function registerManagement(program: Command) {
       "Publish a collection's (or with --environment, an environment's) current state as an immutable, secret-free version",
     )
     .option("--environment", "The id is an environment")
+    .option("--mock", "The id is a mock server")
     .option("--notes <text>", "Release notes")
     .option(
       "--everyone",
@@ -1220,9 +1226,14 @@ export function registerManagement(program: Command) {
     )
     .action(
       act(async (ctx, [sourceId, version], command) => {
-        const options = command.opts<{ notes?: string; everyone?: boolean; environment?: boolean }>();
+        const options = command.opts<{
+          notes?: string;
+          everyone?: boolean;
+          environment?: boolean;
+          mock?: boolean;
+        }>();
         ctx.show(
-          await ctx.api.request("POST", sourcePath(sourceId, options.environment), {
+          await ctx.api.request("POST", sourcePath(sourceId, options.environment, options.mock), {
             body: {
               version,
               notes: options.notes ?? "",
@@ -1259,12 +1270,17 @@ export function registerManagement(program: Command) {
   withWorkspace(
     dependency
       .command("install <releaseId>")
-      .description("Install a release as a new collection pinned to that version"),
+      .description("Install a release as a new collection pinned to that version")
+      .option("--collection <id>", "For a mock server release: the collection the new mock should serve"),
   ).action(
-    act(async (ctx, [releaseId]) =>
+    act(async (ctx, [releaseId], command) =>
       ctx.show(
         await ctx.api.request("POST", "/api/dependencies", {
-          body: { workspaceId: await ctx.workspace(), releaseId },
+          body: {
+            workspaceId: await ctx.workspace(),
+            releaseId,
+            collectionId: command.opts<{ collection?: string }>().collection,
+          },
         }),
       ),
     ),

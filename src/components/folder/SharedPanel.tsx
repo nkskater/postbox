@@ -31,7 +31,7 @@ export function SharedPanel({
   folderId: string;
   kind?: DependencyKind;
 }) {
-  const noun = kind === "environment" ? "environment" : "collection";
+  const noun = kind === "environment" ? "environment" : kind === "mock" ? "mock server" : "collection";
   const workspaceId = useApp((s) => s.workspaceId);
   const [releases, setReleases] = useState<Releases>([]);
   const [installs, setInstalls] = useState<Installs>([]);
@@ -263,8 +263,12 @@ export function SharedPanel({
               <div className="flex flex-wrap items-center gap-2">
                 <strong>{r.version}</strong>
                 <span className="text-xs text-muted-foreground">
-                  {kind === "environment" ? "variables" : `${r.requestCount} requests`} ·{" "}
-                  {new Date(r.createdAt).toLocaleString()} ·{" "}
+                  {kind === "environment"
+                    ? "variables"
+                    : kind === "mock"
+                      ? `${r.requestCount} scenarios and handlers`
+                      : `${r.requestCount} requests`}{" "}
+                  · {new Date(r.createdAt).toLocaleString()} ·{" "}
                   {r.visibility === "instance" ? "everyone" : "workspace"}
                 </span>
                 <code className="text-[10px] text-muted-foreground" title="SHA-256 of the contents">

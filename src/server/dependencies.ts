@@ -13,10 +13,12 @@ import {
   RELEASE_VISIBILITIES,
   CONFLICT_STRATEGIES,
   buildEnvironmentSnapshot,
+  buildMockSnapshot,
   buildSnapshot,
   checksumOf,
   countNodes,
   diffSnapshots,
+  mockPartsOf,
   planMerge,
   type ConflictStrategy,
   type DependencyKind,
@@ -28,6 +30,7 @@ import { getDb, schema } from "./db";
 import { newId } from "./defaults";
 import { HttpError } from "./errors";
 import { applyPlan, materializeCollection, settle, snapshotOfCopy, type CopyRef } from "./collection-merge";
+import { createMock, deleteMock } from "./mocks";
 import * as repo from "./repo";
 import { assertStorage } from "./usage";
 
@@ -40,7 +43,12 @@ export const publishInput = z.object({
   notes: z.string().max(RELEASE_LIMITS.notes).default(""),
   visibility: z.enum(RELEASE_VISIBILITIES).default("workspace"),
 });
-export const installInput = z.object({ workspaceId: z.string().min(1), releaseId: z.string().min(1) });
+export const installInput = z.object({
+  workspaceId: z.string().min(1),
+  releaseId: z.string().min(1),
+  /** For a mock server release: the collection in the target workspace whose saved examples it should serve. */
+  collectionId: z.string().min(1).optional(),
+});
 export const updateInput = z.object({
   releaseId: z.string().min(1).optional(),
   strategy: z.enum(CONFLICT_STRATEGIES as [ConflictStrategy, ...ConflictStrategy[]]).default("abort"),
@@ -149,14 +157,33 @@ export function publishEnvironmentRelease(environmentId: string, input: PublishI
   );
 }
 
-/** Every release of one collection or environment, newest first. */
+/** The workspace a shareable thing lives in, or null if it does not exist. */
+function sourceWorkspace(id: string, kind: DependencyKind): string | null {
+  if (kind === "environment") return repo.getEnvironment(id)?.workspaceId ?? null;
+  if (kind === "mock")
+    return (
+      getDb().select().from(schema.mockServers).where(eq(schema.mockServers.id, id)).get()?.workspaceId ??
+      null
+    );
+  return repo.getFolder(id)?.workspaceId ?? null;
+}
+const WHAT: Record<DependencyKind, string> = {
+  collection: "Collection",
+  environment: "Environment",
+  mock: "Mock server",
+};
+
+/** Publish a mock server's settings, scenarios and handlers (never its key, public flag or routes). */
+export function publishMockRelease(mockId: string, input: PublishInput) {
+  const mock = getDb().select().from(schema.mockServers).where(eq(schema.mockServers.id, mockId)).get();
+  if (!mock) throw new HttpError(404, "Mock server not found");
+  return insertRelease("mock", mock.workspaceId, mockId, mock.name, buildMockSnapshot(mock), input);
+}
+
+/** Every release of one collection, environment or mock server, newest first. */
 export function listReleases(folderId: string, kind: DependencyKind = "collection") {
-  const workspaceId =
-    kind === "environment"
-      ? repo.getEnvironment(folderId)?.workspaceId
-      : repo.getFolder(folderId)?.workspaceId;
-  if (!workspaceId)
-    throw new HttpError(404, kind === "environment" ? "Environment not found" : "Collection not found");
+  const workspaceId = sourceWorkspace(folderId, kind);
+  if (!workspaceId) throw new HttpError(404, `${WHAT[kind]} not found`);
   authorize(currentCaller(), workspaceId, "read");
   return getDb()
     .select()
@@ -210,9 +237,27 @@ export function installRelease(input: z.infer<typeof installInput>) {
   assertStorage(input.workspaceId);
   const { snapshot } = rootAndBase(release);
   const map: Record<string, string> = {};
+  let mockKey: string | undefined;
   return getDb().transaction(() => {
     let folderId: string;
-    if (release.kind === "environment") {
+    if (release.kind === "mock") {
+      if (!input.collectionId)
+        throw new HttpError(400, "Choose the collection in this workspace that the mock should serve");
+      repo.requireCollectionIn(input.workspaceId, input.collectionId);
+      const parts = mockPartsOf(snapshot);
+      // The copy gets its own key and is private; routes come from the chosen collection's saved examples.
+      const created = createMock({
+        workspaceId: input.workspaceId,
+        folderId: input.collectionId,
+        ...(parts.settings as object),
+        name: parts.name,
+        public: false,
+        scenarios: parts.scenarios as never,
+        handlers: parts.handlers as never,
+      });
+      folderId = created.id;
+      mockKey = created.key;
+    } else if (release.kind === "environment") {
       folderId = repo.createEnvironment(input.workspaceId, snapshot.name, snapshot.variables).id;
     } else {
       const made = materializeCollection(input.workspaceId, snapshot);
@@ -238,7 +283,7 @@ export function installRelease(input: z.infer<typeof installInput>) {
       updatedAt: now,
     };
     getDb().insert(installs).values(row).run();
-    return installView(row);
+    return { ...installView(row), ...(mockKey ? { mockKey } : {}) };
   });
 }
 
@@ -384,6 +429,7 @@ export function removeInstall(id: string, deleteCopy: boolean) {
   authorize(currentCaller(), row.workspaceId, "write");
   if (deleteCopy) {
     if (row.kind === "environment") repo.deleteEnvironment(row.folderId);
+    else if (row.kind === "mock") deleteMock(row.folderId);
     else repo.deleteFolder(row.folderId);
   }
   getDb().delete(installs).where(eq(installs.id, id)).run();

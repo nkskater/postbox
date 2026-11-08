@@ -407,8 +407,7 @@ export function sensitiveFieldValues(value: unknown): string[] {
   for (const [key, entry] of Object.entries(record)) {
     if (SENSITIVE_NAME.test(key) && typeof entry === "string") {
       if (!isReferenceOnly(entry)) values.push(entry);
-    }
-    else if (entry !== record.value || key !== "value") values.push(...sensitiveFieldValues(entry));
+    } else if (entry !== record.value || key !== "value") values.push(...sensitiveFieldValues(entry));
   }
   return values;
 }

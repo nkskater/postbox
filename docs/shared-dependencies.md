@@ -104,7 +104,23 @@ For CI: `status --fail-on` and `preview --fail-on-conflict` exit 1 when the stat
 default `abort` strategy exits 5 (rejected) when your edits collide with the new version, and applies nothing.
 Deleting the copy asks for confirmation (`--yes` to skip).
 
+## Mock servers
+
+A mock server can be published and installed like a collection. A release carries the mock's name, matching
+and default-response settings, scenarios and handlers. It never carries the mock key, routes, visibility or
+any credential-looking header value.
+
+Installing needs a target collection (`--collection <id>` on the CLI, a picker in the import dialog). The
+install creates a new private mock for that collection and shows its key once. Updates use the same
+three-way merge as collections: scenarios and handlers merge by id and your local edits are kept unless
+you pick `take-incoming`.
+
+```
+postbox dependency publish <mockId> 1.0.0 --mock
+postbox dependency releases <mockId> --mock
+postbox dependency install <releaseId> --collection <collectionId>
+```
+
 ## Not covered yet
 
-Mock servers as a dependency kind, and review before publishing (waiting on the review workflow), are not
-part of this version.
+Review before publishing (waiting on the review workflow) is not part of this version.

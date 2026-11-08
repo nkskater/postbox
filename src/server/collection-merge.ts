@@ -5,8 +5,10 @@
  *
  * Used by installs (LAB-124/180) and by forks and merge requests (LAB-95).
  */
+import { eq } from "drizzle-orm";
 import {
   buildEnvironmentSnapshot,
+  buildMockSnapshot,
   buildSnapshot,
   flatten,
   resolveConflicts,
@@ -18,7 +20,9 @@ import {
   type Snapshot,
 } from "@/core/dependencies/model";
 import type { FolderDef, FolderNode, RequestDef, TreeNode, Variable } from "@/core/types";
+import { getDb, schema } from "./db";
 import { HttpError } from "./errors";
+import { updateMock } from "./mocks";
 import * as repo from "./repo";
 
 /** Where a copy lives, and which of its nodes correspond to which nodes on the other side. */
@@ -38,6 +42,11 @@ const reverse = (map: Record<string, string>) =>
 
 /** The copy as a snapshot whose node ids are the other side's. Nodes with no counterpart get `local:<id>`. */
 export function snapshotOfCopy(ref: CopyRef, keepSecrets = false): Snapshot | null {
+  if (ref.kind === "mock") {
+    const mock = getDb().select().from(schema.mockServers).where(eq(schema.mockServers.id, ref.rootId)).get();
+    // The root is addressed by the source's id, so the copy lines up with the release it came from.
+    return mock ? buildMockSnapshot({ ...mock, id: ref.rootSid }, keepSecrets) : null;
+  }
   if (ref.kind === "environment") {
     const env = repo.getEnvironment(ref.rootId);
     if (!env) return null;
@@ -97,6 +106,7 @@ export function applyPlan(
   local: Snapshot,
   own: Snapshot,
 ): { counts: { added: number; updated: number; removed: number }; map: Record<string, string> } {
+  if (ref.kind === "mock") return applyMockPlan(ref, plan, target, own);
   const incoming = flatten(target);
   const current = flatten(local);
   const ownNodes = flatten(own);
@@ -212,4 +222,64 @@ export function renameSids(snapshot: Snapshot, rename: Record<string, string>): 
  */
 export function withRootName(snapshot: Snapshot, name: string): Snapshot {
   return { ...snapshot, root: { ...snapshot.root, data: { ...snapshot.root.data, name } } };
+}
+
+/**
+ * Bring a mock's settings, scenarios and handlers to `target`. Scenarios and handlers are matched by id, so one
+ * changed here and another changed upstream both survive; the key, the public flag and the routes are not part of
+ * the comparison and are left as they are. Headers keep the values the mock's owner filled in.
+ */
+function applyMockPlan(
+  ref: CopyRef,
+  plan: MergePlan,
+  target: Snapshot,
+  own: Snapshot,
+): { counts: { added: number; updated: number; removed: number }; map: Record<string, string> } {
+  const counts = { added: 0, updated: 0, removed: 0 };
+  const row = getDb().select().from(schema.mockServers).where(eq(schema.mockServers.id, ref.rootId)).get();
+  if (!row) throw new HttpError(404, "Mock server not found");
+  const action = new Map(plan.entries.map((e) => [e.sid, e.action]));
+  const incoming = flatten(target);
+  const ownNodes = flatten(own);
+  const patch: Record<string, unknown> = {};
+
+  if (action.get(target.root.sid) === "update") {
+    const merged = restoreLocalSecrets(target.root.data, ownNodes.get(target.root.sid)?.data) as Record<
+      string,
+      unknown
+    >;
+    Object.assign(patch, merged);
+    counts.updated++;
+  }
+  const rebuild = <T extends { id: string }>(prefix: string, existing: T[]): T[] => {
+    const kept: T[] = [];
+    let changed = false;
+    for (const item of existing) {
+      const sid = `${prefix}${item.id}`;
+      const act = action.get(sid);
+      const next = incoming.get(sid);
+      if (act === "remove") {
+        changed = true;
+        counts.removed++;
+      } else if (act === "update" && next) {
+        kept.push(next.data as unknown as T);
+        changed = true;
+        counts.updated++;
+      } else kept.push(item);
+    }
+    for (const node of incoming.values()) {
+      if (node.sid.startsWith(prefix) && action.get(node.sid) === "add") {
+        kept.push(node.data as unknown as T);
+        changed = true;
+        counts.added++;
+      }
+    }
+    return changed ? kept : existing;
+  };
+  const scenarios = rebuild("scenario:", row.scenarios);
+  const handlers = rebuild("handler:", row.handlers);
+  if (scenarios !== row.scenarios) patch.scenarios = scenarios;
+  if (handlers !== row.handlers) patch.handlers = handlers;
+  if (Object.keys(patch).length) updateMock(ref.rootId, patch);
+  return { counts, map: ref.map };
 }

@@ -103,6 +103,11 @@ async function call<T>(method: string, url: string, body?: unknown, signal?: Abo
 const q = (params: Record<string, string | null | undefined>) =>
   new URLSearchParams(Object.entries(params).filter(([, v]) => v != null) as [string, string][]).toString();
 
+const ROUTES: Record<DependencyKind, string> = {
+  collection: "folders",
+  environment: "environments",
+  mock: "mocks",
+};
 const COMMENT_ROUTES: Record<CommentTarget, string> = {
   request: "requests",
   folder: "folders",
@@ -395,20 +400,12 @@ export const api = {
   },
   dependencies: {
     releases: (id: string, kind: DependencyKind = "collection") =>
-      call<ReturnType<typeof shared.listReleases>>(
-        "GET",
-        `/api/${kind === "environment" ? "environments" : "folders"}/${id}/releases`,
-      ),
+      call<ReturnType<typeof shared.listReleases>>("GET", `/api/${ROUTES[kind]}/${id}/releases`),
     publish: (
       id: string,
       input: { version: string; notes?: string; visibility: "workspace" | "instance" },
       kind: DependencyKind = "collection",
-    ) =>
-      call<ReturnType<typeof shared.publishRelease>>(
-        "POST",
-        `/api/${kind === "environment" ? "environments" : "folders"}/${id}/releases`,
-        input,
-      ),
+    ) => call<ReturnType<typeof shared.publishRelease>>("POST", `/api/${ROUTES[kind]}/${id}/releases`, input),
     revoke: (releaseId: string, reason: string) =>
       call<ReturnType<typeof shared.revokeRelease>>("POST", `/api/dependency-releases/${releaseId}/revoke`, {
         reason,
@@ -417,8 +414,12 @@ export const api = {
       call<ReturnType<typeof shared.browseReleases>>("GET", `/api/dependency-releases?${q({ workspaceId })}`),
     list: (workspaceId: string) =>
       call<ReturnType<typeof shared.listInstalls>>("GET", `/api/dependencies?${q({ workspaceId })}`),
-    install: (workspaceId: string, releaseId: string) =>
-      call<ReturnType<typeof shared.installRelease>>("POST", "/api/dependencies", { workspaceId, releaseId }),
+    install: (workspaceId: string, releaseId: string, collectionId?: string) =>
+      call<ReturnType<typeof shared.installRelease>>("POST", "/api/dependencies", {
+        workspaceId,
+        releaseId,
+        collectionId,
+      }),
     preview: (id: string, releaseId?: string) =>
       call<ReturnType<typeof shared.previewUpdate>>(
         "GET",

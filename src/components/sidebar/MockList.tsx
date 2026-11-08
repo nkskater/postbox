@@ -1,4 +1,5 @@
 "use client";
+import { SharedPanel } from "@/components/folder/SharedPanel";
 import { formatDateTime } from "@/lib/format";
 import { useCallback, useEffect, useState } from "react";
 import type { MockDocument, MockSummary } from "@/core/mocks/model";
@@ -338,6 +339,7 @@ function MockPanel({ workspaceId }: { workspaceId: string }) {
                 void refresh();
               }}
             />
+            <SharedPanel key={selected.id} folderId={selected.id} kind="mock" />
             <MockHandlers
               mock={selected}
               busy={busy}
