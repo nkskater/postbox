@@ -108,4 +108,33 @@ describe("file merge", () => {
       planFileMerge(base, incoming, local).entries.find((e) => e.path === "the entrypoint")?.action,
     ).toBe("conflict");
   });
+
+  it("combines edits to different lines of the same file, and flags overlapping ones", () => {
+    const text = (...l: string[]) => l.join("\n");
+    const b = state("api.yaml", { "api.yaml": text("a", "b", "c", "d", "e", "f") });
+    const incoming = state("api.yaml", { "api.yaml": text("a", "B", "c", "d", "e", "f") });
+    const local = state("api.yaml", { "api.yaml": text("a", "b", "c", "d", "e", "F") });
+    const plan = planFileMerge(b, incoming, local);
+    expect(plan.entries.find((e) => e.path === "api.yaml")).toMatchObject({ action: "merge" });
+    expect(plan.conflicts).toBe(0);
+    expect(mergeFiles(b, incoming, local, "keep-local").files[0].content).toBe(
+      text("a", "B", "c", "d", "e", "F"),
+    );
+    // The same merge works however the conflict strategy is set, since nothing overlaps.
+    expect(mergeFiles(b, incoming, local, "take-incoming").files[0].content).toBe(
+      text("a", "B", "c", "d", "e", "F"),
+    );
+
+    const clash = state("api.yaml", { "api.yaml": text("a", "mine", "c", "d", "e", "f") });
+    const overlap = planFileMerge(b, incoming, clash);
+    expect(overlap.conflicts).toBe(1);
+    expect(overlap.entries.find((e) => e.path === "api.yaml")).toMatchObject({
+      action: "conflict",
+      lines: [2],
+      reason: "changed here and upstream on the same lines",
+    });
+    expect(mergeFiles(b, incoming, clash, "keep-local").files[0].content).toBe(
+      text("a", "mine", "c", "d", "e", "f"),
+    );
+  });
 });
