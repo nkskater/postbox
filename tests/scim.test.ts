@@ -262,7 +262,13 @@ describe("SCIM provisioning", () => {
     expect(deactivated.active).toBe(false);
     const row = users.getUser(ids.grace)!;
     expect(row.disabled).toBe(true);
-    expect(row.sessionVersion).toBe(2); // deactivating ends sessions and keys at once
+    expect(row.sessionVersion).toBe(3); // disabled, then access revoked: sessions end at once
+    expect(users.resolveToken(key)).toBeNull();
+    // The keys are revoked, not just ignored: reactivating does not bring them back.
+    await call("PATCH", `/api/scim/Users/${ids.grace}${root()}`, tokens[admin.id], {
+      Operations: [{ op: "replace", path: "active", value: true }],
+    });
+    expect(users.getUser(ids.grace)!.disabled).toBe(false);
     expect(users.resolveToken(key)).toBeNull();
   });
 

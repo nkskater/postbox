@@ -241,6 +241,16 @@ function claimUsername(username: string, exceptId?: string): string {
   return normalized;
 }
 
+/**
+ * Deactivating ends access for good: sessions and API keys are revoked, not merely
+ * ignored, so reactivating the account later does not bring old keys back to life.
+ */
+function applyActive(existing: UserRow, active: boolean): void {
+  if (active === !existing.disabled) return;
+  setDisabled(existing.id, !active);
+  if (!active) revokeUserAccess(existing.id);
+}
+
 function saveUser(id: string, changes: Record<string, unknown>): void {
   getDb()
     .update(schema.users)
@@ -355,7 +365,7 @@ export async function replaceScimUser(req: Request, ctx: Ctx, caller: Caller): P
   const profile = profileOf(input as ScimRecord);
   const active = input.active !== false;
   const displayName = displayNameOf(input as ScimRecord, username);
-  if (active !== !existing.disabled) setDisabled(existing.id, !active);
+  applyActive(existing, active);
   saveUser(existing.id, { username, displayName, scimProfile: profile });
   scimAudit(
     "scim.user.replace",
@@ -379,7 +389,7 @@ export async function patchScimUser(req: Request, ctx: Ctx, caller: Caller): Pro
   const active = record.active !== false;
   const profile = profileOf(record);
   const displayName = displayNameOf(record, username);
-  if (active !== !existing.disabled) setDisabled(existing.id, !active);
+  applyActive(existing, active);
   saveUser(existing.id, { username, displayName, scimProfile: profile });
   scimAudit(
     "scim.user.patch",
@@ -585,13 +595,14 @@ export async function replaceScimGroup(req: Request, ctx: Ctx, caller: Caller): 
   if (taken && taken.id !== existing.id)
     throw new ScimError(409, `Group ${name} already exists in this workspace`);
   const members = checkedMembers(input.members ?? []);
+  // Sync first: a refused role change must leave the group exactly as it was.
+  syncGroupRole(workspaceId, name, existing.members, members);
   saveGroup(existing.id, {
     name,
     displayName: input.displayName?.trim() || name,
     externalId: input.externalId ?? null,
     members,
   });
-  syncGroupRole(workspaceId, name, existing.members, members);
   scimAudit(
     "scim.group.replace",
     "other",
