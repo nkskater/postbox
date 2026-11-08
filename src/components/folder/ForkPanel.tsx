@@ -433,6 +433,42 @@ function MergeRequestDetail({
               Conflicts with changes made since the fork: {info.conflicts.map((c) => c.path).join("; ")}
             </p>
           )}
+          {info.governance && (
+            <section className="space-y-1 rounded border p-2 text-xs" aria-label="Governance">
+              {info.governance.unavailable ? (
+                <p className="text-muted-foreground">
+                  Governance could not be checked: {info.governance.unavailable}
+                </p>
+              ) : (
+                <>
+                  <p className="font-medium">
+                    Governance: {info.governance.ruleSet?.name} v{info.governance.ruleSet?.version}
+                  </p>
+                  {info.governance.newErrors.length === 0 && info.governance.newWarnings.length === 0 ? (
+                    <p className="text-muted-foreground">
+                      No new findings
+                      {info.governance.fixed ? `; fixes ${info.governance.fixed} existing one(s)` : ""}.
+                    </p>
+                  ) : (
+                    <ul>
+                      {info.governance.newErrors.map((d, i) => (
+                        <li key={`e${i}`} className="text-destructive">
+                          Error · {d.message} ({d.file}
+                          {d.path ? ` ${d.path}` : ""})
+                        </li>
+                      ))}
+                      {info.governance.newWarnings.map((d, i) => (
+                        <li key={`w${i}`}>
+                          Warning · {d.message} ({d.file}
+                          {d.path ? ` ${d.path}` : ""})
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              )}
+            </section>
+          )}
           <p className="text-xs text-muted-foreground">
             {info.approvals} approval(s){info.rejections > 0 ? `, ${info.rejections} asking for changes` : ""}
             {info.staleReviews > 0 ? `, ${info.staleReviews} out of date` : ""}

@@ -99,6 +99,12 @@ Specifications fork and merge the same way. Open a specification → **Forks and
   deleted what the other edited, it is a **conflict** that names the file and the first disputed line, and
   nothing is guessed. The entrypoint counts as one more file and is never line-merged.
   Resolve a conflict by updating the fork (keep yours, or use the original's) and merging again.
+- **Governance.** If the original has a governance rule set bound to it, the request lints both the original
+  as it is now and the result the merge would produce, and shows only what the merge **adds**: new errors and
+  new warnings (and how many existing findings it fixes). New **errors** block the merge for everyone,
+  owners included; new warnings are shown but do not block. Problems the original already had are not held
+  against the request, and findings are matched by rule, file, location and message rather than line number.
+  The built-in syntax checks count as well. With no rule set bound, nothing is checked.
 - The request lists files added, removed and changed. Review, approval, staleness, rejection, closing and
   comments are exactly as for collections. There are no scripts to protect, so any editor with an approval can
   merge; an owner can merge without one.
