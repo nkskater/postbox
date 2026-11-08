@@ -22,6 +22,7 @@ import { registerGovernance } from "./governance";
 import { registerSdk } from "./sdk";
 import { registerAppTest } from "./app-test";
 import { registerLoad } from "./load";
+import { registerRunnerAgent } from "./runner";
 import { registerManagement } from "./manage";
 import { consoleReporter } from "./reporter";
 
@@ -248,6 +249,7 @@ program
   .action(run);
 
 registerManagement(program);
+registerRunnerAgent(program);
 registerLoad(program);
 registerSdk(program);
 registerGovernance(program);

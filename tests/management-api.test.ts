@@ -103,6 +103,8 @@ describe("contract and access policy", () => {
       "/api/cookies",
       "/api/mcp",
       "/api/monitors",
+      "/api/runners",
+      "/api/runner-agent",
       "/api/specifications",
       "/api/governance",
       "/api/telemetry",

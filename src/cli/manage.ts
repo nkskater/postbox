@@ -830,6 +830,147 @@ export function registerManagement(program: Command) {
       }),
     );
 
+  // ------------------------------------------------------------ private runners
+  const runnerCmd = group(
+    program,
+    "runner",
+    "Enrol self-hosted runners that execute monitors inside other networks",
+  );
+  const runnerColumns = [
+    id,
+    name,
+    column("LOCATION", "location"),
+    column("STATUS", "status"),
+    column("MONITORS", "monitorCount"),
+    column("QUEUED", "queued"),
+    column("VERSION", "version"),
+  ];
+  const csv = (value?: string) =>
+    value
+      ? value
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean)
+      : undefined;
+  withWorkspace(withList(runnerCmd.command("list").description("List runners"))).action(
+    act(async (ctx) =>
+      ctx.list(
+        await ctx.api.request<Row[]>("GET", "/api/runners", {
+          query: { workspaceId: await ctx.workspace() },
+        }),
+        runnerColumns,
+      ),
+    ),
+  );
+  withWorkspace(
+    runnerCmd
+      .command("create <name>")
+      .description("Enrol a runner. Its token is shown once; give it to `postbox runner start`.")
+      .option(
+        "--location <text>",
+        "Where the runner sits, shown next to its results (for example Frankfurt DC)",
+      )
+      .option("--labels <list>", "Comma separated labels")
+      .option(
+        "--share-secrets",
+        "Send this workspace's secret values with its jobs (default: the runner supplies its own)",
+      )
+      .option(
+        "--allow-hosts <list>",
+        "Hosts the runner may call (comma separated; empty = its own local rules)",
+      )
+      .option("--deny-hosts <list>", "Hosts the runner must never call"),
+  ).action(
+    act(async (ctx, [runnerName], command) => {
+      const o = command.opts<{
+        location?: string;
+        labels?: string;
+        shareSecrets?: boolean;
+        allowHosts?: string;
+        denyHosts?: string;
+      }>();
+      ctx.show(
+        await ctx.api.request("POST", "/api/runners", {
+          body: {
+            workspaceId: await ctx.workspace(),
+            name: runnerName,
+            location: o.location ?? "",
+            labels: csv(o.labels) ?? [],
+            shareSecrets: !!o.shareSecrets,
+            allowHosts: csv(o.allowHosts) ?? [],
+            denyHosts: csv(o.denyHosts) ?? [],
+          },
+        }),
+      );
+    }),
+  );
+  runnerCmd
+    .command("get <id>")
+    .description("Show a runner")
+    .action(
+      act(async (ctx, [runnerId]) => ctx.show(await ctx.api.request("GET", `/api/runners/${enc(runnerId)}`))),
+    );
+  runnerCmd
+    .command("update <id>")
+    .description("Change a runner's name, location, labels, secret sharing or host rules")
+    .option("--name <text>", "New name")
+    .option("--location <text>", "New location")
+    .option("--labels <list>", "Comma separated labels (replaces the list)")
+    .option("--share-secrets <bool>", "true or false")
+    .option("--allow-hosts <list>", "Comma separated (replaces the list)")
+    .option("--deny-hosts <list>", "Comma separated (replaces the list)")
+    .action(
+      act(async (ctx, [runnerId], command) => {
+        const o = command.opts<Record<string, string | undefined>>();
+        const body: Record<string, unknown> = {};
+        if (o.name !== undefined) body.name = o.name;
+        if (o.location !== undefined) body.location = o.location;
+        if (o.labels !== undefined) body.labels = csv(o.labels) ?? [];
+        if (o.shareSecrets !== undefined) body.shareSecrets = o.shareSecrets === "true";
+        if (o.allowHosts !== undefined) body.allowHosts = csv(o.allowHosts) ?? [];
+        if (o.denyHosts !== undefined) body.denyHosts = csv(o.denyHosts) ?? [];
+        if (!Object.keys(body).length) throw new CliError("Nothing to change.", EXIT.usage);
+        ctx.show(await ctx.api.request("PATCH", `/api/runners/${enc(runnerId)}`, { body }));
+      }),
+    );
+  runnerCmd
+    .command("revoke <id>")
+    .description("Stop a runner from connecting; its unfinished checks are recorded as failed")
+    .action(
+      act(async (ctx, [runnerId]) => {
+        await ctx.confirm(`Revoke runner ${runnerId}?`);
+        ctx.show(await ctx.api.request("POST", `/api/runners/${enc(runnerId)}/revoke`));
+      }),
+    );
+  runnerCmd
+    .command("delete <id>")
+    .description("Delete a runner that no monitor uses")
+    .action(
+      act(async (ctx, [runnerId]) => {
+        await ctx.confirm(`Delete runner ${runnerId}?`);
+        await ctx.api.request("DELETE", `/api/runners/${enc(runnerId)}`);
+        out(`Deleted runner ${runnerId}`);
+      }),
+    );
+  runnerCmd
+    .command("assign <monitorId>")
+    .description("Run a monitor on a runner (--runner <id>) or back on the server (--server)")
+    .option("--runner <id>", "Runner id")
+    .option("--server", "Run on the Postbox server")
+    .action(
+      act(async (ctx, [monitorId], command) => {
+        const o = command.opts<{ runner?: string; server?: boolean }>();
+        if (!!o.runner === !!o.server)
+          throw new CliError("Pass exactly one of --runner or --server.", EXIT.usage);
+        const monitor = await ctx.api.request<{ revision: number }>("GET", `/api/monitors/${enc(monitorId)}`);
+        ctx.show(
+          await ctx.api.request("PATCH", `/api/monitors/${enc(monitorId)}`, {
+            body: { runnerId: o.server ? null : o.runner, expectedRevision: monitor.revision },
+          }),
+        );
+      }),
+    );
+
   // ------------------------------------------------------------ secrets vault
   const vaultCmd = group(program, "vault", "Manage the workspace secrets vault (values are write-only)");
   const secretByName = async (ctx: Ctx, nameOrId: string) => {

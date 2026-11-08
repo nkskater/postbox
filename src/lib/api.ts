@@ -11,6 +11,7 @@ import type { CatalogPublishInput, CatalogMetadataInput, CatalogSearchInput } fr
 import type * as graphServer from "@/server/graph";
 import type * as discussions from "@/server/comments";
 import type * as shared from "@/server/dependencies";
+import type * as runnerServer from "@/server/runners";
 import type * as forkServer from "@/server/forks";
 import type * as repositoryServer from "@/server/repository";
 import type { ConflictStrategy, DependencyKind } from "@/core/dependencies/model";
@@ -334,6 +335,20 @@ export const api = {
     delete: (id: string) => call<{ ok: boolean }>("DELETE", `/api/monitors/${id}`),
     retry: (id: string, deliveryId: string) =>
       call<{ ok: boolean }>("POST", `/api/monitors/${id}/retry-email`, { deliveryId }),
+  },
+  runners: {
+    list: (workspaceId: string, signal?: AbortSignal) =>
+      call<ReturnType<typeof runnerServer.listRunners>>(
+        "GET",
+        `/api/runners?workspaceId=${encodeURIComponent(workspaceId)}`,
+        undefined,
+        signal,
+      ),
+    create: (input: Parameters<typeof runnerServer.createRunner>[0]) =>
+      call<ReturnType<typeof runnerServer.createRunner>>("POST", "/api/runners", input),
+    revoke: (id: string) =>
+      call<ReturnType<typeof runnerServer.revokeRunner>>("POST", `/api/runners/${id}/revoke`),
+    delete: (id: string) => call<{ ok: boolean }>("DELETE", `/api/runners/${id}`),
   },
   repository: {
     files: (kind: "collection" | "environment" | "specification", id: string) => {
