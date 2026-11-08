@@ -16,6 +16,7 @@ const forks = await import("@/server/forks");
 const specForks = await import("@/server/spec-forks");
 const specs = await import("@/server/specifications");
 const comments = await import("@/server/comments");
+const governance = await import("@/server/governance");
 const caller = (user: UserRow): Caller => ({ kind: "user", user, via: "session" });
 const as = <T>(u: UserRow, fn: () => T) => withCaller(caller(u), fn);
 
@@ -324,5 +325,120 @@ describe("specification merge requests", () => {
     });
     expect(() => as(owner, () => forks.mergeMergeRequest(mr.id))).toThrow(/conflict/);
     expect(contentOf(parent, "openapi.yaml")).toContain("Original title");
+  });
+
+  describe("governance", () => {
+    const rule = {
+      formatVersion: 1 as const,
+      name: "Needs a description",
+      rules: [
+        {
+          id: "api-description",
+          message: "Describe the API in info.description",
+          severity: "error" as const,
+          formats: ["openapi" as const],
+          field: "/info/description",
+          check: { kind: "nonEmpty" as const },
+        },
+        {
+          id: "api-terms",
+          message: "Link the terms of service",
+          severity: "warning" as const,
+          formats: ["openapi" as const],
+          field: "/info/termsOfService",
+          check: { kind: "nonEmpty" as const },
+        },
+      ],
+    };
+    const doc = (o: { description?: string; title?: string; terms?: boolean }) =>
+      [
+        "openapi: 3.0.0",
+        "info:",
+        `  title: "${o.title ?? "T"}"`,
+        `  version: "1"`,
+        ...(o.description ? [`  description: "${o.description}"`] : []),
+        ...(o.terms === false ? [] : [`  termsOfService: "https://example.test/terms"`]),
+        "paths: {}",
+        "",
+      ].join("\n");
+    const make = (name: string, parentDoc: string, bind = true) => {
+      const parent = as(owner, () =>
+        specs.createSpecification({
+          workspaceId: wsP,
+          name,
+          format: "openapi",
+          entrypoint: "openapi.yaml",
+          files: [{ path: "openapi.yaml", content: parentDoc }],
+        }),
+      ).id;
+      if (bind) {
+        const set = as(owner, () => governance.createRuleSet({ workspaceId: wsP, config: rule }));
+        as(owner, () => governance.bindGovernance(parent, { ruleSetId: set.id, expectedRevision: 0 }));
+      }
+      return { parent, fork: as(forker, () => specForks.forkSpecification(parent, { workspaceId: wsF })) };
+    };
+
+    it("blocks a merge that introduces a governance error, and shows it", () => {
+      const { parent, fork } = make("Gov block", doc({ description: "ok" }));
+      saveFile(forker, fork.folderId, "openapi.yaml", doc({}));
+      const mr = openMr(fork.id, "Drop description");
+      approve(mr.id);
+      const view = details(as(editor, () => forks.getMergeRequest(mr.id)));
+      expect(view.governance).toMatchObject({ ruleSet: { name: "Needs a description" }, unavailable: null });
+      expect(view.governance?.newErrors.map((e) => e.ruleId)).toEqual(["api-description"]);
+      expect(view.readiness.reasons.join(" ")).toContain("1 new governance error(s)");
+      expect(view.can.merge).toBe(false);
+      expect(() => as(editor, () => forks.mergeMergeRequest(mr.id))).toThrow(/new governance error/);
+      expect(() => as(owner, () => forks.mergeMergeRequest(mr.id))).toThrow(/new governance error/);
+      expect(contentOf(parent, "openapi.yaml")).toBe(doc({ description: "ok" }));
+      // Fixing it in the fork clears the block (and the approval must be given again for the new content).
+      saveFile(forker, fork.folderId, "openapi.yaml", doc({ description: "now described", title: "Better" }));
+      approve(mr.id);
+      expect(as(editor, () => forks.mergeMergeRequest(mr.id)).mergeRequest.status).toBe("merged");
+    });
+
+    it("warns about new warnings without blocking, and credits fixes", () => {
+      const { fork } = make("Gov warn", doc({ description: "ok" }));
+      saveFile(forker, fork.folderId, "openapi.yaml", doc({ description: "ok", terms: false }));
+      const mr = openMr(fork.id, "Drop terms link");
+      approve(mr.id);
+      const view = details(as(editor, () => forks.getMergeRequest(mr.id)));
+      expect(view.governance?.newWarnings.map((w) => w.ruleId)).toEqual(["api-terms"]);
+      expect(view.governance?.newErrors).toEqual([]);
+      expect(view.can.merge).toBe(true);
+      expect(as(editor, () => forks.mergeMergeRequest(mr.id)).mergeRequest.status).toBe("merged");
+    });
+
+    it("does not blame the merge for problems the original already had", () => {
+      const { fork } = make("Gov old", doc({}));
+      saveFile(forker, fork.folderId, "openapi.yaml", doc({ title: "Retitled" }));
+      const mr = openMr(fork.id, "Retitle");
+      approve(mr.id);
+      const view = details(as(editor, () => forks.getMergeRequest(mr.id)));
+      expect(view.governance?.newErrors).toEqual([]);
+      expect(as(editor, () => forks.mergeMergeRequest(mr.id)).mergeRequest.status).toBe("merged");
+    });
+
+    it("reports fixes, and has nothing to say when no rule set is bound", () => {
+      const fixer = make("Gov fix", doc({}));
+      saveFile(forker, fixer.fork.folderId, "openapi.yaml", doc({ description: "added" }));
+      const mr = openMr(fixer.fork.id, "Add description");
+      expect(details(as(editor, () => forks.getMergeRequest(mr.id))).governance?.fixed).toBe(1);
+
+      const plain = make("Gov none", doc({}), false);
+      saveFile(forker, plain.fork.folderId, "openapi.yaml", doc({ title: "x" }));
+      const mr2 = openMr(plain.fork.id, "No rules");
+      expect(details(as(editor, () => forks.getMergeRequest(mr2.id))).governance).toBeNull();
+    });
+
+    it("checks the merged result, not just the fork: a clean-looking change can break a rule once combined", () => {
+      // The original removes the description while the fork edits the title; each side is fine alone.
+      const { parent, fork } = make("Gov combined", doc({ description: "ok" }));
+      saveFile(forker, fork.folderId, "openapi.yaml", doc({ description: "ok", title: "Fork title" }));
+      saveFile(owner, parent, "openapi.yaml", doc({ title: "T" }));
+      const mr = openMr(fork.id, "Retitle");
+      // The original already lacks the description, so the merged result adds no new error.
+      expect(details(as(editor, () => forks.getMergeRequest(mr.id))).governance?.newErrors).toEqual([]);
+    });
   });
 });

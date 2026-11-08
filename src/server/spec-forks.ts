@@ -9,6 +9,7 @@
  */
 import { and, eq } from "drizzle-orm";
 import { checksumOf } from "@/core/dependencies/model";
+import { governanceVerdict } from "@/core/review/governance";
 import {
   diffFiles,
   mergeFiles,
@@ -21,6 +22,7 @@ import { currentCaller } from "./access-context";
 import { authorize, workspaceRole } from "./authorize";
 import { getDb, schema } from "./db";
 import { newId } from "./defaults";
+import { lintForMerge } from "./governance";
 import { HttpError } from "./errors";
 import {
   createSpecification,
@@ -65,7 +67,13 @@ function readSpec(id: string) {
     )
     .get();
   if (!version) return null;
-  return { name: row.name, revision: row.revision, entrypoint: version.entrypoint, files: version.files };
+  return {
+    name: row.name,
+    format: row.format,
+    revision: row.revision,
+    entrypoint: version.entrypoint,
+    files: version.files,
+  };
 }
 
 const stateOf = (spec: { entrypoint: string; files: { path: string; content: string }[] }): FileState => ({
@@ -74,10 +82,10 @@ const stateOf = (spec: { entrypoint: string; files: { path: string; content: str
 });
 
 /** The parent as it is now; null when it is gone or the caller can no longer read it. */
-function parentOf(fork: SpecForkRow): { state: FileState; revision: number } | null {
+function parentOf(fork: SpecForkRow): { state: FileState; revision: number; format: string } | null {
   if (!readable(fork.parentWorkspaceId)) return null;
   const p = readSpec(fork.parentFolderId);
-  return p ? { state: stateOf(p), revision: p.revision } : null;
+  return p ? { state: stateOf(p), revision: p.revision, format: p.format } : null;
 }
 function forkSpecOf(fork: SpecForkRow): { state: FileState; revision: number; name: string } | null {
   const s = readSpec(fork.folderId);
@@ -255,6 +263,41 @@ export function syncSpecFork(fork: SpecForkRow, strategy: FileStrategy) {
 
 // ------------------------------------------------------------------ merge requests
 
+/**
+ * What the parent's governance rule set says about the result of the merge, counting only findings the merge
+ * would add. Null when no rule set is bound or the merge cannot be computed yet (conflicts).
+ */
+function governanceOf(
+  fork: SpecForkRow,
+  parent: { state: FileState; format: string },
+  head: FileState,
+  base: FileState,
+  conflicts: number,
+) {
+  if (conflicts) return null;
+  try {
+    const merged = mergeFiles(base, head, parent.state, "keep-local");
+    const source = (state: FileState) => ({
+      format: parent.format as "openapi",
+      entrypoint: state.entrypoint,
+      files: state.files,
+    });
+    const linted = lintForMerge(fork.parentFolderId, source(parent.state), source(merged));
+    if (!linted) return null;
+    const verdict = governanceVerdict(linted.before, linted.after);
+    return { ruleSet: linted.ruleSet, ...verdict, unavailable: null as string | null };
+  } catch (error) {
+    return {
+      ruleSet: null,
+      newErrors: [],
+      newWarnings: [],
+      newInfo: 0,
+      fixed: 0,
+      unavailable: (error as Error).message,
+    };
+  }
+}
+
 /** The fork's changes against what it started from, and how they sit on the parent as it is now. */
 export function specProposal(fork: SpecForkRow) {
   const parent = parentOf(fork);
@@ -265,6 +308,7 @@ export function specProposal(fork: SpecForkRow) {
   const diff = diffFiles(base, mine.state);
   const plan = planFileMerge(base, mine.state, parent.state);
   return {
+    governance: governanceOf(fork, parent, mine.state, base, plan.conflicts),
     base,
     head: mine.state,
     parent,

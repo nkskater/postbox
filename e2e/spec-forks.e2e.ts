@@ -96,4 +96,85 @@ describe("specification forks", () => {
     await context.close();
     void space;
   });
+
+  it("blocks a merge request that would break the original's governance rules, and explains why", async () => {
+    const [home] = (await call("GET", "/api/workspaces")) as { id: string }[];
+    const doc = (description: string | null) =>
+      [
+        "openapi: 3.0.0",
+        "info:",
+        '  title: "T"',
+        '  version: "1"',
+        ...(description ? [`  description: "${description}"`] : []),
+        "paths: {}",
+        "",
+      ].join("\n");
+    const parent = await call("POST", "/api/specifications", {
+      workspaceId: home.id,
+      name: "GovSpecSource",
+      format: "openapi",
+      entrypoint: "openapi.yaml",
+      files: [{ path: "openapi.yaml", content: doc("described") }],
+    });
+    const ruleSet = await call("POST", "/api/governance/rulesets", {
+      workspaceId: home.id,
+      config: {
+        formatVersion: 1,
+        name: "E2E description rule",
+        rules: [
+          {
+            id: "api-description",
+            message: "Describe the API",
+            severity: "error",
+            formats: ["openapi"],
+            field: "/info/description",
+            check: { kind: "nonEmpty" },
+          },
+        ],
+      },
+    });
+    await call("PUT", `/api/specifications/${parent.id}/governance`, {
+      ruleSetId: ruleSet.id,
+      expectedRevision: 0,
+    });
+    await call("POST", "/api/workspaces", { name: "GovForkSpace" });
+
+    let { page, context, errors } = await openApp(browser, baseUrl);
+    await openSpec(page, "GovSpecSource");
+    await page.getByLabel("Specification forks").getByText("Forks and merge requests").click();
+    await page.getByLabel("Fork destination").selectOption({ label: "GovForkSpace" });
+    await page.getByRole("button", { name: "Fork", exact: true }).click();
+    await page.getByText("Forked").first().waitFor();
+    const [fork] = (await call("GET", `/api/specifications/${parent.id}/forks`)) as { folderId: string }[];
+    const current = (await call("GET", `/api/specifications/${fork.folderId}`)) as {
+      revision: number;
+      entrypoint: string;
+    };
+    await call("PATCH", `/api/specifications/${fork.folderId}`, {
+      expectedRevision: current.revision,
+      entrypoint: current.entrypoint,
+      files: [{ path: "openapi.yaml", content: doc(null) }],
+      label: "drop description",
+    });
+
+    await context.close();
+    ({ page, context, errors } = await openApp(browser, baseUrl));
+    await page.getByRole("combobox").first().click();
+    await page.getByRole("option", { name: "GovForkSpace", exact: true }).click();
+    await openSpec(page, "GovSpecSource (fork)");
+    await page.getByLabel("Specification forks").getByText("Forks and merge requests").click();
+    await page.getByLabel("Merge request title").fill("Remove the description");
+    await page.getByRole("button", { name: "Open merge request" }).click();
+    const detail = page.getByRole("region", { name: "Merge request", exact: true });
+    const governance = detail.getByRole("region", { name: "Governance" });
+    await governance.getByText("E2E description rule").waitFor();
+    await governance.getByText(/Error · Describe the API/).waitFor();
+    await detail
+      .getByRole("list", { name: "Why it cannot be merged yet" })
+      .getByText(/new governance error/)
+      .waitFor();
+    expect(await detail.getByRole("button", { name: "Merge", exact: true }).isDisabled()).toBe(true);
+    expect(errors).toEqual([]);
+    await context.close();
+  });
 });

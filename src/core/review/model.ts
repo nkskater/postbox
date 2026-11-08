@@ -102,6 +102,8 @@ export function mergeReadiness(input: {
   /** The person merging holds the owner role in the target workspace. */
   mergerIsOwner: boolean;
   hasChanges: boolean;
+  /** New error-severity governance findings the merge would introduce (specifications). */
+  governanceErrors?: number;
 }): Readiness {
   const reasons: string[] = [];
   if (!input.hasChanges) reasons.push("There is nothing to merge");
@@ -110,6 +112,10 @@ export function mergeReadiness(input: {
       `${input.conflicts} change(s) conflict with edits made since the fork; update the fork first`,
     );
   if (input.rejections > 0) reasons.push("A reviewer asked for changes");
+  if ((input.governanceErrors ?? 0) > 0)
+    reasons.push(
+      `It introduces ${input.governanceErrors} new governance error(s) that the original does not have`,
+    );
   if (input.protectedCount > 0 && !input.mergerIsOwner)
     reasons.push("This changes scripts or saved examples, so only a workspace owner can merge it");
   if (input.approvals === 0 && !input.mergerIsOwner)

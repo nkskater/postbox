@@ -389,6 +389,8 @@ export interface OpenDetails {
   staleReviews: number;
   readiness: ReturnType<typeof mergeReadiness>;
   can: { review: boolean; merge: boolean; close: boolean };
+  /** For specifications: what the original's governance rule set says about the result of the merge. */
+  governance?: ReturnType<typeof specProposal>["governance"];
 }
 
 export function mergeRequestView(mr: MergeRow) {
@@ -442,6 +444,7 @@ export function mergeRequestView(mr: MergeRow) {
       protectedCount: 0,
       mergerIsOwner: isOwner,
       hasChanges: !sp.identical,
+      governanceErrors: sp.governance?.newErrors.length ?? 0,
     });
     const standingIds = new Set([...st!.approvals, ...st!.rejections].map((r) => r.id));
     return {
@@ -450,6 +453,7 @@ export function mergeRequestView(mr: MergeRow) {
       open: <OpenDetails>{
         diff: sp.diff,
         protectedChanges: [],
+        governance: sp.governance,
         conflicts: sp.conflicts,
         variableConflicts: [],
         approvals: st!.approvals.length,
@@ -654,6 +658,7 @@ function mergeSpecMergeRequest(mr: MergeRow, fork: ForkRow) {
     protectedCount: 0,
     mergerIsOwner: owner,
     hasChanges: !p.identical,
+    governanceErrors: p.governance?.newErrors.length ?? 0,
   });
   if (!readiness.ok) throw new HttpError(409, readiness.reasons.join("; "));
   const counts = getDb().transaction(() => {
