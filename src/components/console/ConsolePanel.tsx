@@ -38,7 +38,9 @@ export function ConsolePanel() {
     [entries, filter, level],
   );
 
-  useEffect(() => end.current?.scrollIntoView({ block: "end" }), [shown.length]);
+  useEffect(() => {
+    end.current?.scrollIntoView({ block: "end" });
+  }, [shown.length]);
 
   return (
     <div className="flex h-full flex-col bg-sidebar">
