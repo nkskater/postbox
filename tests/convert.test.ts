@@ -1,5 +1,21 @@
+import fs from "node:fs";
+import path from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
+
+function resolveSh(): string | null {
+  if (process.platform !== "win32") return "sh";
+  const candidates = [
+    path.join(process.env.LOCALAPPDATA || "", "Programs/Git/bin/sh.exe"),
+    path.join(process.env.LOCALAPPDATA || "", "Programs/Git/usr/bin/sh.exe"),
+    "C:\\Program Files\\Git\\bin\\sh.exe",
+    "C:\\Program Files\\Git\\usr\\bin\\sh.exe",
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+}
 import { parseCurl, tokenize } from "@/core/convert/curl";
 import {
   exportPostmanCollection,
@@ -239,19 +255,13 @@ paths:
     const { root, variables } = importOpenApi({
       openapi: "3.0.3",
       info: { title: "MultiHost", version: "1.0.0" },
-      servers: [
-        { url: "https://root.test/v1/" },
-        { url: "https://root-backup.test/v1" },
-      ],
+      servers: [{ url: "https://root.test/v1/" }, { url: "https://root-backup.test/v1" }],
       paths: {
         "/root-default": {
           get: { operationId: "getRootDefault" },
         },
         "/orders": {
-          servers: [
-            { url: "https://orders.test/api/" },
-            { url: "https://orders-secondary.test/api" },
-          ],
+          servers: [{ url: "https://orders.test/api/" }, { url: "https://orders-secondary.test/api" }],
           get: {
             operationId: "listOrders",
             // Empty servers array should fall back to path server.
@@ -276,9 +286,7 @@ paths:
       { key: "baseUrl_3", value: "https://write-orders.test/v2", type: "default", enabled: true },
     ]);
 
-    const requests = Object.fromEntries(
-      (root.children as RequestNode[]).map((r) => [r.name, r]),
-    );
+    const requests = Object.fromEntries((root.children as RequestNode[]).map((r) => [r.name, r]));
     expect(requests.getRootDefault.url).toBe("{{baseUrl}}/root-default");
     expect(requests.listOrders.url).toBe("{{baseUrl_2}}/orders");
     expect(requests.createOrder.url).toBe("{{baseUrl_3}}/orders");
@@ -288,15 +296,9 @@ paths:
       ...emptyScopes(),
       collection: variablesToRecord(variables),
     });
-    expect(resolver.resolve(requests.getRootDefault.url)).toBe(
-      "https://root.test/v1/root-default",
-    );
-    expect(resolver.resolve(requests.listOrders.url)).toBe(
-      "https://orders.test/api/orders",
-    );
-    expect(resolver.resolve(requests.createOrder.url)).toBe(
-      "https://write-orders.test/v2/orders",
-    );
+    expect(resolver.resolve(requests.getRootDefault.url)).toBe("https://root.test/v1/root-default");
+    expect(resolver.resolve(requests.listOrders.url)).toBe("https://orders.test/api/orders");
+    expect(resolver.resolve(requests.createOrder.url)).toBe("https://write-orders.test/v2/orders");
   });
 
   it("resolves relative path and operation server URLs against sourceUrl or root server", () => {
@@ -459,12 +461,8 @@ paths:
         baseUrl_2: "t-42",
       },
     });
-    expect(resolver.resolve(getReq.url)).toBe(
-      "https://acme.api.example.com:8443/v2/tenants/t-42/resources",
-    );
-    expect(resolver.resolve(postReq.url)).toBe(
-      "https://acme.ingest.example.com/live/tenants/t-42/resources",
-    );
+    expect(resolver.resolve(getReq.url)).toBe("https://acme.api.example.com:8443/v2/tenants/t-42/resources");
+    expect(resolver.resolve(postReq.url)).toBe("https://acme.ingest.example.com/live/tenants/t-42/resources");
   });
 
   it("honors Swagger 2.0 operation-level schemes override", () => {
@@ -529,7 +527,9 @@ describe("code generation", () => {
   ])("passes the cURL method as one literal shell argument: %j", (method) => {
     const snippet = generateSnippet("curl", { ...req, method });
     // Stub curl to capture arguments without making a network request.
-    const output = execFileSync("sh", ["-c", `curl() { printf '%s\\0' "$@"; }; ${snippet}`], {
+    const sh = resolveSh();
+    if (!sh) return;
+    const output = execFileSync(sh, ["-c", `curl() { printf '%s\\0' "$@"; }; ${snippet}`], {
       encoding: "utf8",
     });
     expect(output.split("\0").slice(0, -1)).toEqual([

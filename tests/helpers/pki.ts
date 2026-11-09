@@ -19,8 +19,23 @@ export interface Pki {
   otherClientKey: string;
 }
 
+function resolveOpenssl(): string {
+  if (process.platform === "win32") {
+    const candidates = [
+      path.join(process.env.LOCALAPPDATA || "", "Programs/Git/usr/bin/openssl.exe"),
+      path.join(process.env.LOCALAPPDATA || "", "Programs/Git/mingw64/bin/openssl.exe"),
+      "C:\\Program Files\\Git\\usr\\bin\\openssl.exe",
+      "C:\\Program Files\\Git\\mingw64\\bin\\openssl.exe",
+    ];
+    for (const p of candidates) {
+      if (fs.existsSync(p)) return p;
+    }
+  }
+  return "openssl";
+}
+
 function openssl(cwd: string, ...args: string[]) {
-  execFileSync("openssl", args, { cwd, stdio: "pipe" });
+  execFileSync(resolveOpenssl(), args, { cwd, stdio: "pipe" });
 }
 
 export function createPki(): Pki {

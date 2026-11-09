@@ -37,7 +37,8 @@ function suiteCases(dir = SUITE): string[] {
 }
 
 function parseRequest(raw: string) {
-  const [head, ...rest] = raw.split("\n\n");
+  const normalized = raw.replace(/\r\n/g, "\n");
+  const [head, ...rest] = normalized.split("\n\n");
   const [requestLine, ...lines] = head.split("\n");
   const m = /^(\S+) (.*) HTTP\/1\.1$/.exec(requestLine)!;
   const headers: [string, string][] = [];
@@ -64,9 +65,11 @@ describe("AWS Signature V4 test suite", () => {
       timestamp: header("x-amz-date"),
       sessionToken: header("x-amz-security-token"),
     });
-    expect(signed.parts.canonicalRequest).toBe(fs.readFileSync(path.join(dir, `${name}.creq`), "utf8"));
+    expect(signed.parts.canonicalRequest).toBe(
+      fs.readFileSync(path.join(dir, `${name}.creq`), "utf8").replace(/\r\n/g, "\n"),
+    );
     expect(signed.headers.find(([k]) => k === "Authorization")?.[1]).toBe(
-      fs.readFileSync(path.join(dir, `${name}.authz`), "utf8"),
+      fs.readFileSync(path.join(dir, `${name}.authz`), "utf8").replace(/\r\n/g, "\n"),
     );
   });
 });
