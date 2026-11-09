@@ -41,6 +41,11 @@ const ENV_SETTINGS: { name: string; description: string; secret?: boolean; fallb
     description: "Extra browser origins allowed to send changes to the API (behind a host-rewriting proxy)",
   },
   { name: "MCP_ALLOWED_ORIGINS", description: "Extra browser origins allowed to call /api/mcp" },
+  {
+    name: "GATEWAY_ENABLED",
+    description: "Serve authenticated managed gateway routes (true/false)",
+    fallback: "false",
+  },
   { name: "MCP_ENABLED", description: "Serve the MCP endpoint (true/false)", fallback: "true" },
   { name: "MCP_READ_ONLY", description: "Block MCP tools that change data (true/false)", fallback: "false" },
   { name: "SCRIPT_TIMEOUT_MS", description: "Script time limit", fallback: "5000" },

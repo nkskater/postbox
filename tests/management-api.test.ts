@@ -114,6 +114,7 @@ describe("contract and access policy", () => {
       "/api/load-runs",
       "/api/vault",
       "/api/broker",
+      "/api/gateway",
       "/api/settings/import",
       "/api/workspaces/[id]/members",
       "/api/workspaces/[id]/usage",

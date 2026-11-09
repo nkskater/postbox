@@ -19,6 +19,20 @@ const p = (source: Source, action?: WorkspaceAction, kind?: ResourceKind): Polic
 });
 /** Explicit inventory: unclassified routes fail closed. Tests compare this to every route export. */
 export const REST_POLICIES: Record<string, Policy> = {
+  "GET /api/gateway": p("query", "read"),
+  "POST /api/gateway/providers": p("body", "manage"),
+  "POST /api/gateway/providers/[id]/grant": p("resource", "manage", "brokerApi"),
+  "POST /api/gateway/routes": p("body", "manage"),
+  "GET /api/gateway/routes/[id]": p("resource", "read", "gatewayRoute"),
+  "PUT /api/gateway/routes/[id]": p("resource", "manage", "gatewayRoute"),
+  "DELETE /api/gateway/routes/[id]": p("resource", "manage", "gatewayRoute"),
+  "GET /api/gateway/[id]/[[...path]]": p("resource", "run", "gatewayRoute"),
+  "HEAD /api/gateway/[id]/[[...path]]": p("resource", "run", "gatewayRoute"),
+  "POST /api/gateway/[id]/[[...path]]": p("resource", "run", "gatewayRoute"),
+  "PUT /api/gateway/[id]/[[...path]]": p("resource", "run", "gatewayRoute"),
+  "PATCH /api/gateway/[id]/[[...path]]": p("resource", "run", "gatewayRoute"),
+  "DELETE /api/gateway/[id]/[[...path]]": p("resource", "run", "gatewayRoute"),
+  "OPTIONS /api/gateway/[id]/[[...path]]": p("resource", "run", "gatewayRoute"),
   "POST /api/auth/login": p("public"),
   "POST /api/auth/logout": p("public"),
   "POST /api/auth/setup": p("public"),
@@ -428,10 +442,13 @@ function compiledPolicies(): Map<string, CompiledPolicy[]> {
   compiled = new Map();
   for (const [key, policy] of Object.entries(REST_POLICIES)) {
     const [verb, pattern] = key.split(" ");
-    const source = pattern
-      .split(/(\[[A-Za-z][A-Za-z0-9]*\])/)
-      .map((part, i) => (i % 2 ? "([^/]+)" : part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))
-      .join("");
+    let source = "";
+    for (const segment of pattern.split("/").slice(1)) {
+      if (/^\[\[\.\.\.[A-Za-z][A-Za-z0-9]*\]\]$/.test(segment)) source += "(?:/(.*))?";
+      else if (/^\[\.\.\.[A-Za-z][A-Za-z0-9]*\]$/.test(segment)) source += "/(.+)";
+      else if (/^\[[A-Za-z][A-Za-z0-9]*\]$/.test(segment)) source += "/([^/]+)";
+      else source += "/" + segment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    }
     const list = compiled.get(verb) ?? [];
     list.push({ pattern, regex: new RegExp(`^${source}/?$`), policy });
     compiled.set(verb, list);

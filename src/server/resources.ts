@@ -2,6 +2,7 @@ import { getSqlite } from "./db";
 import { HttpError } from "./errors";
 
 export type ResourceKind =
+  | "gatewayRoute"
   | "workspace"
   | "folder"
   | "request"
@@ -34,6 +35,7 @@ export type ResourceKind =
   | "telemetrySource"
   | "runner";
 export const RESOURCE_TABLES: Record<ResourceKind, string> = {
+  gatewayRoute: "gateway_routes",
   workspace: "workspaces",
   folder: "folders",
   request: "requests",
