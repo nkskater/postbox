@@ -162,7 +162,7 @@ function compileSockets(patterns: string[]): { exact: Set<string>; dirs: string[
     if (!p) continue;
     const dir = p.endsWith("/*") || p.endsWith("\\*") ? p.slice(0, -2) : null;
     const normalized = normalizeSocketPath(dir ?? p);
-    if (!normalized || (dir !== null && PIPE.test(dir)))
+    if (!normalized || (dir !== null && (PIPE.test(dir) || /^\\\\[.?]\\pipe(\\|$)/i.test(dir))))
       throw new HostPolicyError(
         `Invalid PROXY_ALLOW_SOCKETS entry "${raw}": expected an absolute socket path, dir/*, or \\\\.\\pipe\\name`,
       );

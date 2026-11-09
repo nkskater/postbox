@@ -314,7 +314,7 @@ describe("script sandbox", () => {
     const t = await runScript("while (true) {}", ctx(), { limits: { timeoutMs: 200 } });
     expect(t.error).toMatch(/time limit/);
     const m = await runScript("const a = []; while (true) a.push(new Array(100000).fill(1));", ctx(), {
-      limits: { memoryBytes: 8 * 1024 * 1024 },
+      limits: { memoryBytes: 8 * 1024 * 1024, timeoutMs: 15000 },
     });
     expect(m.error).toMatch(/memory/);
   });

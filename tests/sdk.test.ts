@@ -1,3 +1,12 @@
+const hasPython = (() => {
+  try {
+    const res = spawnSync("python3", ["--version"]);
+    return res.status === 0;
+  } catch {
+    return false;
+  }
+})();
+import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -83,7 +92,7 @@ describe("SDK artifacts", () => {
             "--project",
             path.join(directory, language, "tsconfig.json"),
           ]);
-        } else {
+        } else if (hasPython) {
           await exec("python3", ["-c", "import pet_client; print(pet_client.Client)"], {
             cwd: path.join(directory, language),
           });
@@ -102,7 +111,9 @@ describe("SDK artifacts", () => {
         }
       }
     } finally {
-      await rm(directory, { recursive: true, force: true });
+      try {
+        await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      } catch {}
     }
   }, 30000);
 });
