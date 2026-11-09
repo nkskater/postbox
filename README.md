@@ -678,3 +678,5 @@ Share pinned helpers across collections using **Packages** and `pm.require`. See
 - [Shared collection dependencies](docs/shared-dependencies.md): publish versioned, secret-free collections, install them in other workspaces and update with a three-way merge that keeps local edits.
 - [Forks and merge requests](docs/forks-and-merge-requests.md): fork a collection, keep it current with the original, and propose changes back through review with conflict detection and owner-only script changes.
 - [Collections as repository files](docs/repository-format.md): a stable, secret-free file format for keeping collections in Git, with `collection pull`, `push` and `import-dir`.
+
+See [the in-app assistant guide](docs/assistant.md) for Strata, Ollama and other OpenAI-compatible model servers.

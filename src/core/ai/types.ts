@@ -1,6 +1,6 @@
 /** AI model requests: the saved configuration and the normalised events every provider is turned into. */
 
-export const AI_PROVIDERS = ["openai", "anthropic"] as const;
+export const AI_PROVIDERS = ["openai", "anthropic", "strata", "ollama"] as const;
 export type AiProvider = (typeof AI_PROVIDERS)[number];
 
 export interface AiToolCall {
