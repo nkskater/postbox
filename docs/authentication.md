@@ -189,4 +189,4 @@ All authentication settings can be inspected, created, and automated through the
     }
   }
   ```
-- **MCP Server Tools**: MCP clients (such as Claude Code) can create requests, update authorization parameters, trigger test executions, and manage OAuth 2.0 tokens through the `/api/mcp` endpoint.
+- **MCP Server Tools**: MCP clients can create requests, update authorization parameters, trigger test executions, and manage OAuth 2.0 tokens through the `/api/mcp` endpoint.
