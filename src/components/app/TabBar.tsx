@@ -60,6 +60,8 @@ function TabTitle({ tab }: { tab: Tab }) {
           <span>Cookies</span>
         </>
       );
+    case "assistant":
+      return <span>API assistant</span>;
     case "telemetry":
       return (
         <>

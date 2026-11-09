@@ -28,13 +28,13 @@ Workspace
 
 All string fields in authentication configurations support `{{variable}}` substitution. Variables resolve across Postbox scopes according to standard precedence:
 
-1. **Local variables** (set dynamically via scripts or iteration data)
+1. **Local variables** (set dynamically via scripts)
 2. **Iteration data** (CSV/JSON rows during collection runs)
 3. **Environment variables**
 4. **Collection variables**
 5. **Global variables**
 
-Sensitive fields (passwords, tokens, client secrets, private keys) are masked with bullets in the UI and automatically redacted from request history, logs, visualizers, and export bundles. You can also reference encrypted secrets stored in the Postbox Secrets Vault (`/api/vault`).
+Use secret variables for passwords, tokens, client secrets and private keys. Known secret variable values are redacted from execution logs and retained results; avoid embedding credentials directly in saved request fields or exported collections. See [the secrets vault guide](secrets-vault.md) for encrypted secret references.
 
 ---
 
@@ -98,7 +98,7 @@ Full-featured OAuth 2.0 client supporting automatic token retrieval, browser log
   - **Authorization Code (with PKCE)**: Generates high-entropy `code_verifier` and SHA-256 `code_challenge`.
   - **Client Credentials**: Machine-to-machine authentication against token endpoints.
   - **Password**: Resource owner password credentials grant (`username` + `password`).
-  - **Implicit**: Token extracted directly from fragment callback.
+  - **Manual**: Supply an existing access token.
 - **Configuration Options**:
   - `Auth URL`: Authorization endpoint URL for browser flows.
   - `Access Token URL`: Token exchange and refresh endpoint URL.
