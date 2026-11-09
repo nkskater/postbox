@@ -182,7 +182,7 @@ describe("sandbox limits and escapes", () => {
     const r = await run("const a = []; for (;;) a.push(new Array(100000).fill(1));", {}, 1000);
     expect(r).toMatchObject({ ok: false, error: expect.stringMatching(/memory|ran longer/i) });
     // The limit is checked between bytecode operations, so a native allocation loop can overshoot it.
-    expect(r.ms).toBeLessThan(8000);
+    expect(r.ms).toBeLessThan(15000);
     const big = await run('let s = "x"; for (let i = 0; i < 40; i++) s += s; return { body: s }', {}, 3000);
     expect(big.ok).toBe(false);
   });

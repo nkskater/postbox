@@ -180,7 +180,10 @@ describe("MCP client saved calls and user-owned sessions", () => {
       (await route("POST", "sessions/" + session.id, editor, { action: { type: "tools/list" } }, session.id))
         .status,
     ).toBe(403);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    const start = Date.now();
+    while (server.sessions.size > 0 && Date.now() - start < 2000) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     expect(service.mcpSessionCount()).toBe(0);
     expect(server.sessions.size).toBe(0);
   });

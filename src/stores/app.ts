@@ -65,6 +65,7 @@ export type Tab =
   | { id: string; type: "mcp-client"; name: string }
   | { id: string; type: "monitors"; name: string }
   | { id: string; type: "specifications"; name: string }
+  | { id: string; type: "assistant"; name: string }
   | { id: string; type: "telemetry"; name: string }
   | { id: string; type: "governance"; name: string }
   | { id: string; type: "settings"; name: string };
@@ -211,7 +212,8 @@ interface AppState {
     | "monitors"
     | "specifications"
     | "governance"
-    | "telemetry";
+    | "telemetry"
+    | "assistant";
   historyVersion: number;
   datasetVersion: number;
   packageVersion: number;

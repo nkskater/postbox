@@ -48,7 +48,7 @@ describe("comment rules", () => {
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "postbox-comments-"));
 process.env.DATABASE_PATH = path.join(dir, "test.db");
-const { getDb, schema } = await import("@/server/db");
+const { getDb, schema, getSqlite } = await import("@/server/db");
 const users = await import("@/server/users");
 const repo = await import("@/server/repo");
 const { withCaller } = await import("@/server/access-context");
@@ -80,7 +80,14 @@ beforeAll(async () => {
     .values({ id: specId, workspaceId, name: "Spec", format: "graphql", createdAt: 1, updatedAt: 1 })
     .run();
 });
-afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
+afterAll(() => {
+  try {
+    getSqlite().close();
+  } catch {}
+  try {
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch {}
+});
 
 const post = (
   u: UserRow,

@@ -114,7 +114,12 @@ beforeAll(async () => {
 
 afterAll(async () => {
   server.close();
-  fs.rmSync(dir, { recursive: true, force: true });
+  try {
+    dbm.getSqlite().close();
+  } catch {}
+  try {
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch {}
 });
 
 describe("backup and restore", () => {

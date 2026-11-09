@@ -11,6 +11,7 @@ import { DatasetList } from "./DatasetList";
 import { HistoryList } from "./HistoryList";
 
 const VIEWS = [
+  { id: "assistant", label: "Assistant", icon: Server },
   { id: "telemetry", label: "Telemetry", icon: Server },
   { id: "governance", label: "Governance", icon: Library },
   { id: "specifications", label: "Specifications", icon: Library },
@@ -47,6 +48,8 @@ export function Sidebar() {
             title={v.label}
             onClick={() => {
               setView(v.id);
+              if (v.id === "assistant")
+                useApp.getState().openTab({ id: "api-assistant", type: "assistant", name: "API assistant" });
               if (v.id === "telemetry")
                 useApp
                   .getState()

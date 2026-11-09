@@ -374,7 +374,12 @@ function routeFiles(directory: string): string[] {
 const root = path.resolve("src/app/api");
 const entries = routeFiles(root).flatMap((file) => {
   const source = fs.readFileSync(file, "utf8");
-  const template = "/api/" + path.relative(root, file).replace(/\/route.ts$/, "");
+  const template =
+    "/api/" +
+    path
+      .relative(root, file)
+      .replace(/\\/g, "/")
+      .replace(/\/route\.ts$/, "");
   return [
     ...source.matchAll(/export (?:const|(?:async )?function) (GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\b/g),
   ].map((match) => ({ file, source, key: `${match[1]} ${template}`, method: match[1] }));

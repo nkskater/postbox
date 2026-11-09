@@ -47,8 +47,8 @@ export function AiBodyEditor({ body, onChange }: { body: AiBody; onChange: (b: B
       <p className="text-xs text-muted-foreground">
         Set the endpoint in the URL bar and the API key under Authorization (Bearer for OpenAI-compatible
         servers, an API key header named <code>x-api-key</code> for Anthropic). OpenAI-compatible covers
-        OpenAI, Azure, Ollama (<code>http://localhost:11434/v1/chat/completions</code>), vLLM, LM Studio and
-        other self-hosted servers.
+        OpenAI, Azure, Strata, Ollama (<code>http://localhost:11434/v1/chat/completions</code>), vLLM, LM
+        Studio and other self-hosted servers.
       </p>
       <div className="grid gap-3 sm:grid-cols-3">
         <Field label="Provider format">
@@ -57,7 +57,9 @@ export function AiBodyEditor({ body, onChange }: { body: AiBody; onChange: (b: B
             value={ai.provider}
             onChange={(e) => set({ provider: e.target.value as AiConfig["provider"] })}
           >
-            <option value="openai">OpenAI-compatible (chat completions)</option>
+            <option value="openai">OpenAI-compatible</option>
+            <option value="strata">Strata (OpenAI-compatible)</option>
+            <option value="ollama">Ollama (OpenAI-compatible)</option>
             <option value="anthropic">Anthropic (messages)</option>
           </select>
         </Field>
