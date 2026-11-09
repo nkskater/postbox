@@ -82,7 +82,7 @@ describe("postbox init scaffolding", () => {
 describe("postbox doctor checks", () => {
   it("passes a fresh project and warns about Git", async () => {
     await scaffoldProject(dir, options);
-    const report = await checkProject(dir, { nodeVersion: "22.1.0" });
+    const report = await checkProject(dir, { nodeVersion: "22.13.0" });
     expect(report.ok).toBe(true);
     expect(report.checks.map((c) => `${c.status} ${c.id}`)).toEqual([
       "ok node",
@@ -96,13 +96,13 @@ describe("postbox doctor checks", () => {
 
   it("is stable for the same files", async () => {
     await scaffoldProject(dir, options);
-    expect(await checkProject(dir, { nodeVersion: "22.1.0" })).toEqual(
-      await checkProject(dir, { nodeVersion: "22.1.0" }),
+    expect(await checkProject(dir, { nodeVersion: "22.13.0" })).toEqual(
+      await checkProject(dir, { nodeVersion: "22.13.0" }),
     );
   });
 
   it("fails without a config and points at init", async () => {
-    const report = await checkProject(dir, { nodeVersion: "22.1.0" });
+    const report = await checkProject(dir, { nodeVersion: "22.13.0" });
     expect(report.ok).toBe(false);
     expect(report.checks.at(-1)).toMatchObject({ id: "config", status: "fail" });
     expect(report.checks.at(-1)!.message).toContain("postbox init");
@@ -129,7 +129,7 @@ describe("postbox doctor checks", () => {
         data: "rows.csv",
       }),
     );
-    report = await checkProject(dir, { nodeVersion: "22.1.0" });
+    report = await checkProject(dir, { nodeVersion: "22.13.0" });
     expect(report.ok).toBe(false);
     const byId = Object.fromEntries(report.checks.map((c) => [c.id, c]));
     expect(byId["collection:c/empty.json"]).toMatchObject({ status: "fail", message: "has no requests" });
@@ -143,17 +143,17 @@ describe("postbox doctor checks", () => {
     await scaffoldProject(dir, options);
     const config = JSON.parse(await read("postbox.json"));
     await writeFile(path.join(dir, "postbox.json"), JSON.stringify({ ...config, skills: "skills" }));
-    let report = await checkProject(dir, { nodeVersion: "22.1.0" });
+    let report = await checkProject(dir, { nodeVersion: "22.13.0" });
     expect(report.checks.at(-1)).toMatchObject({ id: "skills", status: "warn" });
 
     await installSkills(path.join(dir, "skills"), resolveSkills(["postbox-project"]));
     await writeFile(path.join(dir, "skills/postbox-project/SKILL.md"), "mine\n");
-    report = await checkProject(dir, { nodeVersion: "22.1.0" });
+    report = await checkProject(dir, { nodeVersion: "22.13.0" });
     expect(report.checks.at(-1)).toMatchObject({ id: "skill:postbox-project", status: "warn" });
     expect(report.ok).toBe(true);
 
     await rm(path.join(dir, "skills/postbox-project/SKILL.md"));
-    report = await checkProject(dir, { nodeVersion: "22.1.0" });
+    report = await checkProject(dir, { nodeVersion: "22.13.0" });
     expect(report.checks.at(-1)).toMatchObject({ id: "skill:postbox-project", status: "fail" });
   });
 });
@@ -291,4 +291,10 @@ it("refuses linked project and skill directories", async () => {
   await symlink(destination, path.join(dir, SKILLS[0].name), "junction");
   await expect(installSkills(dir, [SKILLS[0]], { force: true })).rejects.toThrow("Refusing symbolic link");
   await expect(readFile(path.join(destination, "SKILL.md"))).rejects.toThrow();
+});
+
+it("accepts supported Node 20 installations in doctor", async () => {
+  await scaffoldProject(dir, options);
+  expect((await checkProject(dir, { nodeVersion: "20.19.0" })).ok).toBe(true);
+  expect((await checkProject(dir, { nodeVersion: "20.18.0" })).ok).toBe(false);
 });

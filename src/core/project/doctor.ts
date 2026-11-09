@@ -18,7 +18,7 @@ export interface DoctorReport {
   checks: Check[];
 }
 
-const MIN_NODE_MAJOR = 22;
+const NODE_REQUIREMENT = "20.19+, 22.13+, 23.5+, or 24+";
 
 async function readJson(file: string): Promise<unknown> {
   return JSON.parse((await readFile(file, "utf8")).replace(/^﻿/, ""));
@@ -63,13 +63,16 @@ export async function checkProject(
   const add = (id: string, status: CheckStatus, message: string) => checks.push({ id, status, message });
   const finish = (): DoctorReport => ({ dir, ok: !checks.some((c) => c.status === "fail"), checks });
 
-  const major = Number(nodeVersion.split(".")[0]);
+  const [major, minor] = nodeVersion.split(".").map(Number);
+  const supported =
+    major >= 24 ||
+    (major === 23 && minor >= 5) ||
+    (major === 22 && minor >= 13) ||
+    (major === 20 && minor >= 19);
   add(
     "node",
-    major >= MIN_NODE_MAJOR ? "ok" : "fail",
-    major >= MIN_NODE_MAJOR
-      ? `Node.js ${nodeVersion}`
-      : `Node.js ${nodeVersion} is too old; ${MIN_NODE_MAJOR} or newer is required`,
+    supported ? "ok" : "fail",
+    supported ? `Node.js ${nodeVersion}` : `Node.js ${nodeVersion} is unsupported; use ${NODE_REQUIREMENT}`,
   );
 
   let config: ProjectConfig;
