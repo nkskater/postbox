@@ -122,7 +122,13 @@ export function VariablesEditor({
                     variant="ghost"
                     size="icon"
                     className="size-6 text-muted-foreground opacity-0 group-hover:opacity-100"
-                    onClick={() => onChange(variables.filter((_, idx) => idx !== i))}
+                    onClick={() => {
+                      // Reveal state is per row position, so shift it with the rows that move up.
+                      setRevealed(
+                        (s) => new Set([...s].filter((n) => n !== i).map((n) => (n > i ? n - 1 : n))),
+                      );
+                      onChange(variables.filter((_, idx) => idx !== i));
+                    }}
                   >
                     <Trash2 className="size-3.5" />
                   </Button>

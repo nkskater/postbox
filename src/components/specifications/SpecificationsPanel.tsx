@@ -6,6 +6,8 @@ import { SpecificationGovernancePanel } from "@/components/governance/Governance
 import { SpecificationCollectionsPanel } from "./SpecificationSyncPanel";
 import { CodeEditor } from "@/components/editor/CodeEditor";
 import { CommentsPanel } from "@/components/comments/CommentsPanel";
+import { ForkPanel } from "@/components/folder/ForkPanel";
+import { RepositoryPanel } from "@/components/folder/RepositoryPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -584,6 +586,27 @@ function WorkspaceSpecifications({ workspaceId }: { workspaceId: string }) {
                 ))}
               </ul>
             </section>
+          )}
+          {doc && (
+            <details className="rounded border p-3" aria-label="Specification forks">
+              <summary className="cursor-pointer font-semibold">Forks and merge requests</summary>
+              <div className="mt-3">
+                <ForkPanel key={doc.id} kind="specification" folderId={doc.id} name={doc.name} />
+              </div>
+            </details>
+          )}
+          {doc && (
+            <details className="rounded border p-3" aria-label="Specification repository">
+              <summary className="cursor-pointer font-semibold">Repository</summary>
+              <div className="mt-3">
+                <RepositoryPanel
+                  key={`${doc.id}:${doc.revision}`}
+                  kind="specification"
+                  id={doc.id}
+                  name={doc.name}
+                />
+              </div>
+            </details>
           )}
           {doc && (
             <section className="rounded border p-3 space-y-2" aria-label="Specification discussion">

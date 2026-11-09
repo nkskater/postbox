@@ -54,10 +54,14 @@ beforeAll(async () => {
   proxy = await startTestProxy({ auth: { username: "svc", password: "proxy-pass-123" } });
 });
 afterAll(async () => {
-  origin.close();
-  await proxy.close();
-  dbm.getSqlite().close();
-  fs.rmSync(dir, { recursive: true, force: true });
+  origin?.close();
+  await proxy?.close();
+  try {
+    dbm.getSqlite().close();
+  } catch {}
+  try {
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch {}
 });
 
 describe("outbound settings API", () => {

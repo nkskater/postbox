@@ -1093,10 +1093,60 @@ export const monitors = sqliteTable(
     failures: integer("failures").notNull().default(0),
     successes: integer("successes").notNull().default(0),
     openIncidentId: text("open_incident_id"),
+    /** Private runner that executes this monitor; null means the Postbox server itself. */
+    runnerId: text("runner_id"),
     revision: integer("revision").notNull().default(1),
     ...timestamps,
   },
-  (t) => [index("monitors_workspace_idx").on(t.workspaceId)],
+  (t) => [index("monitors_workspace_idx").on(t.workspaceId), index("monitors_runner_idx").on(t.runnerId)],
+);
+/** Self-hosted runners that execute monitors from inside other networks. The token is stored only as a hash. */
+export const runners = sqliteTable(
+  "runners",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    location: text("location").notNull().default(""),
+    labels: text("labels", { mode: "json" }).$type<string[]>().notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    /** Whether jobs carry this workspace's secret values; otherwise the runner supplies its own. */
+    shareSecrets: integer("share_secrets", { mode: "boolean" }).notNull().default(false),
+    allowHosts: text("allow_hosts", { mode: "json" }).$type<string[]>().notNull(),
+    denyHosts: text("deny_hosts", { mode: "json" }).$type<string[]>().notNull(),
+    version: text("version"),
+    lastSeenAt: integer("last_seen_at"),
+    revokedAt: integer("revoked_at"),
+    createdBy: text("created_by"),
+    ...timestamps,
+  },
+  (t) => [index("runners_workspace_idx").on(t.workspaceId)],
+);
+/** One monitor check handed to a runner. `runId` is the idempotency key: a result is recorded at most once. */
+export const runnerJobs = sqliteTable(
+  "runner_jobs",
+  {
+    id: text("id").primaryKey(),
+    runId: text("run_id").notNull().unique(),
+    monitorId: text("monitor_id")
+      .notNull()
+      .references(() => monitors.id, { onDelete: "cascade" }),
+    runnerId: text("runner_id")
+      .notNull()
+      .references(() => runners.id, { onDelete: "cascade" }),
+    status: text("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    leaseExpiresAt: integer("lease_expires_at"),
+    error: text("error"),
+    createdAt: integer("created_at").notNull(),
+    finishedAt: integer("finished_at"),
+  },
+  (t) => [
+    index("runner_jobs_queue_idx").on(t.runnerId, t.status),
+    index("runner_jobs_monitor_idx").on(t.monitorId, t.status),
+  ],
 );
 export const monitorSamples = sqliteTable(
   "monitor_samples",
@@ -1112,6 +1162,8 @@ export const monitorSamples = sqliteTable(
       .$type<import("@/core/monitoring/model").MonitorMetrics>()
       .notNull(),
     reasons: text("reasons", { mode: "json" }).$type<string[]>().notNull(),
+    /** The runner that took the sample; null for the server. */
+    runnerId: text("runner_id"),
   },
   (t) => [index("monitor_samples_time_idx").on(t.monitorId, t.at)],
 );
@@ -1500,4 +1552,162 @@ export const telemetryObservations = sqliteTable(
     index("telemetry_workspace_time_idx").on(t.workspaceId, t.at),
     index("telemetry_source_time_idx").on(t.sourceId, t.at),
   ],
+);
+
+/** A published, immutable, secret-free version of a collection that other workspaces can install. */
+export const dependencyReleases = sqliteTable(
+  "dependency_releases",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    kind: text("kind")
+      .$type<import("@/core/dependencies/model").DependencyKind>()
+      .notNull()
+      .default("collection"),
+    /** The source collection or environment. Not a foreign key: a release outlives edits and deletion of it. */
+    folderId: text("folder_id").notNull(),
+    name: text("name").notNull(),
+    version: text("version").notNull(),
+    /** Publication order within the collection; "newer" means a higher seq, not a higher version string. */
+    seq: integer("seq").notNull(),
+    notes: text("notes").notNull().default(""),
+    visibility: text("visibility").$type<import("@/core/dependencies/model").ReleaseVisibility>().notNull(),
+    checksum: text("checksum").notNull(),
+    snapshot: text("snapshot", { mode: "json" })
+      .$type<import("@/core/dependencies/model").Snapshot>()
+      .notNull(),
+    folderCount: integer("folder_count").notNull().default(0),
+    requestCount: integer("request_count").notNull().default(0),
+    revokedAt: integer("revoked_at"),
+    revokedReason: text("revoked_reason"),
+    revokedBy: text("revoked_by"),
+    createdBy: text("created_by"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("dependency_releases_version_idx").on(t.folderId, t.version),
+    index("dependency_releases_workspace_idx").on(t.workspaceId),
+  ],
+);
+/** A collection in this workspace that was installed from a release, and what is needed to update it. */
+export const dependencyInstalls = sqliteTable(
+  "dependency_installs",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    kind: text("kind")
+      .$type<import("@/core/dependencies/model").DependencyKind>()
+      .notNull()
+      .default("collection"),
+    /** The local collection or environment. */
+    folderId: text("folder_id").notNull(),
+    releaseId: text("release_id").notNull(),
+    sourceWorkspaceId: text("source_workspace_id").notNull(),
+    sourceFolderId: text("source_folder_id").notNull(),
+    sourceName: text("source_name").notNull(),
+    version: text("version").notNull(),
+    checksum: text("checksum").notNull(),
+    /** What was installed, kept here so updates and diffs still work if the source goes away. */
+    baseSnapshot: text("base_snapshot", { mode: "json" })
+      .$type<import("@/core/dependencies/model").Snapshot>()
+      .notNull(),
+    /** Source node id -> local node id. */
+    nodeMap: text("node_map", { mode: "json" }).$type<Record<string, string>>().notNull(),
+    installedBy: text("installed_by"),
+    installedAt: integer("installed_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("dependency_installs_folder_idx").on(t.folderId),
+    index("dependency_installs_workspace_idx").on(t.workspaceId),
+  ],
+);
+
+/** A collection created from another collection, remembering where it came from and what it started as. */
+export const collectionForks = sqliteTable(
+  "collection_forks",
+  {
+    id: text("id").primaryKey(),
+    kind: text("kind").$type<"collection" | "specification">().notNull().default("collection"),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    /** The fork: a collection (or, for kind "specification", a specification) in `workspaceId`. */
+    folderId: text("folder_id").notNull(),
+    parentWorkspaceId: text("parent_workspace_id").notNull(),
+    parentFolderId: text("parent_folder_id").notNull(),
+    parentName: text("parent_name").notNull(),
+    /** The parent as the fork last agreed with it (at forking, after a sync, or after a merge). */
+    baseSnapshot: text("base_snapshot", { mode: "json" })
+      .$type<import("@/core/dependencies/model").Snapshot>()
+      .notNull(),
+    /** For kind "specification": the parent's entrypoint and files at the last agreement (baseSnapshot is empty). */
+    baseFiles: text("base_files", { mode: "json" }).$type<import("@/core/review/files").FileState>(),
+    /** Parent node id -> fork node id. */
+    nodeMap: text("node_map", { mode: "json" }).$type<Record<string, string>>().notNull(),
+    createdBy: text("created_by"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("collection_forks_folder_idx").on(t.folderId),
+    index("collection_forks_workspace_idx").on(t.workspaceId),
+    index("collection_forks_parent_idx").on(t.parentFolderId),
+  ],
+);
+/** A proposal to bring a fork's changes back into its parent collection. */
+export const mergeRequests = sqliteTable(
+  "merge_requests",
+  {
+    id: text("id").primaryKey(),
+    kind: text("kind").$type<"collection" | "specification">().notNull().default("collection"),
+    /** The parent's workspace: its members review and merge. */
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    forkId: text("fork_id")
+      .notNull()
+      .references(() => collectionForks.id, { onDelete: "cascade" }),
+    forkWorkspaceId: text("fork_workspace_id").notNull(),
+    forkFolderId: text("fork_folder_id").notNull(),
+    parentFolderId: text("parent_folder_id").notNull(),
+    title: text("title").notNull(),
+    description: text("description").notNull().default(""),
+    status: text("status").$type<import("@/core/review/model").MergeRequestStatus>().notNull(),
+    createdBy: text("created_by"),
+    createdByName: text("created_by_name").notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    closedAt: integer("closed_at"),
+    closedNote: text("closed_note"),
+    mergedAt: integer("merged_at"),
+    mergedByName: text("merged_by_name"),
+    /** What was merged, so a merged request still says what it did. */
+    mergedSummary: text("merged_summary", { mode: "json" }).$type<Record<string, number>>(),
+  },
+  (t) => [
+    index("merge_requests_workspace_idx").on(t.workspaceId, t.status),
+    index("merge_requests_fork_idx").on(t.forkId),
+  ],
+);
+export const mergeRequestReviews = sqliteTable(
+  "merge_request_reviews",
+  {
+    id: text("id").primaryKey(),
+    mergeRequestId: text("merge_request_id")
+      .notNull()
+      .references(() => mergeRequests.id, { onDelete: "cascade" }),
+    reviewerId: text("reviewer_id"),
+    reviewerName: text("reviewer_name").notNull(),
+    decision: text("decision").$type<import("@/core/review/model").ReviewDecision>().notNull(),
+    note: text("note").notNull().default(""),
+    /** Checksum of the fork's content when reviewed; a later change makes the review stale. */
+    headChecksum: text("head_checksum").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("merge_request_reviews_idx").on(t.mergeRequestId, t.createdAt)],
 );

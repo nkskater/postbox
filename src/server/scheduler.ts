@@ -272,6 +272,8 @@ export async function runSchedule(id: string): Promise<{ runId: string }> {
       .run();
     throw error;
   }
+  const remote = (await import("./runners")).runnerForSchedule(id);
+  if (remote) return (await import("./runners")).enqueueRunnerJob(remote.monitorId, remote.runnerId);
   const controller = new AbortController();
   const monitorConfig = monitoring.monitorExecution(id);
   let monitorTimedOut = false;

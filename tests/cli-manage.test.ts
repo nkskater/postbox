@@ -74,6 +74,153 @@ function handler(req: http.IncomingMessage, res: http.ServerResponse) {
         return reply(200, JSON.parse(body).variables);
       case "POST /api/import":
         return reply(201, { kind: "imported", received: JSON.parse(body) });
+      case "GET /api/folders/c1/releases":
+        return reply(200, [
+          { id: "rel2", name: "Pets", version: "1.1.0", workspaceId: "w1", visibility: "workspace" },
+          { id: "rel1", name: "Pets", version: "1.0.0", workspaceId: "w1", visibility: "workspace" },
+        ]);
+      case "POST /api/environments/e1/releases":
+        return reply(201, { id: "rel9", kind: "environment", ...JSON.parse(body) });
+      case "GET /api/environments/e1/releases":
+        return reply(200, [{ id: "rel9", kind: "environment", name: "Staging", version: "1.0.0" }]);
+      case "POST /api/folders/c1/releases":
+        return reply(201, { id: "rel3", ...JSON.parse(body) });
+      case "GET /api/dependency-releases":
+        return reply(200, [{ id: "rel1", name: "Pets", version: "1.0.0", workspaceId: "w1" }]);
+      case "GET /api/dependencies":
+        return reply(200, [
+          { id: "d1", name: "Pets", version: "1.0.0", status: "update-available", latestVersion: "1.1.0" },
+        ]);
+      case "POST /api/dependencies":
+        return reply(201, { id: "d2", ...JSON.parse(body), status: "current" });
+      case "GET /api/dependencies/d1":
+        return reply(200, { id: "d1", status: "update-available" });
+      case "GET /api/dependencies/d3":
+        return reply(200, { id: "d3", status: "current" });
+      case "GET /api/dependencies/d1/preview":
+        return reply(200, { plan: { conflicts: url.searchParams.get("releaseId") === "clean" ? 0 : 2 } });
+      case "POST /api/dependencies/d1/update":
+        return JSON.parse(body).strategy === "abort"
+          ? reply(409, { error: "2 conflict(s) with your edits" })
+          : reply(200, { applied: { added: 1, updated: 2, removed: 0 } });
+      case "POST /api/dependency-releases/rel1/revoke":
+        return reply(200, { id: "rel1", revokedReason: JSON.parse(body).reason });
+      case "DELETE /api/dependencies/d1":
+        return reply(200, { removed: true });
+      case "POST /api/specifications/s1/forks":
+        return reply(201, { id: "fk9", kind: "specification", ...JSON.parse(body) });
+      case "POST /api/folders/c1/forks":
+        return reply(201, { id: "fk1", ...JSON.parse(body), status: "in-sync" });
+      case "GET /api/forks":
+        return reply(200, [
+          { id: "fk1", folderId: "c9", parentName: "Pets", status: "ahead", ahead: 2, behind: 0 },
+        ]);
+      case "GET /api/forks/fk1":
+        return reply(200, { id: "fk1", status: "behind" });
+      case "GET /api/forks/fk2":
+        return reply(200, { id: "fk2", status: "in-sync" });
+      case "GET /api/forks/fk1/sync":
+        return reply(200, { plan: { conflicts: 1 } });
+      case "POST /api/forks/fk1/sync":
+        return JSON.parse(body).strategy === "abort"
+          ? reply(409, { error: "1 conflict(s): List (changed here and upstream)" })
+          : reply(200, { applied: { added: 0, updated: 1, removed: 0 } });
+      case "POST /api/forks/fk1/merge-requests":
+        return reply(201, { id: "mr1", status: "open", ...JSON.parse(body) });
+      case "DELETE /api/forks/fk1":
+        return reply(200, { removed: true });
+      case "GET /api/merge-requests":
+        return reply(200, [
+          { id: "mr1", title: "Better", status: url.searchParams.get("status") ?? "open", role: "parent" },
+        ]);
+      case "GET /api/merge-requests/mr1":
+        return reply(200, {
+          id: "mr1",
+          status: "open",
+          open: {
+            readiness: { ok: false, reasons: ["It needs approval from someone other than its author"] },
+          },
+        });
+      case "GET /api/merge-requests/mr2":
+        return reply(200, { id: "mr2", status: "open", open: { readiness: { ok: true, reasons: [] } } });
+      case "GET /api/merge-requests/mr3":
+        return reply(200, { id: "mr3", status: "merged", open: null });
+      case "POST /api/merge-requests/mr1/reviews":
+        return reply(201, { id: "mr1", reviewed: JSON.parse(body) });
+      case "POST /api/merge-requests/mr1/merge":
+        return reply(409, { error: "It needs approval from someone other than its author" });
+      case "POST /api/merge-requests/mr2/merge":
+        return reply(200, { applied: { added: 1, updated: 0, removed: 0 } });
+      case "POST /api/merge-requests/mr1/close":
+        return reply(200, { id: "mr1", status: "closed", closedNote: JSON.parse(body).note });
+      case "GET /api/folders/c1/files":
+        return reply(200, {
+          checksum: "chk-one-aaaaaaaaaaaaaaaa",
+          files: {
+            "collection.json": '{"format":1,"id":"c1","name":"Pets","order":["r1"]}\n',
+            "list--r1.request.json": '{"format":1,"id":"r1","name":"List","method":"GET","url":"x"}\n',
+            "list--r1.test.js": "pm.test('a', () => {});\n",
+            "variables.json": "[]\n",
+          },
+        });
+      case "GET /api/folders/c2/files":
+        return reply(200, { checksum: "chk-two", files: { "../escape.json": "{}" } });
+      case "PUT /api/folders/c1/files": {
+        const input = JSON.parse(body);
+        if (input.baseChecksum === "stale")
+          return reply(409, { error: "The collection changed since these files were pulled." });
+        return reply(200, {
+          dryRun: !!input.dryRun,
+          applied: { added: 0, updated: 1, removed: 0 },
+          received: Object.keys(input.files).sort(),
+          prune: input.prune,
+          force: input.force,
+          checksum: "chk-two-bbbbbbbbbbbbbbbb",
+        });
+      }
+      case "POST /api/import/files":
+        return reply(201, {
+          collectionId: "c77",
+          received: Object.keys(JSON.parse(body).files).sort(),
+          workspaceId: JSON.parse(body).workspaceId,
+        });
+      case "GET /api/environments/e1/files":
+        return reply(200, {
+          checksum: "env-chk-aaaaaaaaaaaaaaaa",
+          files: {
+            "environment.json": '{"format":1,"id":"e1","name":"Staging"}\n',
+            "variables.json": '[{"enabled":true,"key":"host","type":"default","value":"x"}]\n',
+          },
+        });
+      case "PUT /api/environments/e1/files": {
+        const input = JSON.parse(body);
+        return reply(200, {
+          dryRun: !!input.dryRun,
+          received: Object.keys(input.files).sort(),
+          baseChecksum: input.baseChecksum,
+          checksum: "env-chk-bbbbbbbbbbbbbbbb",
+        });
+      }
+      case "GET /api/specifications/s1/files":
+        return reply(200, {
+          checksum: "4",
+          files: {
+            "specification.json":
+              '{"format":1,"id":"s1","name":"Pets","specification":"openapi","entrypoint":"openapi.yaml"}\n',
+            "source/openapi.yaml": "openapi: 3.0.0\n",
+            "source/schemas/pet.yaml": "type: object\n",
+          },
+        });
+      case "PUT /api/specifications/s1/files": {
+        const input = JSON.parse(body);
+        return reply(200, {
+          dryRun: !!input.dryRun,
+          received: Object.keys(input.files).sort(),
+          baseChecksum: input.baseChecksum,
+          checksum: "5",
+          revision: 5,
+        });
+      }
       case "GET /api/mocks":
         return reply(200, [
           { id: "m1", name: "Pets mock", workspaceId: url.searchParams.get("workspaceId") },
@@ -529,6 +676,322 @@ describe("postbox management commands", () => {
     expect((await invoke(["workspace", "list"], {})).code).toBe(3);
     expect((await invoke(["profile", "remove", "nope"])).code).toBe(2);
     expect((await invoke(["profile", "add", "bad", "https://u:p@example.com"])).code).toBe(2);
+  });
+
+  it("publishes, installs and updates shared collection dependencies", async () => {
+    seen.length = 0;
+    const releases = JSON.parse(
+      (await invoke(["dependency", "releases", "c1", "-o", "json"], authed())).stdout,
+    );
+    expect(releases.items.map((r: { version: string }) => r.version)).toEqual(["1.1.0", "1.0.0"]);
+
+    const published = JSON.parse(
+      (
+        await invoke(
+          ["dependency", "publish", "c1", "2.0.0", "--notes", "Big", "--everyone", "-o", "json"],
+          authed(),
+        )
+      ).stdout,
+    );
+    expect(published).toMatchObject({ version: "2.0.0", notes: "Big", visibility: "instance" });
+    const workspaceOnly = JSON.parse(
+      (await invoke(["dependency", "publish", "c1", "2.1.0", "-o", "json"], authed())).stdout,
+    );
+    expect(workspaceOnly).toMatchObject({ notes: "", visibility: "workspace" });
+
+    const envReleases = JSON.parse(
+      (await invoke(["dependency", "releases", "e1", "--environment", "-o", "json"], authed())).stdout,
+    );
+    expect(envReleases.items[0]).toMatchObject({ kind: "environment", name: "Staging" });
+    const envPublished = JSON.parse(
+      (await invoke(["dependency", "publish", "e1", "1.0.0", "--environment", "-o", "json"], authed()))
+        .stdout,
+    );
+    expect(envPublished).toMatchObject({ kind: "environment", version: "1.0.0" });
+
+    expect((await invoke(["dependency", "browse", "-w", "w2", "-o", "json"], authed())).code).toBe(0);
+    const installed = JSON.parse(
+      (await invoke(["dependency", "install", "rel1", "-w", "w2", "-o", "json"], authed())).stdout,
+    );
+    expect(installed).toMatchObject({ workspaceId: "w2", releaseId: "rel1" });
+    const list = JSON.parse(
+      (await invoke(["dependency", "list", "-w", "w2", "-o", "json"], authed())).stdout,
+    );
+    expect(list.items[0]).toMatchObject({ status: "update-available", latestVersion: "1.1.0" });
+  });
+
+  it("gives scripts exit codes for stale dependencies and conflicting updates", async () => {
+    // Informational by default; --fail-on turns a state into exit 1.
+    expect((await invoke(["dependency", "status", "d1"], authed())).code).toBe(0);
+    expect(
+      (await invoke(["dependency", "status", "d1", "--fail-on", "update-available"], authed())).code,
+    ).toBe(1);
+    expect((await invoke(["dependency", "status", "d1", "--fail-on", "withdrawn"], authed())).code).toBe(0);
+    expect(
+      (await invoke(["dependency", "status", "d3", "--fail-on", "update-available"], authed())).code,
+    ).toBe(0);
+
+    expect((await invoke(["dependency", "preview", "d1"], authed())).code).toBe(0);
+    expect((await invoke(["dependency", "preview", "d1", "--fail-on-conflict"], authed())).code).toBe(1);
+    expect(
+      (await invoke(["dependency", "preview", "d1", "--release", "clean", "--fail-on-conflict"], authed()))
+        .code,
+    ).toBe(0);
+
+    // The default strategy stops on conflicts (the server's 409 is a rejection, exit 5).
+    expect((await invoke(["dependency", "update", "d1"], authed())).code).toBe(5);
+    const resolved = JSON.parse(
+      (await invoke(["dependency", "update", "d1", "--strategy", "keep-local", "-o", "json"], authed()))
+        .stdout,
+    );
+    expect(resolved.applied).toEqual({ added: 1, updated: 2, removed: 0 });
+    expect((await invoke(["dependency", "update", "d1", "--strategy", "nope"], authed())).code).toBe(2);
+  });
+
+  it("withdraws a release and removes a dependency, confirming destructive actions", async () => {
+    const withdrawn = JSON.parse(
+      (await invoke(["dependency", "withdraw", "rel1", "--reason", "bad auth", "-o", "json"], authed()))
+        .stdout,
+    );
+    expect(withdrawn.revokedReason).toBe("bad auth");
+    expect((await invoke(["dependency", "withdraw", "rel1"], authed())).code).toBe(2);
+    expect((await invoke(["dependency", "remove", "d1"], authed())).code).toBe(0);
+    expect((await invoke(["dependency", "remove", "d1", "--delete-copy"], authed())).code).toBe(2);
+    expect((await invoke(["dependency", "remove", "d1", "--delete-copy", "-y"], authed())).code).toBe(0);
+  });
+
+  it("forks, syncs and proposes changes through the command line", async () => {
+    const created = JSON.parse(
+      (await invoke(["fork", "create", "c1", "-w", "w2", "--name", "My fork", "-o", "json"], authed()))
+        .stdout,
+    );
+    expect(created).toMatchObject({ workspaceId: "w2", name: "My fork" });
+    const specFork = JSON.parse(
+      (await invoke(["fork", "create", "s1", "--spec", "-w", "w2", "-o", "json"], authed())).stdout,
+    );
+    expect(specFork).toMatchObject({ kind: "specification", workspaceId: "w2" });
+    const list = JSON.parse((await invoke(["fork", "list", "-w", "w2", "-o", "json"], authed())).stdout);
+    expect(list.items[0]).toMatchObject({ status: "ahead", ahead: 2 });
+
+    expect((await invoke(["fork", "status", "fk1"], authed())).code).toBe(0);
+    expect((await invoke(["fork", "status", "fk1", "--fail-on", "behind,diverged"], authed())).code).toBe(1);
+    expect((await invoke(["fork", "status", "fk2", "--fail-on", "behind,diverged"], authed())).code).toBe(0);
+
+    expect((await invoke(["fork", "sync", "fk1", "--preview"], authed())).code).toBe(0);
+    expect((await invoke(["fork", "sync", "fk1", "--preview", "--fail-on-conflict"], authed())).code).toBe(1);
+    // The default strategy stops on conflicts (a rejection, exit 5); choosing one applies.
+    expect((await invoke(["fork", "sync", "fk1"], authed())).code).toBe(5);
+    const synced = JSON.parse(
+      (await invoke(["fork", "sync", "fk1", "--strategy", "keep-local", "-o", "json"], authed())).stdout,
+    );
+    expect(synced.applied.updated).toBe(1);
+    expect((await invoke(["fork", "sync", "fk1", "--strategy", "nope"], authed())).code).toBe(2);
+
+    const proposed = JSON.parse(
+      (
+        await invoke(
+          ["fork", "propose", "fk1", "--title", "Better", "--description", "why", "-o", "json"],
+          authed(),
+        )
+      ).stdout,
+    );
+    expect(proposed).toMatchObject({ status: "open", title: "Better", description: "why" });
+    expect((await invoke(["fork", "propose", "fk1"], authed())).code).toBe(2);
+    expect((await invoke(["fork", "remove", "fk1"], authed())).code).toBe(0);
+    expect((await invoke(["fork", "remove", "fk1", "--delete-copy"], authed())).code).toBe(2);
+    expect((await invoke(["fork", "remove", "fk1", "--delete-copy", "-y"], authed())).code).toBe(0);
+  });
+
+  it("reviews and merges merge requests with CI-friendly exit codes", async () => {
+    const list = JSON.parse(
+      (await invoke(["mr", "list", "-w", "w1", "--status", "open", "-o", "json"], authed())).stdout,
+    );
+    expect(list.items[0]).toMatchObject({ id: "mr1", status: "open", role: "parent" });
+    expect((await invoke(["mr", "show", "mr1"], authed())).code).toBe(0);
+    const blocked = await invoke(["mr", "show", "mr1", "--fail-unless-mergeable"], authed());
+    expect(blocked.code).toBe(1);
+    expect(blocked.stderr).toContain("needs approval");
+    expect((await invoke(["mr", "show", "mr2", "--fail-unless-mergeable"], authed())).code).toBe(0);
+    expect((await invoke(["mr", "show", "mr3", "--fail-unless-mergeable"], authed())).code).toBe(1);
+
+    const approved = JSON.parse(
+      (await invoke(["mr", "approve", "mr1", "--note", "lgtm", "-o", "json"], authed())).stdout,
+    );
+    expect(approved.reviewed).toEqual({ decision: "approve", note: "lgtm" });
+    const rejected = JSON.parse(
+      (await invoke(["mr", "request-changes", "mr1", "-o", "json"], authed())).stdout,
+    );
+    expect(rejected.reviewed).toEqual({ decision: "reject", note: "" });
+
+    // A refused merge is a rejection (exit 5) that says why; an allowed one succeeds.
+    const refused = await invoke(["mr", "merge", "mr1"], authed());
+    expect(refused.code).toBe(5);
+    expect(refused.stderr).toContain("needs approval");
+    expect((await invoke(["mr", "merge", "mr2"], authed())).code).toBe(0);
+    const closed = JSON.parse(
+      (await invoke(["mr", "close", "mr1", "--note", "dropped", "-o", "json"], authed())).stdout,
+    );
+    expect(closed).toMatchObject({ status: "closed", closedNote: "dropped" });
+  });
+
+  it("pulls a collection into a directory, edits it and pushes it back", async () => {
+    const repoDir = path.join(directory, "repo-a");
+    const pulled = await invoke(["collection", "pull", "c1", "--dir", repoDir], authed());
+    expect(pulled.code).toBe(0);
+    expect(pulled.stdout).toContain("Pulled 4 file(s)");
+    expect(await readFile(path.join(repoDir, "list--r1.test.js"), "utf8")).toBe("pm.test('a', () => {});\n");
+    const state = JSON.parse(await readFile(path.join(repoDir, ".postbox-repo.json"), "utf8"));
+    expect(state).toMatchObject({ collectionId: "c1", checksum: "chk-one-aaaaaaaaaaaaaaaa" });
+    expect(state.files).toHaveLength(4);
+
+    // A file of the user's own, and an unrelated file, go along on a push (only repository files do).
+    await writeFile(path.join(repoDir, "extra.request.json"), '{"format":1,"name":"Extra"}');
+    await writeFile(path.join(repoDir, "README.md"), "# not sent");
+    const dry = JSON.parse(
+      (await invoke(["collection", "push", "--dir", repoDir, "--dry-run", "-o", "json"], authed())).stdout,
+    );
+    expect(dry.dryRun).toBe(true);
+    expect(dry.received).toEqual([
+      "collection.json",
+      "extra.request.json",
+      "list--r1.request.json",
+      "list--r1.test.js",
+      "variables.json",
+    ]);
+    // A dry run does not move the recorded checksum.
+    expect(JSON.parse(await readFile(path.join(repoDir, ".postbox-repo.json"), "utf8")).checksum).toBe(
+      "chk-one-aaaaaaaaaaaaaaaa",
+    );
+
+    const pushed = await invoke(["collection", "push", "--dir", repoDir, "--prune", "-o", "json"], authed());
+    expect(pushed.code).toBe(0);
+    expect(JSON.parse(pushed.stdout)).toMatchObject({ applied: { updated: 1 }, prune: true, force: false });
+    expect(pushed.stderr).toContain("pull");
+    expect(JSON.parse(await readFile(path.join(repoDir, ".postbox-repo.json"), "utf8")).checksum).toBe(
+      "chk-two-bbbbbbbbbbbbbbbb",
+    );
+  });
+
+  it("removes files the collection no longer has on a later pull, but not the user's own", async () => {
+    const repoDir = path.join(directory, "repo-b");
+    await invoke(["collection", "pull", "c1", "--dir", repoDir], authed());
+    const state = JSON.parse(await readFile(path.join(repoDir, ".postbox-repo.json"), "utf8"));
+    state.files.push("gone--zz.request.json");
+    await writeFile(path.join(repoDir, ".postbox-repo.json"), JSON.stringify(state));
+    await writeFile(path.join(repoDir, "gone--zz.request.json"), "{}");
+    await writeFile(path.join(repoDir, "mine.request.json"), "{}");
+    await invoke(["collection", "pull", "c1", "--dir", repoDir], authed());
+    await expect(stat(path.join(repoDir, "gone--zz.request.json"))).rejects.toThrow();
+    expect((await stat(path.join(repoDir, "mine.request.json"))).isFile()).toBe(true);
+  });
+
+  it("refuses misuse: another collection's directory, a directory without state, unsafe paths, stale pushes", async () => {
+    const repoDir = path.join(directory, "repo-c");
+    await invoke(["collection", "pull", "c1", "--dir", repoDir], authed());
+    expect((await invoke(["collection", "pull", "c9", "--dir", repoDir], authed())).code).toBe(2);
+    expect(
+      (await invoke(["collection", "push", "--dir", path.join(directory, "nowhere")], authed())).code,
+    ).toBe(2);
+    const unsafe = await invoke(
+      ["collection", "pull", "c2", "--dir", path.join(directory, "repo-d")],
+      authed(),
+    );
+    expect(unsafe.code).toBe(7);
+    expect(unsafe.stderr).toContain("unsafe");
+    await expect(stat(path.join(directory, "escape.json"))).rejects.toThrow();
+
+    const state = JSON.parse(await readFile(path.join(repoDir, ".postbox-repo.json"), "utf8"));
+    await writeFile(
+      path.join(repoDir, ".postbox-repo.json"),
+      JSON.stringify({ ...state, checksum: "stale" }),
+    );
+    const stale = await invoke(["collection", "push", "--dir", repoDir], authed());
+    expect(stale.code).toBe(5);
+    expect(stale.stderr).toContain("changed since");
+  });
+
+  it("pulls and pushes an environment, and keeps the two kinds of directory apart", async () => {
+    const envDir = path.join(directory, "env-a");
+    const pulled = await invoke(["env", "pull", "e1", "--dir", envDir], authed());
+    expect(pulled.code).toBe(0);
+    expect(pulled.stdout).toContain("Pulled 2 file(s)");
+    const state = JSON.parse(await readFile(path.join(envDir, ".postbox-repo.json"), "utf8"));
+    expect(state).toMatchObject({
+      kind: "environment",
+      collectionId: "e1",
+      checksum: "env-chk-aaaaaaaaaaaaaaaa",
+    });
+
+    await writeFile(
+      path.join(envDir, "variables.json"),
+      '[{"enabled":true,"key":"host","type":"default","value":"edited"}]',
+    );
+    const pushed = JSON.parse(
+      (await invoke(["env", "push", "--dir", envDir, "-o", "json"], authed())).stdout,
+    );
+    expect(pushed).toMatchObject({
+      dryRun: false,
+      baseChecksum: "env-chk-aaaaaaaaaaaaaaaa",
+      received: ["environment.json", "variables.json"],
+    });
+    expect(JSON.parse(await readFile(path.join(envDir, ".postbox-repo.json"), "utf8")).checksum).toBe(
+      "env-chk-bbbbbbbbbbbbbbbb",
+    );
+
+    // The commands for one kind refuse the other kind's directory.
+    const wrong = await invoke(["collection", "push", "--dir", envDir], authed());
+    expect(wrong.code).toBe(2);
+    expect(wrong.stderr).toContain("env push");
+    expect((await invoke(["collection", "pull", "c1", "--dir", envDir], authed())).code).toBe(2);
+    const collectionDir = path.join(directory, "env-b");
+    await invoke(["collection", "pull", "c1", "--dir", collectionDir], authed());
+    expect((await invoke(["env", "push", "--dir", collectionDir], authed())).code).toBe(2);
+  });
+
+  it("pulls and pushes a specification, writing its sources under source/", async () => {
+    const specDir = path.join(directory, "spec-a");
+    const pulled = await invoke(["spec", "pull", "s1", "--dir", specDir], authed());
+    expect(pulled.code).toBe(0);
+    expect(pulled.stdout).toContain("Pulled 3 file(s)");
+    expect(await readFile(path.join(specDir, "source", "schemas", "pet.yaml"), "utf8")).toBe(
+      "type: object\n",
+    );
+    expect(JSON.parse(await readFile(path.join(specDir, ".postbox-repo.json"), "utf8"))).toMatchObject({
+      kind: "specification",
+      collectionId: "s1",
+      checksum: "4",
+    });
+
+    await writeFile(path.join(specDir, "source", "openapi.yaml"), "openapi: 3.0.1\n");
+    await writeFile(path.join(specDir, "notes.txt"), "not sent");
+    const pushed = JSON.parse(
+      (await invoke(["spec", "push", "--dir", specDir, "-o", "json"], authed())).stdout,
+    );
+    expect(pushed).toMatchObject({
+      baseChecksum: "4",
+      revision: 5,
+      received: ["source/openapi.yaml", "source/schemas/pet.yaml", "specification.json"],
+    });
+    expect(JSON.parse(await readFile(path.join(specDir, ".postbox-repo.json"), "utf8")).checksum).toBe("5");
+    // A specification directory is not a collection one.
+    const wrong = await invoke(["collection", "push", "--dir", specDir], authed());
+    expect(wrong.code).toBe(2);
+    expect(wrong.stderr).toContain("spec push");
+  });
+
+  it("creates a collection from a directory of files", async () => {
+    const repoDir = path.join(directory, "repo-e");
+    await invoke(["collection", "pull", "c1", "--dir", repoDir], authed());
+    const made = JSON.parse(
+      (await invoke(["collection", "import-dir", repoDir, "-w", "w2", "-o", "json"], authed())).stdout,
+    );
+    expect(made).toMatchObject({ collectionId: "c77", workspaceId: "w2" });
+    expect(made.received).toContain("collection.json");
+    expect(made.received).not.toContain(".postbox-repo.json");
+    expect(
+      (await invoke(["collection", "import-dir", path.join(directory, "empty-dir-x"), "-w", "w2"], authed()))
+        .code,
+    ).toBe(2);
   });
 
   it("keeps `run` available alongside management commands", async () => {

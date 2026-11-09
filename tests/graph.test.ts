@@ -357,7 +357,12 @@ beforeAll(async () => {
   saveSpec(openapi(["/things"]));
 });
 afterAll(() => {
-  fs.rmSync(dir, { recursive: true, force: true });
+  try {
+    getSqlite().close();
+  } catch {}
+  try {
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch {}
 });
 
 const as = <T>(user: UserRow, fn: () => T) => withCaller(caller(user), fn);

@@ -45,11 +45,7 @@ export const DEFAULT_PREFERRED_PORT = 47392;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-export function defaultDataDir(
-  platform = process.platform,
-  env = process.env,
-  homedir = os.homedir(),
-) {
+export function defaultDataDir(platform = process.platform, env = process.env, homedir = os.homedir()) {
   if (platform === "win32") {
     const base = env.LOCALAPPDATA || path.join(homedir, "AppData", "Local");
     return path.join(base, "Postbox");
@@ -68,10 +64,7 @@ export function runningFilePath(
   env = process.env,
   homedir = os.homedir(),
 ) {
-  return path.join(
-    defaultDataDir(platform, env, homedir),
-    `running-${databaseKeyHash(databasePath)}.json`,
-  );
+  return path.join(defaultDataDir(platform, env, homedir), `running-${databaseKeyHash(databasePath)}.json`);
 }
 
 export function lockFilePath(
@@ -80,10 +73,7 @@ export function lockFilePath(
   env = process.env,
   homedir = os.homedir(),
 ) {
-  return path.join(
-    defaultDataDir(platform, env, homedir),
-    `running-${databaseKeyHash(databasePath)}.lock`,
-  );
+  return path.join(defaultDataDir(platform, env, homedir), `running-${databaseKeyHash(databasePath)}.lock`);
 }
 
 export function resolveLocalPaths({
@@ -194,10 +184,7 @@ export async function findRunningCopy(runningFile, host = HOST) {
   }
   if (!running || !running.port || !running.instance) return null;
   const health = await healthCheck(running.port, host);
-  return health &&
-    health.status === "ok" &&
-    health.app === APP_ID &&
-    health.instance === running.instance
+  return health && health.status === "ok" && health.app === APP_ID && health.instance === running.instance
     ? running.port
     : null;
 }
@@ -267,10 +254,7 @@ export function formatLocalDate(date = new Date()) {
 }
 
 function loadBetterSqlite3(appDir) {
-  const candidates = [
-    path.join(appDir, "package.json"),
-    fileURLToPath(import.meta.url),
-  ];
+  const candidates = [path.join(appDir, "package.json"), fileURLToPath(import.meta.url)];
   for (const base of candidates) {
     try {
       const req = createRequire(base);
@@ -289,10 +273,7 @@ function loadBetterSqlite3(appDir) {
  * transactions even when another connection holds an open read snapshot that
  * pins the WAL checkpoint. Fails closed if a consistent snapshot cannot be created.
  */
-export function runDailyBackup(
-  databasePath,
-  { backupKeep = 30, appDir = __dirname, now = new Date() } = {},
-) {
+export function runDailyBackup(databasePath, { backupKeep = 30, appDir = __dirname, now = new Date() } = {}) {
   if (!(backupKeep > 0)) return null;
   if (!fs.existsSync(databasePath)) return null;
   let stat;
@@ -429,8 +410,9 @@ export function findAppBrowser({
       "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     );
   } else {
+    const delimiter = platform === "win32" ? path.win32.delimiter : path.posix.delimiter;
     const dirs = String(env.PATH || "")
-      .split(path.delimiter)
+      .split(delimiter)
       .filter(Boolean);
     for (const name of [
       "microsoft-edge",
@@ -764,8 +746,7 @@ async function main() {
 
 const isMain =
   process.argv[1] &&
-  path.resolve(process.argv[1]).toLowerCase() ===
-    path.resolve(fileURLToPath(import.meta.url)).toLowerCase();
+  path.resolve(process.argv[1]).toLowerCase() === path.resolve(fileURLToPath(import.meta.url)).toLowerCase();
 
 if (isMain) {
   main().catch((err) => {

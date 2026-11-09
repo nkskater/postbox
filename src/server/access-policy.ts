@@ -56,6 +56,49 @@ export const REST_POLICIES: Record<string, Policy> = {
   "POST /api/folders/[id]/comments": p("resource", "read", "folder"),
   "GET /api/specifications/[id]/comments": p("resource", "read", "specification"),
   "POST /api/specifications/[id]/comments": p("resource", "read", "specification"),
+  "GET /api/folders/[id]/releases": p("resource", "read", "folder"),
+  "POST /api/folders/[id]/releases": p("resource", "write", "folder"),
+  "GET /api/mocks/[id]/releases": p("resource", "read", "mock"),
+  "POST /api/mocks/[id]/releases": p("resource", "write", "mock"),
+  "GET /api/environments/[id]/releases": p("resource", "read", "environment"),
+  "POST /api/environments/[id]/releases": p("resource", "write", "environment"),
+  "GET /api/specifications/[id]/forks": p("resource", "read", "specification"),
+  // The destination workspace needs write access too; that is checked against it inside the handler.
+  "POST /api/specifications/[id]/forks": p("resource", "read", "specification"),
+  "GET /api/specifications/[id]/files": p("resource", "read", "specification"),
+  "PUT /api/specifications/[id]/files": p("resource", "write", "specification"),
+  "GET /api/environments/[id]/files": p("resource", "read", "environment"),
+  "PUT /api/environments/[id]/files": p("resource", "write", "environment"),
+  "GET /api/folders/[id]/files": p("resource", "read", "folder"),
+  "PUT /api/folders/[id]/files": p("resource", "write", "folder"),
+  "POST /api/import/files": p("body", "write"),
+  "GET /api/folders/[id]/forks": p("resource", "read", "folder"),
+  // The destination workspace needs write access too; that is checked against it inside the handler.
+  "POST /api/folders/[id]/forks": p("resource", "read", "folder"),
+  "GET /api/forks": p("query", "read"),
+  "GET /api/forks/[id]": p("resource", "read", "fork"),
+  "DELETE /api/forks/[id]": p("resource", "write", "fork"),
+  "GET /api/forks/[id]/sync": p("resource", "read", "fork"),
+  "POST /api/forks/[id]/sync": p("resource", "write", "fork"),
+  "POST /api/forks/[id]/merge-requests": p("resource", "write", "fork"),
+  "GET /api/merge-requests": p("query", "read"),
+  "GET /api/merge-requests/[id]": p("resource", "read", "mergeRequest"),
+  "POST /api/merge-requests/[id]/reviews": p("resource", "write", "mergeRequest"),
+  "POST /api/merge-requests/[id]/merge": p("resource", "write", "mergeRequest"),
+  // Authors close their own requests, so this checks authorship or the owner role inside the handler.
+  "POST /api/merge-requests/[id]/close": p("resource", "read", "mergeRequest"),
+  "GET /api/merge-requests/[id]/comments": p("resource", "read", "mergeRequest"),
+  "POST /api/merge-requests/[id]/comments": p("resource", "read", "mergeRequest"),
+  "GET /api/dependency-releases": p("query", "read"),
+  // Visibility is decided per release (instance-wide or members of the source), so no single workspace applies.
+  "GET /api/dependency-releases/[id]": p("account"),
+  "POST /api/dependency-releases/[id]/revoke": p("resource", "manage", "dependencyRelease"),
+  "GET /api/dependencies": p("query", "read"),
+  "POST /api/dependencies": p("body", "write"),
+  "GET /api/dependencies/[id]": p("resource", "read", "dependency"),
+  "DELETE /api/dependencies/[id]": p("resource", "write", "dependency"),
+  "GET /api/dependencies/[id]/preview": p("resource", "read", "dependency"),
+  "POST /api/dependencies/[id]/update": p("resource", "write", "dependency"),
   "GET /api/comments/counts": p("query", "read"),
   "GET /api/comments/mentionable": p("query", "read"),
   "GET /api/comments/[id]": p("resource", "read", "comment"),
@@ -107,6 +150,15 @@ export const REST_POLICIES: Record<string, Policy> = {
   "GET /api/specifications/[id]": p("resource", "read", "specification"),
   "PATCH /api/specifications/[id]": p("resource", "write", "specification"),
   "DELETE /api/specifications/[id]": p("resource", "write", "specification"),
+  "GET /api/runners": p("query", "read"),
+  "POST /api/runners": p("body", "write"),
+  "GET /api/runners/[id]": p("resource", "read", "runner"),
+  "PATCH /api/runners/[id]": p("resource", "write", "runner"),
+  "DELETE /api/runners/[id]": p("resource", "write", "runner"),
+  "POST /api/runners/[id]/revoke": p("resource", "write", "runner"),
+  "POST /api/runner-agent/lease": p("public"),
+  "POST /api/runner-agent/jobs/[id]/heartbeat": p("public"),
+  "POST /api/runner-agent/jobs/[id]/result": p("public"),
   "GET /api/monitors": p("query", "read"),
   "POST /api/monitors": p("body", "write"),
   "GET /api/monitors/[id]": p("resource", "read", "monitor"),
@@ -354,15 +406,42 @@ export const REST_POLICIES: Record<string, Policy> = {
   "DELETE /api/mcp": p("mcp"),
   "OPTIONS /api/mcp": p("mcp"),
 };
-export function restPolicy(method: string, pathname: string) {
+type CompiledPolicy = { pattern: string; regex: RegExp; policy: (typeof REST_POLICIES)[string] };
+let compiled: Map<string, CompiledPolicy[]> | null = null;
+
+/** Route patterns compiled once, grouped by method, in declaration order (the first match wins). */
+function compiledPolicies(): Map<string, CompiledPolicy[]> {
+  if (compiled) return compiled;
+  compiled = new Map();
   for (const [key, policy] of Object.entries(REST_POLICIES)) {
-    const [verb, path] = key.split(" ");
-    if (verb !== method) continue;
-    const match = new RegExp(`^${path.replace(/\[[A-Za-z][A-Za-z0-9]*\]/g, "([^/]+)")}/?$`).exec(pathname);
-    if (match) return { ...policy, pattern: path, id: match[1] ? decodeURIComponent(match[1]) : undefined };
+    const [verb, pattern] = key.split(" ");
+    const source = pattern
+      .split(/(\[[A-Za-z][A-Za-z0-9]*\])/)
+      .map((part, i) => (i % 2 ? "([^/]+)" : part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))
+      .join("");
+    const list = compiled.get(verb) ?? [];
+    list.push({ pattern, regex: new RegExp(`^${source}/?$`), policy });
+    compiled.set(verb, list);
+  }
+  return compiled;
+}
+
+const decodeSegment = (segment: string) => {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    throw new HttpError(400, "Malformed resource ID in the URL");
+  }
+};
+
+export function restPolicy(method: string, pathname: string) {
+  for (const { pattern, regex, policy } of compiledPolicies().get(method) ?? []) {
+    const match = regex.exec(pathname);
+    if (match) return { ...policy, pattern, id: match[1] ? decodeSegment(match[1]) : undefined };
   }
   return null;
 }
+export type ResolvedRestPolicy = NonNullable<ReturnType<typeof restPolicy>>;
 const stringId = (value: unknown) => {
   if (typeof value !== "string" || !value) throw new HttpError(400, "Workspace/resource ID required");
   return value;
@@ -385,11 +464,14 @@ export async function authorizeRest(
   caller: Caller,
   req: Request,
   input: () => Promise<Record<string, unknown>>,
+  /** The policy already resolved for this request, to avoid matching the route table twice. */
+  resolved?: ResolvedRestPolicy | null,
 ) {
-  const policy = restPolicy(req.method, new URL(req.url).pathname);
+  const pathname = new URL(req.url).pathname;
+  const policy = resolved === undefined ? restPolicy(req.method, pathname) : resolved;
   if (!policy) throw new HttpError(403, "Route has no access policy");
   if (policy.source === "admin") return requireAdmin(caller);
-  requireSourceScope(caller, policy.source, req.method, new URL(req.url).pathname);
+  requireSourceScope(caller, policy.source, req.method, pathname);
   let workspaceId: string;
   switch (policy.source) {
     case "body":

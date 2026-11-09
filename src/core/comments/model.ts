@@ -4,7 +4,7 @@
  */
 import { z } from "zod";
 
-export const COMMENT_TARGETS = ["request", "folder", "specification"] as const;
+export const COMMENT_TARGETS = ["request", "folder", "specification", "mergeRequest"] as const;
 export type CommentTarget = (typeof COMMENT_TARGETS)[number];
 
 export const COMMENT_LIMITS = { body: 4000, mentions: 20, perTarget: 1000 } as const;

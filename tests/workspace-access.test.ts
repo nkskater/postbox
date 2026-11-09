@@ -242,6 +242,95 @@ beforeAll(async () => {
       updatedAt: Date.now(),
     })
     .run();
+  ids.runner = "access-runner";
+  getDb()
+    .insert(schema.runners)
+    .values({
+      id: ids.runner,
+      workspaceId,
+      name: "Access runner",
+      labels: [],
+      tokenHash: "access-runner-hash",
+      allowHosts: [],
+      denyHosts: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    })
+    .run();
+  const snapshot = {
+    schema: 1 as const,
+    name: "Shared",
+    root: { sid: "root", kind: "folder" as const, data: { name: "Shared" }, children: [] },
+    variables: [],
+  };
+  ids.dependencyRelease = "access-release";
+  getDb()
+    .insert(schema.dependencyReleases)
+    .values({
+      id: ids.dependencyRelease,
+      workspaceId,
+      folderId: ids.folder,
+      name: "Shared",
+      version: "1.0.0",
+      seq: 1,
+      visibility: "workspace",
+      checksum: "x",
+      snapshot,
+      createdAt: 1,
+    })
+    .run();
+  ids.dependency = "access-dependency";
+  getDb()
+    .insert(schema.dependencyInstalls)
+    .values({
+      id: ids.dependency,
+      workspaceId,
+      folderId: ids.folder,
+      releaseId: ids.dependencyRelease,
+      sourceWorkspaceId: workspaceId,
+      sourceFolderId: ids.folder,
+      sourceName: "Shared",
+      version: "1.0.0",
+      checksum: "x",
+      baseSnapshot: snapshot,
+      nodeMap: {},
+      installedAt: 1,
+      updatedAt: 1,
+    })
+    .run();
+  ids.fork = "access-fork";
+  getDb()
+    .insert(schema.collectionForks)
+    .values({
+      id: ids.fork,
+      workspaceId,
+      folderId: ids.folder,
+      parentWorkspaceId: workspaceId,
+      parentFolderId: ids.folder,
+      parentName: "Shared",
+      baseSnapshot: snapshot,
+      nodeMap: {},
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    .run();
+  ids.mergeRequest = "access-merge-request";
+  getDb()
+    .insert(schema.mergeRequests)
+    .values({
+      id: ids.mergeRequest,
+      workspaceId,
+      forkId: ids.fork,
+      forkWorkspaceId: workspaceId,
+      forkFolderId: ids.folder,
+      parentFolderId: ids.folder,
+      title: "Access",
+      status: "open",
+      createdByName: "x",
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    .run();
   ids.run = "saved-run";
   getDb()
     .insert(schema.runs)
@@ -285,7 +374,12 @@ function routeFiles(directory: string): string[] {
 const root = path.resolve("src/app/api");
 const entries = routeFiles(root).flatMap((file) => {
   const source = fs.readFileSync(file, "utf8");
-  const template = "/api/" + path.relative(root, file).replace(/\/route.ts$/, "");
+  const template =
+    "/api/" +
+    path
+      .relative(root, file)
+      .replace(/\\/g, "/")
+      .replace(/\/route\.ts$/, "");
   return [
     ...source.matchAll(/export (?:const|(?:async )?function) (GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\b/g),
   ].map((match) => ({ file, source, key: `${match[1]} ${template}`, method: match[1] }));

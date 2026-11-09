@@ -20,6 +20,27 @@ const request: CodegenRequest = {
   body: { mode: "raw", language: "json", raw },
 };
 const hasCpp = spawnSync("g++", ["--version"]).status === 0;
+const hasPython = (() => {
+  try {
+    const res = spawnSync("python3", ["--version"]);
+    return res.status === 0;
+  } catch {
+    return false;
+  }
+})();
+function resolveSh(): string | null {
+  if (process.platform !== "win32") return "sh";
+  const candidates = [
+    path.join(process.env.LOCALAPPDATA || "", "Programs/Git/bin/sh.exe"),
+    path.join(process.env.LOCALAPPDATA || "", "Programs/Git/usr/bin/sh.exe"),
+    "C:\\Program Files\\Git\\bin\\sh.exe",
+    "C:\\Program Files\\Git\\usr\\bin\\sh.exe",
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+}
 const javascript = CODEGEN_LANGUAGES.filter((t) => t.editor === "javascript");
 
 // Run generated JavaScript with fake clients, asserting the arguments actually
@@ -149,7 +170,7 @@ describe("code snippet target contract", () => {
     }
   });
 
-  it.each(["python", "python-http-client"] as const)(
+  it.skipIf(!hasPython).each(["python", "python-http-client"] as const)(
     "parses and executes %s with exact Unicode bytes",
     async (language) => {
       const { code } = await generateCodeSnippet(language, request);
@@ -168,9 +189,13 @@ describe("code snippet target contract", () => {
         body: { mode: "raw", language: "text", raw: body },
       });
       const script = `curl() { printf '%s\\0' "$@"; }; postman() { printf '%s\\0' "$@"; }; wget() { printf '%s\\0' "$@"; }; http() { cat; }; ${code}`;
-      const output = execFileSync("sh", ["-c", script], { encoding: "utf8" });
-      if (language === "shell-httpie") expect(output).toBe(body);
-      else expect(output.split("\0")).toContain(body);
+      const sh = resolveSh();
+      if (!sh) return;
+      const output = execFileSync(sh, ["-c", script], { encoding: "utf8" });
+      const normOut = output.replace(/\r\n/g, "\n");
+      const normBody = body.replace(/\r\n/g, "\n");
+      if (language === "shell-httpie") expect(normOut).toBe(normBody);
+      else expect(normOut.split("\0")).toContain(normBody);
     },
   );
 
@@ -299,11 +324,13 @@ describe("code snippet target contract", () => {
             : language === "curl"
               ? "curl() { cat; }; "
               : "http() { cat; }; ";
-      expect(execFileSync("sh", ["-c", stub + code])).toEqual(bytes);
+      const sh = resolveSh();
+      if (!sh) return;
+      expect(execFileSync(sh, ["-c", stub + code])).toEqual(bytes);
     },
   );
 
-  it.each(["python", "python-http-client"] as const)(
+  it.skipIf(!hasPython).each(["python", "python-http-client"] as const)(
     "executes binary %s with exact bytes",
     async (language) => {
       const bytes = Buffer.from([0, 255, 128, 10, 39, 34, 92]);

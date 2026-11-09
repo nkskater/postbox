@@ -248,6 +248,25 @@ export function checkSpecificationGovernance(
     ),
   };
 }
+/**
+ * Lint a specification's current and proposed content with the rule set bound to it, for merge review.
+ * Null when no rule set is bound. The caller needs read access to the specification.
+ */
+export function lintForMerge(
+  specificationId: string,
+  current: z.infer<typeof specificationSource>,
+  proposed: z.infer<typeof specificationSource>,
+) {
+  requireSpecification(specificationId);
+  const binding = getDb().select().from(bindings).where(eq(bindings.specificationId, specificationId)).get();
+  if (!binding) return null;
+  const value = effective(specificationId);
+  return {
+    ruleSet: { id: value.rule.id, name: value.rule.name, version: value.rule.version },
+    before: lintGovernance(current, value.config).diagnostics,
+    after: lintGovernance(proposed, value.config).diagnostics,
+  };
+}
 export function previewGovernance(specificationId: string, raw: z.input<typeof checkGovernanceInput> = {}) {
   const { report } = checkSpecificationGovernance(specificationId, raw);
   return report;

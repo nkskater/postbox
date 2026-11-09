@@ -86,6 +86,15 @@ export function getCaller(
   return null;
 }
 
+/** Percent-decoded cookie value; a malformed one counts as no cookie rather than an error. */
+function decodeCookie(value: string): string | undefined {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return undefined;
+  }
+}
+
 /** Caller of a route handler request. */
 export function callerOf(req: Request): Caller | null {
   const cookie = req.headers
@@ -94,7 +103,7 @@ export function callerOf(req: Request): Caller | null {
     .map((c) => c.trim())
     .find((c) => c.startsWith(`${SESSION_COOKIE}=`))
     ?.slice(SESSION_COOKIE.length + 1);
-  return getCaller(req.headers, cookie ? decodeURIComponent(cookie) : undefined);
+  return getCaller(req.headers, cookie ? decodeCookie(cookie) : undefined);
 }
 
 /** The signed-in account, or 401 / 400 for env and open callers that have no account. */

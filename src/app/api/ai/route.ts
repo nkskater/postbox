@@ -16,7 +16,7 @@ import { streamEvents } from "@/core/http/sse";
 import { authCredentialValues, credentialRedactionValues } from "@/core/retention";
 import { requestInputSchema } from "@/core/schemas";
 import { DEFAULT_SETTINGS, type FolderDef } from "@/core/types";
-import { Resolver, redactStoredValue } from "@/core/variables/resolver";
+import { Resolver, emptyScopes, redactStoredValue } from "@/core/variables/resolver";
 import { getPolicy, loadScopes } from "@/server/context";
 import { defaultRequest } from "@/server/defaults";
 import { HttpError } from "@/server/errors";
@@ -32,6 +32,7 @@ const schema = z.object({
   environmentId: z.string().nullish(),
   folderId: z.string().nullish(),
   request: requestInputSchema,
+  assistant: z.boolean().default(false),
 });
 
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
@@ -52,6 +53,17 @@ export const POST = route(async (req: Request) => {
   if (input.environmentId) repo.requireEnvironmentIn(input.workspaceId, input.environmentId);
   const chain: FolderDef[] = input.folderId ? repo.getFolderChain(input.folderId) : [];
   const ctx = loadScopes(input.workspaceId, input.environmentId ?? null, chain[0]?.id ?? null);
+  if (input.assistant) {
+    if (input.folderId || input.environmentId)
+      throw new HttpError(400, "Assistant model calls cannot inherit collection or environment context");
+    body.ai = redactStoredValue(
+      body.ai,
+      credentialRedactionValues([
+        ...ctx.secrets,
+        ...authCredentialValues(input.request.auth ?? { type: "none" }),
+      ]),
+    );
+  }
   const request = defaultRequest({
     ...input.request,
     method: "POST",
@@ -60,7 +72,7 @@ export const POST = route(async (req: Request) => {
   const { prepared, effectiveAuth, oauth2Token } = await prepareRequest(
     request,
     chain,
-    new Resolver(ctx.scopes),
+    new Resolver(input.assistant ? emptyScopes() : ctx.scopes),
     { policy: getPolicy(), oauth2CacheScope: input.workspaceId, signal: req.signal },
     { defaults: executionSettings().requestDefaults },
   );

@@ -1,4 +1,5 @@
 "use client";
+import { AssistantPanel } from "@/components/assistant/AssistantPanel";
 import { TelemetryPanel } from "@/components/telemetry/TelemetryPanel";
 import { GovernancePanel } from "@/components/governance/GovernancePanel";
 import { SpecificationsPanel } from "@/components/specifications/SpecificationsPanel";
@@ -61,25 +62,26 @@ function MainArea() {
       </div>
     );
   }
-  // Runner tabs stay mounted while open (hidden when another tab is active) so their
-  // data table, excluded requests, options and any run in progress survive tab switches.
-  const runners = tabs.filter((t): t is Extract<typeof t, { type: "runner" }> => t.type === "runner");
+  // Every tab except a request stays mounted while open (hidden when another tab is active), so unsaved
+  // edits, runner data tables, selections and runs in progress survive tab switches. Request tabs keep
+  // their draft and result in the store instead, so only the active one is rendered.
+  const kept = tabs.filter((t): t is Exclude<typeof t, { type: "request" }> => t.type !== "request");
   return (
     <>
-      {runners.map((r) => (
-        <div key={r.id} className={r.id === tab.id ? "h-full" : "hidden"}>
-          <RunnerTabs folderId={r.folderId} />
+      {kept.map((t) => (
+        <div key={t.id} className={t.id === tab.id ? "h-full" : "hidden"}>
+          {renderTab(t)}
         </div>
       ))}
-      {tab.type !== "runner" && renderTab(tab)}
+      {tab.type === "request" && <RequestEditor key={tab.id} tab={tab} />}
     </>
   );
 }
 
-function renderTab(tab: Exclude<ReturnType<typeof useApp.getState>["tabs"][number], { type: "runner" }>) {
+function renderTab(tab: Exclude<ReturnType<typeof useApp.getState>["tabs"][number], { type: "request" }>) {
   switch (tab.type) {
-    case "request":
-      return <RequestEditor key={tab.id} tab={tab} />;
+    case "runner":
+      return <RunnerTabs folderId={tab.folderId} />;
     case "folder":
       return <FolderEditor key={tab.folderId} folderId={tab.folderId} />;
     case "environment":
@@ -88,6 +90,8 @@ function renderTab(tab: Exclude<ReturnType<typeof useApp.getState>["tabs"][numbe
       return <EnvironmentEditor key="globals" environmentId={null} />;
     case "cookies":
       return <CookiesView />;
+    case "assistant":
+      return <AssistantPanel />;
     case "telemetry":
       return <TelemetryPanel />;
     case "governance":
@@ -215,7 +219,7 @@ export function App({ authEnabled }: { authEnabled: boolean }) {
               <>
                 <Panel id="main" minSize="30">
                   <Group orientation="vertical" className="h-full">
-                    <Panel minSize="20">
+                    <Panel id="main-content" minSize="20">
                       <div className="flex h-full min-h-0 flex-col">
                         <TabBar />
                         <div className="min-h-0 flex-1">
@@ -226,7 +230,7 @@ export function App({ authEnabled }: { authEnabled: boolean }) {
                     {consoleOpen && (
                       <>
                         <Separator className="h-px bg-border transition-colors hover:bg-primary data-[separator=active]:bg-primary" />
-                        <Panel defaultSize="30" minSize="10">
+                        <Panel id="console-panel" defaultSize="30" minSize="10">
                           <ConsolePanel />
                         </Panel>
                       </>
@@ -262,7 +266,7 @@ export function App({ authEnabled }: { authEnabled: boolean }) {
                 <Separator className="w-px bg-border transition-colors hover:bg-primary data-[separator=active]:bg-primary" />
                 <Panel id="main" minSize="30">
                   <Group orientation="vertical" className="h-full">
-                    <Panel minSize="20">
+                    <Panel id="main-content-right" minSize="20">
                       <div className="flex h-full min-h-0 flex-col">
                         <TabBar />
                         <div className="min-h-0 flex-1">
@@ -273,7 +277,7 @@ export function App({ authEnabled }: { authEnabled: boolean }) {
                     {consoleOpen && (
                       <>
                         <Separator className="h-px bg-border transition-colors hover:bg-primary data-[separator=active]:bg-primary" />
-                        <Panel defaultSize="30" minSize="10">
+                        <Panel id="console-panel-right" defaultSize="30" minSize="10">
                           <ConsolePanel />
                         </Panel>
                       </>

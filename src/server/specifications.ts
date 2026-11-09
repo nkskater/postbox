@@ -153,6 +153,26 @@ export function deleteSpecification(id: string) {
     tx.delete(comments)
       .where(and(eq(comments.targetKind, "specification"), eq(comments.targetId, id)))
       .run();
+    // A deleted specification is no longer a fork, and takes its merge requests and discussion with it.
+    const forkIds = tx
+      .select({ id: schema.collectionForks.id })
+      .from(schema.collectionForks)
+      .where(and(eq(schema.collectionForks.folderId, id), eq(schema.collectionForks.kind, "specification")))
+      .all()
+      .map((f) => f.id);
+    for (const forkId of forkIds) {
+      const mrIds = tx
+        .select({ id: schema.mergeRequests.id })
+        .from(schema.mergeRequests)
+        .where(eq(schema.mergeRequests.forkId, forkId))
+        .all()
+        .map((m) => m.id);
+      for (const mrId of mrIds)
+        tx.delete(comments)
+          .where(and(eq(comments.targetKind, "mergeRequest"), eq(comments.targetId, mrId)))
+          .run();
+      tx.delete(schema.collectionForks).where(eq(schema.collectionForks.id, forkId)).run();
+    }
     tx.delete(specs).where(eq(specs.id, id)).run();
   });
   return { ok: true };

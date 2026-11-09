@@ -1,3 +1,4 @@
+import { getSqlite } from "@/server/db";
 import dnsPromises from "node:dns/promises";
 import fs from "node:fs";
 import os from "node:os";
@@ -74,7 +75,12 @@ beforeAll(async () => {
 });
 afterAll(() => {
   server.forceShutdown();
-  fs.rmSync(dir, { recursive: true, force: true });
+  try {
+    getSqlite().close();
+  } catch {}
+  try {
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch {}
 });
 
 function open(methodName: string, extra: Partial<GrpcCallInput> = {}) {

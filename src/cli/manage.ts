@@ -1,6 +1,8 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import nodePath from "node:path";
 import { createInterface } from "node:readline/promises";
 import { Command, InvalidArgumentError } from "commander";
+import { isRepositoryPath, validatePath } from "../core/repository/model";
 import { ApiClient } from "./client";
 import { CliError, EXIT } from "./errors";
 import { column, defaultFormat, printItem, printList, type Column, type Format } from "./output";
@@ -325,6 +327,50 @@ export function registerManagement(program: Command) {
         }),
       ),
     ),
+  );
+  collection
+    .command("pull <id>")
+    .description("Write a collection to a directory as stable, secret-free files you can keep in Git")
+    .requiredOption("-d, --dir <path>", "Directory to write into (created if missing)")
+    .option("--force", "Overwrite a directory that was pulled from a different collection")
+    .action(
+      act(async (ctx, [collectionId], command) =>
+        pullRepository(ctx, "collection", collectionId, command.opts<PullOptions>()),
+      ),
+    );
+  collection
+    .command("push")
+    .description("Apply edited files from a pulled directory back to the collection")
+    .requiredOption("-d, --dir <path>", "Directory created by `collection pull`")
+    .option("--prune", "Also remove requests, folders and variables whose files are gone")
+    .option("--force", "Push even if the collection changed since the pull")
+    .option("--dry-run", "Show what would change without changing anything")
+    .action(
+      act(async (ctx, _args, command) =>
+        pushRepository(
+          ctx,
+          "collection",
+          command.opts<{ dir: string; prune?: boolean; force?: boolean; dryRun?: boolean }>(),
+        ),
+      ),
+    );
+  withWorkspace(
+    collection
+      .command("import-dir <path>")
+      .description(
+        "Create a new collection, environment or specification from a directory of repository files",
+      ),
+  ).action(
+    act(async (ctx, [dirPath]) => {
+      const files = await readRepositoryDir(dirPath);
+      if (!Object.keys(files).length)
+        throw new CliError(`No repository files found in ${dirPath}.`, EXIT.usage);
+      ctx.show(
+        await ctx.api.request("POST", "/api/import/files", {
+          body: { workspaceId: await ctx.workspace(), files },
+        }),
+      );
+    }),
   );
   for (const [kind, parent] of [
     ["collection", collection],
@@ -784,6 +830,147 @@ export function registerManagement(program: Command) {
       }),
     );
 
+  // ------------------------------------------------------------ private runners
+  const runnerCmd = group(
+    program,
+    "runner",
+    "Enrol self-hosted runners that execute monitors inside other networks",
+  );
+  const runnerColumns = [
+    id,
+    name,
+    column("LOCATION", "location"),
+    column("STATUS", "status"),
+    column("MONITORS", "monitorCount"),
+    column("QUEUED", "queued"),
+    column("VERSION", "version"),
+  ];
+  const csv = (value?: string) =>
+    value
+      ? value
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean)
+      : undefined;
+  withWorkspace(withList(runnerCmd.command("list").description("List runners"))).action(
+    act(async (ctx) =>
+      ctx.list(
+        await ctx.api.request<Row[]>("GET", "/api/runners", {
+          query: { workspaceId: await ctx.workspace() },
+        }),
+        runnerColumns,
+      ),
+    ),
+  );
+  withWorkspace(
+    runnerCmd
+      .command("create <name>")
+      .description("Enrol a runner. Its token is shown once; give it to `postbox runner start`.")
+      .option(
+        "--location <text>",
+        "Where the runner sits, shown next to its results (for example Frankfurt DC)",
+      )
+      .option("--labels <list>", "Comma separated labels")
+      .option(
+        "--share-secrets",
+        "Send this workspace's secret values with its jobs (default: the runner supplies its own)",
+      )
+      .option(
+        "--allow-hosts <list>",
+        "Hosts the runner may call (comma separated; empty = its own local rules)",
+      )
+      .option("--deny-hosts <list>", "Hosts the runner must never call"),
+  ).action(
+    act(async (ctx, [runnerName], command) => {
+      const o = command.opts<{
+        location?: string;
+        labels?: string;
+        shareSecrets?: boolean;
+        allowHosts?: string;
+        denyHosts?: string;
+      }>();
+      ctx.show(
+        await ctx.api.request("POST", "/api/runners", {
+          body: {
+            workspaceId: await ctx.workspace(),
+            name: runnerName,
+            location: o.location ?? "",
+            labels: csv(o.labels) ?? [],
+            shareSecrets: !!o.shareSecrets,
+            allowHosts: csv(o.allowHosts) ?? [],
+            denyHosts: csv(o.denyHosts) ?? [],
+          },
+        }),
+      );
+    }),
+  );
+  runnerCmd
+    .command("get <id>")
+    .description("Show a runner")
+    .action(
+      act(async (ctx, [runnerId]) => ctx.show(await ctx.api.request("GET", `/api/runners/${enc(runnerId)}`))),
+    );
+  runnerCmd
+    .command("update <id>")
+    .description("Change a runner's name, location, labels, secret sharing or host rules")
+    .option("--name <text>", "New name")
+    .option("--location <text>", "New location")
+    .option("--labels <list>", "Comma separated labels (replaces the list)")
+    .option("--share-secrets <bool>", "true or false")
+    .option("--allow-hosts <list>", "Comma separated (replaces the list)")
+    .option("--deny-hosts <list>", "Comma separated (replaces the list)")
+    .action(
+      act(async (ctx, [runnerId], command) => {
+        const o = command.opts<Record<string, string | undefined>>();
+        const body: Record<string, unknown> = {};
+        if (o.name !== undefined) body.name = o.name;
+        if (o.location !== undefined) body.location = o.location;
+        if (o.labels !== undefined) body.labels = csv(o.labels) ?? [];
+        if (o.shareSecrets !== undefined) body.shareSecrets = o.shareSecrets === "true";
+        if (o.allowHosts !== undefined) body.allowHosts = csv(o.allowHosts) ?? [];
+        if (o.denyHosts !== undefined) body.denyHosts = csv(o.denyHosts) ?? [];
+        if (!Object.keys(body).length) throw new CliError("Nothing to change.", EXIT.usage);
+        ctx.show(await ctx.api.request("PATCH", `/api/runners/${enc(runnerId)}`, { body }));
+      }),
+    );
+  runnerCmd
+    .command("revoke <id>")
+    .description("Stop a runner from connecting; its unfinished checks are recorded as failed")
+    .action(
+      act(async (ctx, [runnerId]) => {
+        await ctx.confirm(`Revoke runner ${runnerId}?`);
+        ctx.show(await ctx.api.request("POST", `/api/runners/${enc(runnerId)}/revoke`));
+      }),
+    );
+  runnerCmd
+    .command("delete <id>")
+    .description("Delete a runner that no monitor uses")
+    .action(
+      act(async (ctx, [runnerId]) => {
+        await ctx.confirm(`Delete runner ${runnerId}?`);
+        await ctx.api.request("DELETE", `/api/runners/${enc(runnerId)}`);
+        out(`Deleted runner ${runnerId}`);
+      }),
+    );
+  runnerCmd
+    .command("assign <monitorId>")
+    .description("Run a monitor on a runner (--runner <id>) or back on the server (--server)")
+    .option("--runner <id>", "Runner id")
+    .option("--server", "Run on the Postbox server")
+    .action(
+      act(async (ctx, [monitorId], command) => {
+        const o = command.opts<{ runner?: string; server?: boolean }>();
+        if (!!o.runner === !!o.server)
+          throw new CliError("Pass exactly one of --runner or --server.", EXIT.usage);
+        const monitor = await ctx.api.request<{ revision: number }>("GET", `/api/monitors/${enc(monitorId)}`);
+        ctx.show(
+          await ctx.api.request("PATCH", `/api/monitors/${enc(monitorId)}`, {
+            body: { runnerId: o.server ? null : o.runner, expectedRevision: monitor.revision },
+          }),
+        );
+      }),
+    );
+
   // ------------------------------------------------------------ secrets vault
   const vaultCmd = group(program, "vault", "Manage the workspace secrets vault (values are write-only)");
   const secretByName = async (ctx: Ctx, nameOrId: string) => {
@@ -1007,6 +1194,32 @@ export function registerManagement(program: Command) {
 
   // ------------------------------------------------------------ environments and globals
   const env = group(program, "env", "Manage environments");
+  env
+    .command("pull <id>")
+    .description("Write an environment to a directory as stable, secret-free files you can keep in Git")
+    .requiredOption("-d, --dir <path>", "Directory to write into (created if missing)")
+    .option("--force", "Overwrite a directory that was pulled from something else")
+    .action(
+      act(async (ctx, [environmentId], command) =>
+        pullRepository(ctx, "environment", environmentId, command.opts<PullOptions>()),
+      ),
+    );
+  env
+    .command("push")
+    .description("Apply edited files from a pulled directory back to the environment")
+    .requiredOption("-d, --dir <path>", "Directory created by `env pull`")
+    .option("--prune", "Also remove variables whose entries are gone")
+    .option("--force", "Push even if the environment changed since the pull")
+    .option("--dry-run", "Show what would change without changing anything")
+    .action(
+      act(async (ctx, _args, command) =>
+        pushRepository(
+          ctx,
+          "environment",
+          command.opts<{ dir: string; prune?: boolean; force?: boolean; dryRun?: boolean }>(),
+        ),
+      ),
+    );
   withWorkspace(withList(env.command("list").description("List environments"))).action(
     act(async (ctx) =>
       ctx.list(
@@ -1092,6 +1305,453 @@ export function registerManagement(program: Command) {
       }),
     );
 
+  // ------------------------------------------------------------ shared dependencies
+  const dependency = group(
+    program,
+    "dependency",
+    "Publish collections as versions and install or update them in other workspaces",
+  );
+  const releaseColumns = [
+    id,
+    column("KIND", "kind"),
+    name,
+    column("VERSION", "version"),
+    column("WORKSPACE", "workspaceId"),
+    column("WHO", "visibility"),
+    column("WITHDRAWN", "revokedReason"),
+  ];
+  const installColumns = [
+    id,
+    column("KIND", "kind"),
+    name,
+    column("VERSION", "version"),
+    column("STATUS", "status"),
+    column("LATEST", "latestVersion"),
+    column("EDITED", "modified"),
+    column("FOLDER", "folderId"),
+  ];
+  const sourcePath = (sourceId: string, environment?: boolean, mock?: boolean) =>
+    `/api/${mock ? "mocks" : environment ? "environments" : "folders"}/${enc(sourceId)}/releases`;
+  withList(
+    dependency
+      .command("releases <id>")
+      .description("List the published versions of a collection (or environment with --environment)")
+      .option("--environment", "The id is an environment")
+      .option("--mock", "The id is a mock server"),
+  ).action(
+    act(async (ctx, [sourceId], command) =>
+      ctx.list(
+        await ctx.api.request<Row[]>(
+          "GET",
+          sourcePath(
+            sourceId,
+            command.opts<{ environment?: boolean }>().environment,
+            command.opts<{ mock?: boolean }>().mock,
+          ),
+        ),
+        releaseColumns,
+      ),
+    ),
+  );
+  dependency
+    .command("publish <id> <version>")
+    .description(
+      "Publish a collection's (or with --environment, an environment's) current state as an immutable, secret-free version",
+    )
+    .option("--environment", "The id is an environment")
+    .option("--mock", "The id is a mock server")
+    .option("--notes <text>", "Release notes")
+    .option(
+      "--everyone",
+      "Let everyone on the server install it (needs the owner role); default: workspace members",
+    )
+    .action(
+      act(async (ctx, [sourceId, version], command) => {
+        const options = command.opts<{
+          notes?: string;
+          everyone?: boolean;
+          environment?: boolean;
+          mock?: boolean;
+        }>();
+        ctx.show(
+          await ctx.api.request("POST", sourcePath(sourceId, options.environment, options.mock), {
+            body: {
+              version,
+              notes: options.notes ?? "",
+              visibility: options.everyone ? "instance" : "workspace",
+            },
+          }),
+        );
+      }),
+    );
+  withWorkspace(
+    withList(dependency.command("browse").description("List releases from other workspaces you can install")),
+  ).action(
+    act(async (ctx) =>
+      ctx.list(
+        await ctx.api.request<Row[]>("GET", "/api/dependency-releases", {
+          query: { workspaceId: await ctx.workspace() },
+        }),
+        releaseColumns,
+      ),
+    ),
+  );
+  withWorkspace(
+    withList(dependency.command("list").description("List collections installed from shared releases")),
+  ).action(
+    act(async (ctx) =>
+      ctx.list(
+        await ctx.api.request<Row[]>("GET", "/api/dependencies", {
+          query: { workspaceId: await ctx.workspace() },
+        }),
+        installColumns,
+      ),
+    ),
+  );
+  withWorkspace(
+    dependency
+      .command("install <releaseId>")
+      .description("Install a release as a new collection pinned to that version")
+      .option("--collection <id>", "For a mock server release: the collection the new mock should serve"),
+  ).action(
+    act(async (ctx, [releaseId], command) =>
+      ctx.show(
+        await ctx.api.request("POST", "/api/dependencies", {
+          body: {
+            workspaceId: await ctx.workspace(),
+            releaseId,
+            collectionId: command.opts<{ collection?: string }>().collection,
+          },
+        }),
+      ),
+    ),
+  );
+  dependency
+    .command("status <id>")
+    .description("Show an installed dependency and whether it is behind")
+    .option(
+      "--fail-on <states>",
+      "Exit 1 if the status is one of these (comma separated: update-available, withdrawn, source-unavailable)",
+    )
+    .action(
+      act(async (ctx, [dependencyId], command) => {
+        const view = await ctx.api.request<Row>("GET", `/api/dependencies/${enc(dependencyId)}`);
+        ctx.show(view);
+        const failOn = String(command.opts<{ failOn?: string }>().failOn ?? "")
+          .split(",")
+          .map((state) => state.trim())
+          .filter(Boolean);
+        if (failOn.includes(String(view.status)))
+          throw new CliError(`Dependency ${dependencyId} is ${view.status}.`, EXIT.failure);
+      }),
+    );
+  dependency
+    .command("preview <id>")
+    .description("Show what updating would change and where it collides with your edits")
+    .option("--release <id>", "Release to compare with (default: the newest)")
+    .option("--fail-on-conflict", "Exit 1 when the update would collide with local edits")
+    .action(
+      act(async (ctx, [dependencyId], command) => {
+        const options = command.opts<{ release?: string; failOnConflict?: boolean }>();
+        const preview = await ctx.api.request<{ plan: { conflicts: number } }>(
+          "GET",
+          `/api/dependencies/${enc(dependencyId)}/preview`,
+          { query: { releaseId: options.release } },
+        );
+        ctx.show(preview);
+        if (options.failOnConflict && preview.plan.conflicts > 0)
+          throw new CliError(`${preview.plan.conflicts} change(s) collide with local edits.`, EXIT.failure);
+      }),
+    );
+  dependency
+    .command("update <id>")
+    .description("Move to a newer release, keeping local edits and credentials")
+    .option("--release <id>", "Release to move to (default: the newest)")
+    .option(
+      "--strategy <strategy>",
+      "On conflicts: abort (default), keep-local or take-incoming",
+      (value) => {
+        if (!["abort", "keep-local", "take-incoming"].includes(value))
+          throw new InvalidArgumentError("Use abort, keep-local or take-incoming.");
+        return value;
+      },
+      "abort",
+    )
+    .action(
+      act(async (ctx, [dependencyId], command) => {
+        const options = command.opts<{ release?: string; strategy: string }>();
+        ctx.show(
+          await ctx.api.request("POST", `/api/dependencies/${enc(dependencyId)}/update`, {
+            body: { releaseId: options.release, strategy: options.strategy },
+          }),
+        );
+      }),
+    );
+  dependency
+    .command("withdraw <releaseId>")
+    .description("Withdraw a published version so it can no longer be installed or updated to")
+    .requiredOption("--reason <text>", "Why the version is being withdrawn")
+    .action(
+      act(async (ctx, [releaseId], command) =>
+        ctx.show(
+          await ctx.api.request("POST", `/api/dependency-releases/${enc(releaseId)}/revoke`, {
+            body: { reason: command.opts<{ reason: string }>().reason },
+          }),
+        ),
+      ),
+    );
+  dependency
+    .command("remove <id>")
+    .description(
+      "Stop tracking an installed dependency (the collection or environment is kept unless --delete-copy)",
+    )
+    .option("--delete-copy", "Also delete the installed collection or environment")
+    .action(
+      act(async (ctx, [dependencyId], command) => {
+        const deleteCopy = !!command.opts<{ deleteCopy?: boolean }>().deleteCopy;
+        if (deleteCopy) await ctx.confirm(`Delete the installed copy for ${dependencyId}?`);
+        await ctx.api.request("DELETE", `/api/dependencies/${enc(dependencyId)}`, {
+          query: { deleteCopy: deleteCopy ? "1" : undefined },
+        });
+        out(`Removed ${dependencyId}${deleteCopy ? " and its copy" : ""}`);
+      }),
+    );
+
+  // ------------------------------------------------------------ forks and merge requests
+  const strategyOption = (value: string) => {
+    if (!["abort", "keep-local", "take-incoming"].includes(value))
+      throw new InvalidArgumentError("Use abort, keep-local or take-incoming.");
+    return value;
+  };
+  const spec = group(program, "spec", "Keep API specifications as files in a repository");
+  spec
+    .command("pull <id>")
+    .description("Write a specification to a directory (specification.json + source/) you can keep in Git")
+    .requiredOption("-d, --dir <path>", "Directory to write into (created if missing)")
+    .option("--force", "Overwrite a directory that was pulled from something else")
+    .action(
+      act(async (ctx, [specId], command) =>
+        pullRepository(ctx, "specification", specId, command.opts<PullOptions>()),
+      ),
+    );
+  spec
+    .command("push")
+    .description("Save edited files from a pulled directory as the specification's next revision")
+    .requiredOption("-d, --dir <path>", "Directory created by `spec pull`")
+    .option("--force", "Push even if the specification changed since the pull")
+    .option("--dry-run", "Show which files would change without saving")
+    .action(
+      act(async (ctx, _args, command) =>
+        pushRepository(
+          ctx,
+          "specification",
+          command.opts<{ dir: string; force?: boolean; dryRun?: boolean }>(),
+        ),
+      ),
+    );
+
+  const fork = group(program, "fork", "Fork collections, keep forks current and propose changes back");
+  const forkColumns = [
+    id,
+    column("KIND", "kind"),
+    column("FOLDER", "folderId"),
+    column("PARENT", "parentName"),
+    column("STATUS", "status"),
+    column("AHEAD", "ahead"),
+    column("BEHIND", "behind"),
+    column("OPEN MR", "openMergeRequestId"),
+  ];
+  withWorkspace(
+    fork
+      .command("create <id>")
+      .description(
+        "Copy a collection (or with --spec, an API specification) into a workspace, remembering where it came from",
+      )
+      .option("--spec", "The id is an API specification")
+      .option("--name <name>", "Name of the fork (default: '<name> (fork)')"),
+  ).action(
+    act(async (ctx, [sourceId], command) => {
+      const options = command.opts<{ name?: string; spec?: boolean }>();
+      ctx.show(
+        await ctx.api.request(
+          "POST",
+          `/api/${options.spec ? "specifications" : "folders"}/${enc(sourceId)}/forks`,
+          {
+            body: { workspaceId: await ctx.workspace(), name: options.name },
+          },
+        ),
+      );
+    }),
+  );
+  withWorkspace(withList(fork.command("list").description("List forks in a workspace"))).action(
+    act(async (ctx) =>
+      ctx.list(
+        await ctx.api.request<Row[]>("GET", "/api/forks", { query: { workspaceId: await ctx.workspace() } }),
+        forkColumns,
+      ),
+    ),
+  );
+  fork
+    .command("status <id>")
+    .description("Show a fork and how far it is from its original")
+    .option(
+      "--fail-on <states>",
+      "Exit 1 if the status is one of these (comma separated: ahead, behind, diverged, parent-unavailable)",
+    )
+    .action(
+      act(async (ctx, [forkId], command) => {
+        const view = await ctx.api.request<Row>("GET", `/api/forks/${enc(forkId)}`);
+        ctx.show(view);
+        const failOn = String(command.opts<{ failOn?: string }>().failOn ?? "")
+          .split(",")
+          .map((state) => state.trim())
+          .filter(Boolean);
+        if (failOn.includes(String(view.status)))
+          throw new CliError(`Fork ${forkId} is ${view.status}.`, EXIT.failure);
+      }),
+    );
+  fork
+    .command("sync <id>")
+    .description("Pull the original's changes into the fork (--preview to only look)")
+    .option("--preview", "Show what would change and exit")
+    .option("--fail-on-conflict", "With --preview, exit 1 when changes collide with the fork's edits")
+    .option(
+      "--strategy <strategy>",
+      "On conflicts: abort (default), keep-local or take-incoming",
+      strategyOption,
+      "abort",
+    )
+    .action(
+      act(async (ctx, [forkId], command) => {
+        const options = command.opts<{ preview?: boolean; failOnConflict?: boolean; strategy: string }>();
+        if (options.preview) {
+          const preview = await ctx.api.request<{ plan: { conflicts: number } }>(
+            "GET",
+            `/api/forks/${enc(forkId)}/sync`,
+          );
+          ctx.show(preview);
+          if (options.failOnConflict && preview.plan.conflicts > 0)
+            throw new CliError(
+              `${preview.plan.conflicts} change(s) collide with the fork's edits.`,
+              EXIT.failure,
+            );
+          return;
+        }
+        ctx.show(
+          await ctx.api.request("POST", `/api/forks/${enc(forkId)}/sync`, {
+            body: { strategy: options.strategy },
+          }),
+        );
+      }),
+    );
+  fork
+    .command("propose <id>")
+    .description("Open a merge request proposing the fork's changes to the original")
+    .requiredOption("--title <text>", "Title of the merge request")
+    .option("--description <text>", "What changed and why")
+    .action(
+      act(async (ctx, [forkId], command) => {
+        const options = command.opts<{ title: string; description?: string }>();
+        ctx.show(
+          await ctx.api.request("POST", `/api/forks/${enc(forkId)}/merge-requests`, {
+            body: { title: options.title, description: options.description ?? "" },
+          }),
+        );
+      }),
+    );
+  fork
+    .command("remove <id>")
+    .description("Stop tracking a fork (its collection is kept unless --delete-copy)")
+    .option("--delete-copy", "Also delete the forked collection")
+    .action(
+      act(async (ctx, [forkId], command) => {
+        const deleteCopy = !!command.opts<{ deleteCopy?: boolean }>().deleteCopy;
+        if (deleteCopy) await ctx.confirm(`Delete the forked collection for ${forkId}?`);
+        await ctx.api.request("DELETE", `/api/forks/${enc(forkId)}`, {
+          query: { deleteCopy: deleteCopy ? "1" : undefined },
+        });
+        out(`Removed ${forkId}${deleteCopy ? " and its collection" : ""}`);
+      }),
+    );
+
+  const mr = group(program, "mr", "Review and merge merge requests from forks");
+  withWorkspace(
+    withList(
+      mr
+        .command("list")
+        .description("List merge requests to review in, or proposed from, a workspace")
+        .option("--status <status>", "open, merged or closed"),
+    ),
+  ).action(
+    act(async (ctx, _args, command) =>
+      ctx.list(
+        await ctx.api.request<Row[]>("GET", "/api/merge-requests", {
+          query: { workspaceId: await ctx.workspace(), status: command.opts<{ status?: string }>().status },
+        }),
+        [
+          id,
+          column("TITLE", "title"),
+          column("STATUS", "status"),
+          column("BY", "createdByName"),
+          column("ROLE", "role"),
+        ],
+      ),
+    ),
+  );
+  mr.command("show <id>")
+    .description("Show a merge request with its diff, conflicts, reviews and whether it can be merged")
+    .option("--fail-unless-mergeable", "Exit 1 (and print why) unless it can be merged right now")
+    .action(
+      act(async (ctx, [mrId], command) => {
+        const view = await ctx.api.request<{
+          status: string;
+          open: { readiness: { ok: boolean; reasons: string[] } } | null;
+        }>("GET", `/api/merge-requests/${enc(mrId)}`);
+        ctx.show(view);
+        if (command.opts<{ failUnlessMergeable?: boolean }>().failUnlessMergeable) {
+          if (view.status !== "open")
+            throw new CliError(`Merge request ${mrId} is ${view.status}.`, EXIT.failure);
+          if (view.open && !view.open.readiness.ok)
+            throw new CliError(`Not mergeable: ${view.open.readiness.reasons.join("; ")}.`, EXIT.failure);
+        }
+      }),
+    );
+  for (const [name, decision, text] of [
+    ["approve", "approve", "Approve the fork's current content"],
+    ["request-changes", "reject", "Ask the author for changes"],
+  ] as const)
+    mr.command(`${name} <id>`)
+      .description(text)
+      .option("--note <text>", "A note for the author")
+      .action(
+        act(async (ctx, [mrId], command) =>
+          ctx.show(
+            await ctx.api.request("POST", `/api/merge-requests/${enc(mrId)}/reviews`, {
+              body: { decision, note: command.opts<{ note?: string }>().note ?? "" },
+            }),
+          ),
+        ),
+      );
+  mr.command("merge <id>")
+    .description("Merge into the original when approved, conflict-free and you are allowed to")
+    .action(
+      act(async (ctx, [mrId]) =>
+        ctx.show(await ctx.api.request("POST", `/api/merge-requests/${enc(mrId)}/merge`)),
+      ),
+    );
+  mr.command("close <id>")
+    .description("Close without merging")
+    .option("--note <text>", "Why it is being closed")
+    .action(
+      act(async (ctx, [mrId], command) =>
+        ctx.show(
+          await ctx.api.request("POST", `/api/merge-requests/${enc(mrId)}/close`, {
+            body: { note: command.opts<{ note?: string }>().note ?? "" },
+          }),
+        ),
+      ),
+    );
+
   const globals = group(program, "globals", "Manage workspace global variables");
   withWorkspace(globals.command("get").description("Show global variables")).action(
     act(async (ctx) =>
@@ -1138,6 +1798,154 @@ export function registerManagement(program: Command) {
       );
     }),
   );
+}
+
+// ------------------------------------------------------------ repository files (LAB-96)
+
+const REPO_STATE = ".postbox-repo.json";
+interface RepoState {
+  format: number;
+  /** Absent in directories written before environments were supported: those are collections. */
+  kind?: "collection" | "environment" | "specification";
+  /** The id of the collection or environment this directory mirrors. */
+  collectionId: string;
+  checksum: string;
+  files: string[];
+}
+type RepoKind = "collection" | "environment" | "specification";
+const REPO_ROUTES: Record<RepoKind, string> = {
+  collection: "folders",
+  environment: "environments",
+  specification: "specifications",
+};
+/** The command word that owns each kind, used in messages. */
+const REPO_COMMAND: Record<RepoKind, string> = {
+  collection: "collection",
+  environment: "env",
+  specification: "spec",
+};
+const repoPath = (kind: RepoKind, id: string) => `/api/${REPO_ROUTES[kind]}/${encodeURIComponent(id)}/files`;
+
+/** Every repository file under `root`, as forward-slash relative paths. Symlinks and VCS folders are skipped. */
+async function readRepositoryDir(root: string): Promise<Record<string, string>> {
+  const found: Record<string, string> = {};
+  const walk = async (relative: string) => {
+    for (const entry of await readdir(nodePath.join(root, relative), { withFileTypes: true })) {
+      if (entry.isSymbolicLink() || entry.name === ".git" || entry.name === "node_modules") continue;
+      const rel = relative ? `${relative}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) await walk(rel);
+      else if (entry.isFile() && rel !== REPO_STATE && isRepositoryPath(rel))
+        found[rel] = await readFile(nodePath.join(root, rel), "utf8");
+    }
+  };
+  try {
+    await walk("");
+  } catch (error) {
+    throw new CliError(`Cannot read ${root}: ${(error as Error).message}`, EXIT.usage);
+  }
+  return found;
+}
+
+async function readRepoState(dir: string): Promise<RepoState | null> {
+  try {
+    return JSON.parse(await readFile(nodePath.join(dir, REPO_STATE), "utf8")) as RepoState;
+  } catch {
+    return null;
+  }
+}
+
+/** Write files below `dir`, refusing any path that would leave it. */
+async function writeRepositoryFiles(dir: string, files: Record<string, string>) {
+  for (const rel of Object.keys(files)) {
+    try {
+      validatePath(rel);
+    } catch {
+      throw new CliError(`The server sent an unsafe file path: ${rel}`, EXIT.server);
+    }
+    const target = nodePath.join(dir, ...rel.split("/"));
+    await mkdir(nodePath.dirname(target), { recursive: true });
+    await writeFile(target, files[rel]);
+  }
+}
+
+interface PullOptions {
+  dir: string;
+  force?: boolean;
+}
+async function pullRepository(ctx: Ctx, kind: RepoKind, id: string, options: PullOptions) {
+  const previous = await readRepoState(options.dir);
+  if (
+    previous &&
+    (previous.collectionId !== id || (previous.kind ?? "collection") !== kind) &&
+    !options.force
+  )
+    throw new CliError(
+      `${options.dir} holds ${previous.kind ?? "collection"} ${previous.collectionId}. Use --force to replace it.`,
+      EXIT.usage,
+    );
+  const pulled = await ctx.api.request<{ checksum: string; files: Record<string, string> }>(
+    "GET",
+    repoPath(kind, id),
+  );
+  await mkdir(options.dir, { recursive: true });
+  // Files from the previous pull that are no longer part of it are removed; yours are left alone.
+  const stale = (previous?.files ?? []).filter((file) => !(file in pulled.files));
+  for (const rel of stale) {
+    try {
+      validatePath(rel);
+      await rm(nodePath.join(options.dir, ...rel.split("/")), { force: true });
+    } catch {
+      /* ignore a state entry that is not a safe path */
+    }
+  }
+  await writeRepositoryFiles(options.dir, pulled.files);
+  const state: RepoState = {
+    format: 1,
+    kind,
+    collectionId: id,
+    checksum: pulled.checksum,
+    files: Object.keys(pulled.files).sort(),
+  };
+  await writeFile(nodePath.join(options.dir, REPO_STATE), JSON.stringify(state, null, 2) + "\n");
+  out(`Pulled ${state.files.length} file(s) to ${options.dir} (checksum ${pulled.checksum.slice(0, 12)})`);
+}
+
+async function pushRepository(
+  ctx: Ctx,
+  kind: RepoKind,
+  options: { dir: string; prune?: boolean; force?: boolean; dryRun?: boolean },
+) {
+  const state = await readRepoState(options.dir);
+  const command = REPO_COMMAND[kind];
+  if (!state)
+    throw new CliError(
+      `${options.dir} was not created by \`${command} pull\` (no ${REPO_STATE}).`,
+      EXIT.usage,
+    );
+  if ((state.kind ?? "collection") !== kind)
+    throw new CliError(
+      `${options.dir} holds a ${state.kind ?? "collection"}; use \`${REPO_COMMAND[state.kind ?? "collection"]} push\`.`,
+      EXIT.usage,
+    );
+  const files = await readRepositoryDir(options.dir);
+  const result = await ctx.api.request<Record<string, unknown>>("PUT", repoPath(kind, state.collectionId), {
+    body: {
+      files,
+      baseChecksum: state.checksum,
+      prune: !!options.prune,
+      force: !!options.force,
+      dryRun: !!options.dryRun,
+    },
+  });
+  ctx.show(result);
+  if (!options.dryRun && typeof result.checksum === "string") {
+    await writeFile(
+      nodePath.join(options.dir, REPO_STATE),
+      JSON.stringify({ ...state, checksum: result.checksum, files: Object.keys(files).sort() }, null, 2) +
+        "\n",
+    );
+    console.error(`Pushed. Run \`postbox ${command} pull\` again to refresh the files.`);
+  }
 }
 
 const enc = encodeURIComponent;

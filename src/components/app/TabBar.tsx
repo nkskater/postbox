@@ -1,5 +1,6 @@
 "use client";
 import { useShortcutLabel } from "@/lib/use-shortcuts";
+import { useState } from "react";
 import { Settings, Cookie, Globe, Layers, Library, Play, Plus, X } from "lucide-react";
 import { useApp, snapshot, type Tab } from "@/stores/app";
 import { useDialogs } from "@/stores/dialogs";
@@ -59,6 +60,8 @@ function TabTitle({ tab }: { tab: Tab }) {
           <span>Cookies</span>
         </>
       );
+    case "assistant":
+      return <span>API assistant</span>;
     case "telemetry":
       return (
         <>
@@ -120,23 +123,51 @@ function TabTitle({ tab }: { tab: Tab }) {
 
 export function TabBar() {
   const newRequestKey = useShortcutLabel("newRequest");
-  const { tabs, activeTabId, setActiveTab, closeTab, requestCloseTab, closeOtherTabs, openDraft } = useApp();
+  const { tabs, activeTabId, setActiveTab, closeTab, requestCloseTab, closeOtherTabs, openDraft, moveTab } =
+    useApp();
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
   const confirmCloseTabId = useDialogs((s) => s.confirmCloseTabId);
   const setConfirmCloseTabId = useDialogs((s) => s.setConfirmCloseTabId);
   const confirmTab = tabs.find((t) => t.id === confirmCloseTabId);
   return (
     <>
       <div className="flex h-9 shrink-0 items-stretch overflow-x-auto border-b bg-sidebar">
-        {tabs.map((t) => {
+        {tabs.map((t, index) => {
           const dirty = t.type === "request" && (t.saved === null ? false : t.saved !== snapshot(t.draft));
           return (
             <ContextMenu key={t.id}>
               <ContextMenuTrigger asChild>
                 <div
+                  draggable
+                  data-tab-id={t.id}
+                  onDragStart={(e) => {
+                    setDragId(t.id);
+                    e.dataTransfer.effectAllowed = "move";
+                    e.dataTransfer.setData("text/plain", t.id);
+                  }}
+                  onDragOver={(e) => {
+                    if (!dragId || dragId === t.id) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                    setOverId(t.id);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (dragId && dragId !== t.id) moveTab(dragId, index);
+                    setDragId(null);
+                    setOverId(null);
+                  }}
+                  onDragEnd={() => {
+                    setDragId(null);
+                    setOverId(null);
+                  }}
                   onClick={() => setActiveTab(t.id)}
                   onAuxClick={(e) => e.button === 1 && requestCloseTab(t.id)}
                   className={cn(
                     "group flex max-w-56 min-w-32 cursor-pointer items-center gap-1.5 border-r px-3 text-xs",
+                    dragId === t.id && "opacity-40",
+                    overId === t.id && dragId !== t.id && "bg-accent",
                     activeTabId === t.id
                       ? "border-t-2 border-t-primary bg-background"
                       : "text-muted-foreground hover:bg-accent/50",
@@ -169,6 +200,15 @@ export function TabBar() {
               <ContextMenuContent>
                 <ContextMenuItem onClick={() => requestCloseTab(t.id)}>Close</ContextMenuItem>
                 <ContextMenuItem onClick={() => closeOtherTabs(t.id)}>Close others</ContextMenuItem>
+                <ContextMenuItem disabled={index === 0} onClick={() => moveTab(t.id, index - 1)}>
+                  Move left
+                </ContextMenuItem>
+                <ContextMenuItem
+                  disabled={index === tabs.length - 1}
+                  onClick={() => moveTab(t.id, index + 1)}
+                >
+                  Move right
+                </ContextMenuItem>
               </ContextMenuContent>
             </ContextMenu>
           );

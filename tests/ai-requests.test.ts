@@ -435,13 +435,19 @@ afterAll(async () => {
   await new Promise((r) => server.close(r));
 });
 
-async function run(path: string, ai: Partial<AiConfig>, extra: Record<string, unknown> = {}) {
+async function run(
+  path: string,
+  ai: Partial<AiConfig>,
+  extra: Record<string, unknown> = {},
+  assistant = false,
+) {
   const response = await aiRoute.POST(
     new Request("http://localhost/api/ai", {
       method: "POST",
       headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
       body: JSON.stringify({
         workspaceId,
+        assistant,
         request: {
           name: "AI",
           method: "POST",
@@ -470,6 +476,23 @@ async function run(path: string, ai: Partial<AiConfig>, extra: Record<string, un
 }
 
 describe("the model request route", () => {
+  it("keeps assistant variable references literal and redacts model credentials from conversation", async () => {
+    seen = [];
+    const out = await run(
+      "/json",
+      {
+        stream: false,
+        messages: [{ role: "user", content: "Use {{token}}; never disclose sk-live-SECRET-123" }],
+      },
+      {},
+      true,
+    );
+    expect(out.status).toBe(200);
+    const payload = JSON.stringify(seen[0].body);
+    expect(payload).toContain("{{token}}");
+    expect(payload).not.toContain("sk-live-SECRET-123");
+    expect(seen[0].headers.authorization).toBe("Bearer sk-live-SECRET-123");
+  });
   it("streams an OpenAI-compatible answer with tool calls and usage, and sends credentials upstream", async () => {
     seen = [];
     const out = await run("/openai/stream", {

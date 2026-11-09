@@ -50,6 +50,9 @@ type RequestTab = Extract<Tab, { type: "request" }>;
 
 const count = (list: KeyValue[]) => list.filter((x) => x.enabled && x.key).length;
 
+/** Which configuration tab (Params, Headers, Body…) each request tab was on, so switching tabs does not reset it. */
+const activeSections = new Map<string, string>();
+
 function TabLabel({ label, n, dot }: { label: string; n?: number; dot?: boolean }) {
   return (
     <span className="flex items-center gap-1">
@@ -290,7 +293,11 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
       )}
       <Group orientation={sideBySide ? "horizontal" : "vertical"} className="min-h-0 flex-1">
         <Panel defaultSize="45" minSize="15">
-          <Tabs defaultValue="params" className="flex h-full min-h-0 flex-col gap-0">
+          <Tabs
+            defaultValue={activeSections.get(tab.id) ?? "params"}
+            onValueChange={(v) => activeSections.set(tab.id, v)}
+            className="flex h-full min-h-0 flex-col gap-0"
+          >
             <TabsList className="mx-3 h-8 shrink-0 justify-start bg-transparent p-0">
               <TabsTrigger value="params" className="text-xs">
                 <TabLabel label="Params" n={count(d.params)} />

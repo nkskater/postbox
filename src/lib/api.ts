@@ -11,6 +11,11 @@ import type { getFolderCatalog, searchCatalog, getCatalogEntry, publishCatalog }
 import type { CatalogPublishInput, CatalogMetadataInput, CatalogSearchInput } from "@/core/catalog/model";
 import type * as graphServer from "@/server/graph";
 import type * as discussions from "@/server/comments";
+import type * as shared from "@/server/dependencies";
+import type * as runnerServer from "@/server/runners";
+import type * as forkServer from "@/server/forks";
+import type * as repositoryServer from "@/server/repository";
+import type { ConflictStrategy, DependencyKind } from "@/core/dependencies/model";
 import type { CommentTarget } from "@/core/comments/model";
 import type { getDocumentation, publishDocumentation } from "@/server/documentation";
 import type { PublicationInput } from "@/core/documentation/model";
@@ -100,10 +105,16 @@ async function call<T>(method: string, url: string, body?: unknown, signal?: Abo
 const q = (params: Record<string, string | null | undefined>) =>
   new URLSearchParams(Object.entries(params).filter(([, v]) => v != null) as [string, string][]).toString();
 
+const ROUTES: Record<DependencyKind, string> = {
+  collection: "folders",
+  environment: "environments",
+  mock: "mocks",
+};
 const COMMENT_ROUTES: Record<CommentTarget, string> = {
   request: "requests",
   folder: "folders",
   specification: "specifications",
+  mergeRequest: "merge-requests",
 };
 export const api = {
   telemetry: {
@@ -327,6 +338,118 @@ export const api = {
     delete: (id: string) => call<{ ok: boolean }>("DELETE", `/api/monitors/${id}`),
     retry: (id: string, deliveryId: string) =>
       call<{ ok: boolean }>("POST", `/api/monitors/${id}/retry-email`, { deliveryId }),
+  },
+  runners: {
+    list: (workspaceId: string, signal?: AbortSignal) =>
+      call<ReturnType<typeof runnerServer.listRunners>>(
+        "GET",
+        `/api/runners?workspaceId=${encodeURIComponent(workspaceId)}`,
+        undefined,
+        signal,
+      ),
+    create: (input: Parameters<typeof runnerServer.createRunner>[0]) =>
+      call<ReturnType<typeof runnerServer.createRunner>>("POST", "/api/runners", input),
+    revoke: (id: string) =>
+      call<ReturnType<typeof runnerServer.revokeRunner>>("POST", `/api/runners/${id}/revoke`),
+    delete: (id: string) => call<{ ok: boolean }>("DELETE", `/api/runners/${id}`),
+  },
+  repository: {
+    files: (kind: "collection" | "environment" | "specification", id: string) => {
+      const route = { collection: "folders", environment: "environments", specification: "specifications" }[
+        kind
+      ];
+      return call<
+        | ReturnType<typeof repositoryServer.exportFiles>
+        | ReturnType<typeof repositoryServer.exportEnvironmentFiles>
+        | ReturnType<typeof repositoryServer.exportSpecificationFiles>
+      >("GET", `/api/${route}/${id}/files`);
+    },
+  },
+  forks: {
+    listOf: (id: string, kind: "collection" | "specification" = "collection") =>
+      call<ReturnType<typeof forkServer.listForksOf>>(
+        "GET",
+        `/api/${kind === "specification" ? "specifications" : "folders"}/${id}/forks`,
+      ),
+    create: (
+      id: string,
+      workspaceId: string,
+      name?: string,
+      kind: "collection" | "specification" = "collection",
+    ) =>
+      call<ReturnType<typeof forkServer.forkCollection>>(
+        "POST",
+        `/api/${kind === "specification" ? "specifications" : "folders"}/${id}/forks`,
+        { workspaceId, name },
+      ),
+    list: (workspaceId: string) =>
+      call<ReturnType<typeof forkServer.listForks>>("GET", `/api/forks?${q({ workspaceId })}`),
+    previewSync: (id: string) =>
+      call<ReturnType<typeof forkServer.previewSync>>("GET", `/api/forks/${id}/sync`),
+    sync: (id: string, strategy: ConflictStrategy) =>
+      call<ReturnType<typeof forkServer.syncFork>>("POST", `/api/forks/${id}/sync`, { strategy }),
+    remove: (id: string, deleteCopy = false) =>
+      call<{ removed: boolean }>("DELETE", `/api/forks/${id}${deleteCopy ? "?deleteCopy=1" : ""}`),
+    propose: (id: string, title: string, description: string) =>
+      call<ReturnType<typeof forkServer.mergeRequestView>>("POST", `/api/forks/${id}/merge-requests`, {
+        title,
+        description,
+      }),
+  },
+  mergeRequests: {
+    list: (workspaceId: string, status?: string) =>
+      call<ReturnType<typeof forkServer.listMergeRequests>>(
+        "GET",
+        `/api/merge-requests?${q({ workspaceId, status })}`,
+      ),
+    get: (id: string) =>
+      call<ReturnType<typeof forkServer.mergeRequestView>>("GET", `/api/merge-requests/${id}`),
+    review: (id: string, decision: "approve" | "reject", note: string) =>
+      call<ReturnType<typeof forkServer.mergeRequestView>>("POST", `/api/merge-requests/${id}/reviews`, {
+        decision,
+        note,
+      }),
+    merge: (id: string) =>
+      call<ReturnType<typeof forkServer.mergeMergeRequest>>("POST", `/api/merge-requests/${id}/merge`),
+    close: (id: string, note: string) =>
+      call<ReturnType<typeof forkServer.mergeRequestView>>("POST", `/api/merge-requests/${id}/close`, {
+        note,
+      }),
+  },
+  dependencies: {
+    releases: (id: string, kind: DependencyKind = "collection") =>
+      call<ReturnType<typeof shared.listReleases>>("GET", `/api/${ROUTES[kind]}/${id}/releases`),
+    publish: (
+      id: string,
+      input: { version: string; notes?: string; visibility: "workspace" | "instance" },
+      kind: DependencyKind = "collection",
+    ) => call<ReturnType<typeof shared.publishRelease>>("POST", `/api/${ROUTES[kind]}/${id}/releases`, input),
+    revoke: (releaseId: string, reason: string) =>
+      call<ReturnType<typeof shared.revokeRelease>>("POST", `/api/dependency-releases/${releaseId}/revoke`, {
+        reason,
+      }),
+    browse: (workspaceId: string) =>
+      call<ReturnType<typeof shared.browseReleases>>("GET", `/api/dependency-releases?${q({ workspaceId })}`),
+    list: (workspaceId: string) =>
+      call<ReturnType<typeof shared.listInstalls>>("GET", `/api/dependencies?${q({ workspaceId })}`),
+    install: (workspaceId: string, releaseId: string, collectionId?: string) =>
+      call<ReturnType<typeof shared.installRelease>>("POST", "/api/dependencies", {
+        workspaceId,
+        releaseId,
+        collectionId,
+      }),
+    preview: (id: string, releaseId?: string) =>
+      call<ReturnType<typeof shared.previewUpdate>>(
+        "GET",
+        `/api/dependencies/${id}/preview${releaseId ? `?${q({ releaseId })}` : ""}`,
+      ),
+    update: (id: string, strategy: ConflictStrategy, releaseId?: string) =>
+      call<ReturnType<typeof shared.updateInstall>>("POST", `/api/dependencies/${id}/update`, {
+        strategy,
+        releaseId,
+      }),
+    remove: (id: string, deleteCopy = false) =>
+      call<{ removed: boolean }>("DELETE", `/api/dependencies/${id}${deleteCopy ? "?deleteCopy=1" : ""}`),
   },
   comments: {
     list: (kind: CommentTarget, id: string) =>

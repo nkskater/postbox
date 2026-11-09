@@ -27,7 +27,12 @@ export type ResourceKind =
   | "governanceRuleSet"
   | "qualityScorecard"
   | "comment"
-  | "telemetrySource";
+  | "dependency"
+  | "dependencyRelease"
+  | "fork"
+  | "mergeRequest"
+  | "telemetrySource"
+  | "runner";
 export const RESOURCE_TABLES: Record<ResourceKind, string> = {
   workspace: "workspaces",
   folder: "folders",
@@ -50,10 +55,15 @@ export const RESOURCE_TABLES: Record<ResourceKind, string> = {
   captureSession: "capture_sessions",
   mcpCall: "mcp_calls",
   monitor: "monitors",
+  runner: "runners",
   specification: "specifications",
   governanceRuleSet: "governance_rule_sets",
   qualityScorecard: "quality_scorecards",
   comment: "comments",
+  dependency: "dependency_installs",
+  dependencyRelease: "dependency_releases",
+  fork: "collection_forks",
+  mergeRequest: "merge_requests",
   telemetrySource: "telemetry_sources",
 };
 export function resourceWorkspace(kind: ResourceKind, id: string): string {

@@ -1,0 +1,257 @@
+import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
+import type { Browser, Page } from "playwright-core";
+import { launch, openApp } from "./helpers";
+
+const baseUrl = inject("baseUrl");
+const targetUrl = inject("targetUrl");
+let browser: Browser;
+beforeAll(async () => {
+  browser = await launch();
+});
+afterAll(async () => {
+  await browser?.close();
+});
+
+const call = async (method: string, path: string, body?: unknown) => {
+  const res = await fetch(baseUrl + path, {
+    method,
+    headers: { "content-type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  return res.json();
+};
+
+async function openSharing(page: Page, name: string) {
+  await page.getByText(name, { exact: true }).first().hover();
+  await page
+    .getByRole("button", { name: new RegExp(`Actions for collection ${name}`) })
+    .first()
+    .click();
+  await page.getByRole("menuitem", { name: /Edit collection/ }).click();
+  await page.getByRole("tab", { name: "Sharing" }).click();
+}
+
+describe("shared collection dependencies", () => {
+  it("publishes a version, installs it in another workspace and updates it", async () => {
+    const [home] = (await call("GET", "/api/workspaces")) as { id: string }[];
+    const source = await call("POST", "/api/folders", {
+      workspaceId: home.id,
+      parentId: null,
+      name: "SharedSource",
+    });
+    await call("POST", "/api/requests", {
+      workspaceId: home.id,
+      folderId: source.id,
+      request: {
+        name: "Get thing",
+        method: "GET",
+        url: `${targetUrl}/thing`,
+        headers: [{ key: "Authorization", value: "Bearer do-not-share", enabled: true }],
+      },
+    });
+
+    // Publish version 1.0.0 from the collection's Sharing tab.
+    let { page, context, errors } = await openApp(browser, baseUrl);
+    await openSharing(page, "SharedSource");
+    await page.getByLabel("Release version").fill("1.0.0");
+    await page.getByLabel("Release notes").fill("First release");
+    await page.getByRole("button", { name: "Publish", exact: true }).click();
+    const published = page.getByRole("region", { name: "Published versions" });
+    await published.getByText("1.0.0").waitFor();
+    await published.getByText("First release").waitFor();
+    const releases = (await call("GET", `/api/folders/${source.id}/releases`)) as {
+      id: string;
+      checksum: string;
+    }[];
+    expect(releases).toHaveLength(1);
+    expect(JSON.stringify(releases)).not.toContain("do-not-share");
+
+    // Switch to another workspace and install it from Import → Shared.
+    await call("POST", "/api/workspaces", { name: "ConsumerWs" });
+    await context.close();
+    ({ page, context, errors } = await openApp(browser, baseUrl));
+    await page.getByRole("combobox").first().click();
+    await page.getByRole("option", { name: "ConsumerWs", exact: true }).click();
+    await page.getByRole("button", { name: "Import", exact: true }).first().click();
+    await page.getByRole("tab", { name: "Shared" }).click();
+    await page.getByRole("button", { name: "Install SharedSource 1.0.0" }).click();
+    await page.getByText("Installed SharedSource 1.0.0").first().waitFor();
+    await page.keyboard.press("Escape");
+
+    await openSharing(page, "SharedSource");
+    const installed = page.getByRole("region", { name: "Installed dependency" });
+    await installed.getByText("Up to date").waitFor();
+
+    // The author publishes a new version; the installed copy notices and updates.
+    await call("PATCH", `/api/requests/${(await requestIdOf(source.id)) as string}`, {
+      description: "Now documented",
+    });
+    const next = await call("POST", `/api/folders/${source.id}/releases`, {
+      version: "1.1.0",
+      notes: "Docs",
+    });
+    expect(next.version).toBe("1.1.0");
+    await page.reload();
+    await page.getByRole("button", { name: "Console" }).waitFor();
+    await page.getByRole("combobox").first().click();
+    await page.getByRole("option", { name: "ConsumerWs", exact: true }).click();
+    await openSharing(page, "SharedSource");
+    await installed.getByText("Update available").waitFor();
+    await installed.getByRole("button", { name: "Check for changes" }).click();
+    const preview = installed.getByLabel("Update preview");
+    await preview.getByText(/Get thing \(description\)/).waitFor();
+    await preview.getByRole("button", { name: "Update to 1.1.0" }).click();
+    await installed.getByText("Up to date").waitFor();
+    await installed.getByText(/SharedSource · 1\.1\.0/).waitFor();
+    expect(errors).toEqual([]);
+    await context.close();
+  });
+});
+
+describe("shared environments", () => {
+  it("publishes an environment without its secrets and installs it in another workspace", async () => {
+    const [home] = (await call("GET", "/api/workspaces")) as { id: string }[];
+    await call("POST", "/api/environments", {
+      workspaceId: home.id,
+      name: "SharedStaging",
+      variables: [
+        { key: "host", value: "stg.example.test", type: "default", enabled: true },
+        { key: "token", value: "do-not-share-env", type: "secret", enabled: true },
+      ],
+    });
+    let { page, context, errors } = await openApp(browser, baseUrl);
+    await page.getByRole("button", { name: "Environments", exact: true }).click();
+    await page.getByText("SharedStaging", { exact: true }).first().click();
+    await page.getByText("Sharing", { exact: true }).click();
+    await page.getByLabel("Release version").fill("1.0.0");
+    await page.getByRole("button", { name: "Publish", exact: true }).click();
+    await page.getByRole("region", { name: "Published versions" }).getByText("1.0.0").waitFor();
+
+    const envs = (await call("GET", `/api/environments?workspaceId=${home.id}`)) as {
+      id: string;
+      name: string;
+    }[];
+    const sourceEnv = envs.find((e) => e.name === "SharedStaging")!;
+    const releases = await call("GET", `/api/environments/${sourceEnv.id}/releases`);
+    expect(JSON.stringify(releases)).not.toContain("do-not-share-env");
+
+    const other = (await call("POST", "/api/workspaces", { name: "EnvConsumerWs" })) as { id: string };
+    await context.close();
+    ({ page, context, errors } = await openApp(browser, baseUrl));
+    await page.getByRole("combobox").first().click();
+    await page.getByRole("option", { name: "EnvConsumerWs", exact: true }).click();
+    await page.getByRole("button", { name: "Import", exact: true }).first().click();
+    await page.getByRole("tab", { name: "Shared" }).click();
+    await page.getByRole("button", { name: "Install SharedStaging 1.0.0" }).click();
+    await page.getByText("Installed SharedStaging 1.0.0").first().waitFor();
+
+    const installed = (await call("GET", `/api/environments?workspaceId=${other.id}`)) as {
+      id: string;
+      name: string;
+    }[];
+    expect(installed.map((e) => e.name)).toContain("SharedStaging");
+    const copy = (await call(
+      "GET",
+      `/api/environments/${installed.find((e) => e.name === "SharedStaging")!.id}`,
+    )) as {
+      variables: { key: string; value: string }[];
+    };
+    expect(copy.variables.find((v) => v.key === "host")?.value).toBe("stg.example.test");
+    expect(copy.variables.find((v) => v.key === "token")?.value).toBe("");
+    expect(errors).toEqual([]);
+    await context.close();
+  });
+});
+
+async function requestIdOf(folderId: string) {
+  const [home] = (await call("GET", "/api/workspaces")) as { id: string }[];
+  const tree = (await call("GET", `/api/workspaces/${home.id}/tree`)) as {
+    requests: { id: string; folderId: string }[];
+  };
+  return tree.requests.find((r) => r.folderId === folderId)!.id;
+}
+
+describe("shared mock servers", () => {
+  it("publishes a mock server and installs it against a collection elsewhere", async () => {
+    const [home] = (await call("GET", "/api/workspaces")) as { id: string }[];
+    const folder = await call("POST", "/api/folders", {
+      workspaceId: home.id,
+      parentId: null,
+      name: "MockHome",
+    });
+    await call("POST", "/api/requests", {
+      workspaceId: home.id,
+      folderId: folder.id,
+      request: {
+        name: "Get widget",
+        method: "GET",
+        url: `${targetUrl}/widgets/1`,
+        examples: [
+          {
+            id: "ex1",
+            name: "ok",
+            status: 200,
+            statusText: "OK",
+            headers: [{ key: "content-type", value: "application/json", enabled: true }],
+            body: '{"widget":"shared"}',
+            createdAt: Date.now(),
+          },
+        ],
+      },
+    });
+    const mock = await call("POST", "/api/mocks", {
+      workspaceId: home.id,
+      folderId: folder.id,
+      name: "SharedMockSrv",
+    });
+    let { page, context, errors } = await openApp(browser, baseUrl);
+    await page.getByRole("button", { name: "Mocks", exact: true }).click();
+    await page.getByText("SharedMockSrv", { exact: true }).first().click();
+    await page.getByLabel("Release version").fill("1.0.0");
+    await page.getByRole("button", { name: "Publish", exact: true }).click();
+    await page.getByRole("region", { name: "Published versions" }).getByText("1.0.0").waitFor();
+    const releases = (await call("GET", `/api/mocks/${mock.id}/releases`)) as { kind: string }[];
+    expect(releases).toHaveLength(1);
+    expect(releases[0].kind).toBe("mock");
+
+    const other = (await call("POST", "/api/workspaces", { name: "MockConsumerWs" })) as { id: string };
+    const consumerCol = await call("POST", "/api/folders", {
+      workspaceId: other.id,
+      parentId: null,
+      name: "ConsumerCol",
+    });
+    await call("POST", "/api/requests", {
+      workspaceId: other.id,
+      folderId: consumerCol.id,
+      request: {
+        name: "Get widget",
+        method: "GET",
+        url: `${targetUrl}/widgets/1`,
+        examples: [
+          {
+            id: "ex1",
+            name: "ok",
+            status: 200,
+            statusText: "OK",
+            headers: [],
+            body: "{}",
+            createdAt: Date.now(),
+          },
+        ],
+      },
+    });
+    await context.close();
+    ({ page, context, errors } = await openApp(browser, baseUrl));
+    await page.getByRole("combobox").first().click();
+    await page.getByRole("option", { name: "MockConsumerWs", exact: true }).click();
+    await page.getByRole("button", { name: "Import", exact: true }).first().click();
+    await page.getByRole("tab", { name: "Shared" }).click();
+    await page.getByLabel("Collection for mock servers").selectOption({ label: "ConsumerCol" });
+    await page.getByRole("button", { name: "Install SharedMockSrv 1.0.0" }).click();
+    await page.getByRole("status").filter({ hasText: "Mock key" }).waitFor();
+    const mocks = (await call("GET", `/api/mocks?workspaceId=${other.id}`)) as { name: string }[];
+    expect(mocks.map((m) => m.name)).toContain("SharedMockSrv");
+    expect(errors).toEqual([]);
+    await context.close();
+  });
+});

@@ -226,6 +226,8 @@ export function rotateMockKey(id: string) {
 }
 export function deleteMock(id: string) {
   row(id);
+  // A deleted mock is no longer an installed dependency.
+  getDb().delete(schema.dependencyInstalls).where(eq(schema.dependencyInstalls.folderId, id)).run();
   getDb().delete(mockServers).where(eq(mockServers.id, id)).run();
   scenarioState.reset(id);
   handlerState.reset(id);

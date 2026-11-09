@@ -6,8 +6,19 @@ export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 export const MAX_UPLOAD_BASE64_CHARS = Math.ceil(MAX_UPLOAD_BYTES / 3) * 4;
 export const base64ByteLength = (value: string) =>
   Math.max(0, Math.floor((value.length * 3) / 4) - (value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0));
-const SENSITIVE_NAME =
+export const SENSITIVE_NAME =
   /authorization|cookie|token|password|passwd|secret|api[-_]?key|session|credential|^jwt$|^signature$|^sig$|^code$/i;
+
+/**
+ * A value made only of {{variable}} / {{vault:name}} references (optionally after an auth scheme word) holds
+ * no secret itself, so it is kept as written. Redacting it would turn a reference into the literal text
+ * "[REDACTED]" that is later sent to the server.
+ */
+export function isReferenceOnly(value: string): boolean {
+  const rest = value.replace(/\{\{\s*[^{}]+\s*\}\}/g, "");
+  if (rest === value) return false;
+  return /^\s*(?:(?:bearer|basic|token|digest)\s+)?[\s,&;:=]*$/i.test(rest);
+}
 
 /** Values that should not be copied into browser storage or default exports. */
 export function authCredentialValues(auth: AuthConfig): string[] {
@@ -343,24 +354,32 @@ export function redactSensitiveFields<T>(value: T): T {
   if (typeof value === "string") {
     return value
       .replace(
-        /([?&][^=&]*(?:authorization|cookie|token|password|passwd|secret|api[-_]?key|session|credential|jwt|signature|sig|code)[^=&]*=)[^&#]*/gi,
-        "$1[REDACTED]",
+        /([?&][^=&]*(?:authorization|cookie|token|password|passwd|secret|api[-_]?key|session|credential|jwt|signature|sig|code)[^=&]*=)([^&#]*)/gi,
+        (_all, head: string, val: string) => (isReferenceOnly(val) ? _all : `${head}[REDACTED]`),
       )
       .replace(
-        /(["'][^"']*(?:authorization|cookie|token|password|passwd|secret|api[-_]?key|session|credential|jwt|signature|sig|code)[^"']*["']\s*:\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^,}\]]+)/gi,
-        '$1"[REDACTED]"',
+        /(["'][^"']*(?:authorization|cookie|token|password|passwd|secret|api[-_]?key|session|credential|jwt|signature|sig|code)[^"']*["']\s*:\s*)("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^,}\]]+)/gi,
+        (_all, head: string, val: string) =>
+          isReferenceOnly(val.replace(/^["']|["']$/g, "")) ? _all : `${head}"[REDACTED]"`,
       ) as T;
   }
   if (Array.isArray(value)) return value.map(redactSensitiveFields) as T;
   if (!value || typeof value !== "object") return value;
   const record = value as Record<string, unknown>;
-  if (typeof record.key === "string" && SENSITIVE_NAME.test(record.key) && typeof record.value === "string") {
+  if (
+    typeof record.key === "string" &&
+    SENSITIVE_NAME.test(record.key) &&
+    typeof record.value === "string" &&
+    !isReferenceOnly(record.value)
+  ) {
     return { ...record, value: "[REDACTED]" } as T;
   }
   return Object.fromEntries(
     Object.entries(record).map(([key, entry]) => [
       key,
-      SENSITIVE_NAME.test(key) && typeof entry === "string" ? "[REDACTED]" : redactSensitiveFields(entry),
+      SENSITIVE_NAME.test(key) && typeof entry === "string" && !isReferenceOnly(entry)
+        ? "[REDACTED]"
+        : redactSensitiveFields(entry),
     ]),
   ) as T;
 }
@@ -378,11 +397,17 @@ export function sensitiveFieldValues(value: unknown): string[] {
   if (!value || typeof value !== "object") return [];
   const record = value as Record<string, unknown>;
   const values: string[] = [];
-  if (typeof record.key === "string" && SENSITIVE_NAME.test(record.key) && typeof record.value === "string")
+  if (
+    typeof record.key === "string" &&
+    SENSITIVE_NAME.test(record.key) &&
+    typeof record.value === "string" &&
+    !isReferenceOnly(record.value)
+  )
     values.push(record.value);
   for (const [key, entry] of Object.entries(record)) {
-    if (SENSITIVE_NAME.test(key) && typeof entry === "string") values.push(entry);
-    else if (entry !== record.value || key !== "value") values.push(...sensitiveFieldValues(entry));
+    if (SENSITIVE_NAME.test(key) && typeof entry === "string") {
+      if (!isReferenceOnly(entry)) values.push(entry);
+    } else if (entry !== record.value || key !== "value") values.push(...sensitiveFieldValues(entry));
   }
   return values;
 }

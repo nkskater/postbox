@@ -17,10 +17,12 @@ import { flattenTree, runCollection } from "../core/runner/runner";
 import { DEFAULT_RUN_OPTIONS, type Variable } from "../core/types";
 import { emptyScopes, redactSecrets, variablesToRecord } from "../core/variables/resolver";
 import { CliError, EXIT } from "./errors";
+import { registerGit } from "./git";
 import { registerGovernance } from "./governance";
 import { registerSdk } from "./sdk";
 import { registerAppTest } from "./app-test";
 import { registerLoad } from "./load";
+import { registerRunnerAgent } from "./runner";
 import { registerManagement } from "./manage";
 import { consoleReporter } from "./reporter";
 
@@ -247,9 +249,11 @@ program
   .action(run);
 
 registerManagement(program);
+registerRunnerAgent(program);
 registerLoad(program);
 registerSdk(program);
 registerGovernance(program);
+registerGit(program);
 registerAppTest(program);
 
 await program.parseAsync().catch((error: unknown) => {

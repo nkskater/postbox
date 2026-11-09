@@ -395,6 +395,7 @@ Chromium binary (otherwise run `npx playwright-core install chromium` once).
 | `RUNS_MAX_QUEUED` | _(setting)_ | Pins how many runs may wait for a slot (0–500, default 20); further runs get HTTP 429 |
 | `RESPONSE_MAX_BYTES` | `52428800` | Encoded response bytes are truncated at this limit; decompression exceeding the limit at any stage is rejected |
 | `API_BODY_LIMIT_MB` | `25` | Largest JSON body the REST API and `/api/mcp` accept (file uploads travel inline as base64); larger bodies get `413` |
+| `POSTBOX_ALLOWED_ORIGINS` | _(none)_ | Extra browser origins (comma list, e.g. `https://postbox.example.com`) allowed to send changes to the API. Browser requests that change data are otherwise accepted only from Postbox's own origin; set this when a reverse proxy rewrites the `Host` header without sending `X-Forwarded-Host` |
 | `MCP_ALLOWED_ORIGINS` | _(none)_ | Extra browser origins allowed to call `/api/mcp` (cross-origin browser requests are rejected otherwise). Also under Settings → MCP & integrations; the variable pins the setting |
 | `MCP_ENABLED` | `true` | Serve `/api/mcp`; `false` makes it refuse every request. Also a setting |
 | `MCP_READ_ONLY` | `false` | Hide and block MCP tools that change data. Also a setting |
@@ -663,7 +664,7 @@ Share pinned helpers across collections using **Packages** and `pm.require`. See
 
 [External MCP client](docs/mcp-client.md) discovers tools, resources and prompts on Streamable HTTP servers, executes operations, and saves variable-driven calls.
 
-[API monitoring](docs/monitoring.md) adds scheduled thresholds, retained check history, incident/recovery dashboards, and deduplicated webhook and SMTP alerts.
+[API monitoring](docs/monitoring.md) adds scheduled thresholds, retained check history, incident/recovery dashboards, and deduplicated webhook and SMTP alerts. [Private runners](docs/private-runners.md) run those monitors from inside other networks, connecting out to your server with per-runner secrets and host rules. [VS Code extension](docs/vscode-extension.md) brings collections, environments and request sending into the editor, against a server or offline.
 
 - [API specification workspace](docs/specifications.md): versioned definitions, diagnostics, references and documentation preview.
 
@@ -674,3 +675,8 @@ Share pinned helpers across collections using **Packages** and `pm.require`. See
 - [Production telemetry](docs/telemetry.md): opt-in OTLP/HTTP JSON traces, inferred endpoints, sampled latency/error metrics and bounded retention.
 - [API quality scorecards](docs/scorecards.md): weighted catalog, monitoring and governance quality with freshness, coverage and historical reports.
 - [Comments and review discussions](docs/comments.md): threaded comments, @mentions, resolve/reopen and notifications on requests, collections and specifications.
+- [Shared collection dependencies](docs/shared-dependencies.md): publish versioned, secret-free collections, install them in other workspaces and update with a three-way merge that keeps local edits.
+- [Forks and merge requests](docs/forks-and-merge-requests.md): fork a collection, keep it current with the original, and propose changes back through review with conflict detection and owner-only script changes.
+- [Collections as repository files](docs/repository-format.md): a stable, secret-free file format for keeping collections in Git, with `collection pull`, `push` and `import-dir`.
+
+See [the in-app assistant guide](docs/assistant.md) for Strata, Ollama and other OpenAI-compatible model servers.

@@ -9,6 +9,8 @@ import type { Variable } from "@/core/types";
 import { api } from "@/lib/api";
 import { useApp } from "@/stores/app";
 import { Button } from "@/components/ui/button";
+import { RepositoryPanel } from "@/components/folder/RepositoryPanel";
+import { SharedPanel } from "@/components/folder/SharedPanel";
 import { VariablesEditor } from "./VariablesEditor";
 
 export function EnvironmentEditor({ environmentId }: { environmentId: string | null }) {
@@ -86,6 +88,22 @@ export function EnvironmentEditor({ environmentId }: { environmentId: string | n
           : "Global variables are available in every collection and environment of this workspace (lowest precedence)."}
       </p>
       <VariablesEditor variables={vars} onChange={setVars} />
+      {environmentId && (
+        <details className="mt-4 rounded-md border p-3" aria-label="Repository">
+          <summary className="cursor-pointer text-sm font-medium">Repository</summary>
+          <div className="mt-3">
+            <RepositoryPanel key={environmentId} kind="environment" id={environmentId} name={name} />
+          </div>
+        </details>
+      )}
+      {environmentId && (
+        <details className="mt-4 rounded-md border p-3" aria-label="Sharing">
+          <summary className="cursor-pointer text-sm font-medium">Sharing</summary>
+          <div className="mt-3">
+            <SharedPanel key={environmentId} folderId={environmentId} kind="environment" />
+          </div>
+        </details>
+      )}
     </div>
   );
 }
