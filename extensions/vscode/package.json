@@ -1,0 +1,167 @@
+{
+  "name": "postbox-vscode",
+  "displayName": "Postbox",
+  "description": "Browse and edit Postbox collections and environments, send requests and read their tests and responses without leaving the editor.",
+  "version": "0.1.0",
+  "publisher": "postbox",
+  "license": "MIT",
+  "private": true,
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Testing",
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Sending requests and reading .env files is disabled in untrusted workspaces.",
+      "restrictedConfigurations": [
+        "postbox.serverUrl",
+        "postbox.dotenvPath",
+        "postbox.mode"
+      ]
+    },
+    "virtualWorkspaces": false
+  },
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "postbox",
+          "title": "Postbox",
+          "icon": "media/postbox.svg"
+        }
+      ]
+    },
+    "views": {
+      "postbox": [
+        {
+          "id": "postbox.explorer",
+          "name": "Collections and environments"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "postbox.refresh",
+        "title": "Postbox: Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "postbox.send",
+        "title": "Postbox: Send Request",
+        "icon": "$(play)"
+      },
+      {
+        "command": "postbox.selectEnvironment",
+        "title": "Postbox: Select Environment"
+      },
+      {
+        "command": "postbox.setToken",
+        "title": "Postbox: Set API Token"
+      },
+      {
+        "command": "postbox.setServer",
+        "title": "Postbox: Set Server URL"
+      },
+      {
+        "command": "postbox.switchMode",
+        "title": "Postbox: Switch Between Server and Offline"
+      },
+      {
+        "command": "postbox.importDotenv",
+        "title": "Postbox: Import .env Into Environment"
+      },
+      {
+        "command": "postbox.exportDotenv",
+        "title": "Postbox: Export Environment to .env"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "postbox.refresh",
+          "when": "view == postbox.explorer",
+          "group": "navigation"
+        },
+        {
+          "command": "postbox.selectEnvironment",
+          "when": "view == postbox.explorer",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "postbox.send",
+          "when": "view == postbox.explorer && (viewItem == request || viewItem == offline-request)",
+          "group": "inline"
+        },
+        {
+          "command": "postbox.importDotenv",
+          "when": "view == postbox.explorer && viewItem == environment",
+          "group": "1_dotenv"
+        },
+        {
+          "command": "postbox.exportDotenv",
+          "when": "view == postbox.explorer && viewItem == environment",
+          "group": "1_dotenv"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "postbox.send",
+          "when": "resourceFilename =~ /\\.request\\.json$/",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Postbox",
+      "properties": {
+        "postbox.mode": {
+          "type": "string",
+          "enum": [
+            "server",
+            "offline"
+          ],
+          "default": "server",
+          "description": "server talks to a self-hosted Postbox; offline works on collection.json / environment.json repository directories in this folder (see docs/repository-format.md)."
+        },
+        "postbox.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:3000",
+          "description": "Base URL of your Postbox server. Use https unless it is on localhost: the API token is sent with every request.",
+          "scope": "machine"
+        },
+        "postbox.dotenvPath": {
+          "type": "string",
+          "default": ".env",
+          "description": "The project .env file used for import/export and, in offline mode, as the source of secret values.",
+          "scope": "machine-overridable"
+        },
+        "postbox.allowHosts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Offline mode: hosts requests may call (names, *.example.com, IPs, CIDR). Empty allows any."
+        },
+        "postbox.denyHosts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Offline mode: hosts requests must never call."
+        }
+      }
+    }
+  }
+}

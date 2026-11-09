@@ -24,12 +24,15 @@ import {
 } from "./scheduler";
 import { emitEvent } from "./webhooks";
 import { smtpConfiguration, startMonitorEmailWorker } from "./monitor-email";
-const { monitors, monitorSamples, monitorIncidents, monitorEmails, schedules, runResults } = schema;
+import { assertAssignable, pruneRunnerJobs } from "./runners";
+const { monitors, monitorSamples, monitorIncidents, monitorEmails, schedules, runResults, runners } = schema;
 export const monitorInput = z
   .object({
     workspaceId: z.string().min(1),
     folderId: z.string().min(1),
     environmentId: z.string().nullable().default(null),
+    /** A private runner that executes the checks, or null for the server itself. */
+    runnerId: z.string().min(1).nullable().default(null),
     name: z.string().trim().min(1).max(200),
     cron: z.string().min(1).max(200),
     enabled: z.boolean().default(true),
@@ -42,6 +45,7 @@ export const monitorPatch = z
     name: z.string().trim().min(1).max(200).optional(),
     folderId: z.string().min(1).optional(),
     environmentId: z.string().nullable().optional(),
+    runnerId: z.string().min(1).nullable().optional(),
     cron: z.string().min(1).max(200).optional(),
     enabled: z.boolean().optional(),
     rules: monitorRulesSchema.optional(),
@@ -64,8 +68,21 @@ function mailStatus() {
 }
 function describe(row: typeof monitors.$inferSelect) {
   const schedule = getDb().select().from(schedules).where(eq(schedules.id, row.scheduleId)).get()!;
+  const runner = row.runnerId
+    ? getDb()
+        .select({
+          id: runners.id,
+          name: runners.name,
+          location: runners.location,
+          revokedAt: runners.revokedAt,
+        })
+        .from(runners)
+        .where(eq(runners.id, row.runnerId))
+        .get()
+    : undefined;
   return {
     ...row,
+    runner: runner ?? null,
     name: schedule.name,
     folderId: schedule.folderId,
     environmentId: schedule.environmentId,
@@ -172,6 +189,7 @@ export function createMonitor(raw: z.input<typeof monitorInput>) {
     throw new HttpError(429, "At most 50 monitors per workspace");
   if (input.emails.length && !mailStatus())
     throw new HttpError(400, "Configure the server SMTP relay before enabling email notifications");
+  if (input.runnerId) assertAssignable(input.runnerId, input.workspaceId);
   const schedule = createSchedule({
     workspaceId: input.workspaceId,
     folderId: input.folderId,
@@ -190,6 +208,7 @@ export function createMonitor(raw: z.input<typeof monitorInput>) {
       workspaceId: input.workspaceId,
       scheduleId: schedule.id,
       rules: input.rules,
+      runnerId: input.runnerId,
       emails: [...new Set(input.emails.map((e) => e.toLowerCase()))],
       createdAt: now,
       updatedAt: now,
@@ -203,7 +222,8 @@ export function updateMonitor(id: string, raw: z.input<typeof monitorPatch>) {
   if (current.revision !== patch.expectedRevision)
     throw new HttpError(409, "Monitor changed; reload before saving");
   if (patch.emails?.length && !mailStatus()) throw new HttpError(400, "SMTP is not configured");
-  const { expectedRevision, rules, emails, ...schedule } = patch;
+  const { expectedRevision, rules, emails, runnerId, ...schedule } = patch;
+  if (runnerId) assertAssignable(runnerId, current.workspaceId);
   getDb().transaction(() => {
     updateSchedule(current.scheduleId, {
       ...schedule,
@@ -214,6 +234,7 @@ export function updateMonitor(id: string, raw: z.input<typeof monitorPatch>) {
       .set({
         ...(rules ? { rules } : {}),
         ...(emails ? { emails: [...new Set(emails.map((e) => e.toLowerCase()))] } : {}),
+        ...(runnerId !== undefined ? { runnerId } : {}),
         revision: expectedRevision + 1,
         updatedAt: Date.now(),
         ...(rules ? { failures: 0, successes: 0 } : {}),
@@ -295,6 +316,8 @@ export function recordMonitorSample(
   status: string,
   timedOut = false,
   at = Date.now(),
+  runnerId: string | null = null,
+  extraReasons: string[] = [],
 ) {
   const db = getDb();
   db.transaction(() => {
@@ -305,7 +328,8 @@ export function recordMonitorSample(
     )
       return;
     const checked = checkMonitor(row.rules, metrics, status, timedOut),
-      next = monitorTransition(row, checked.outcome, row.rules);
+      next = monitorTransition(row, checked.outcome, row.rules),
+      reasons = [...extraReasons, ...checked.reasons];
     db.insert(monitorSamples)
       .values({
         id: newId(),
@@ -314,7 +338,8 @@ export function recordMonitorSample(
         at,
         outcome: checked.outcome,
         metrics,
-        reasons: checked.reasons,
+        reasons,
+        runnerId,
       })
       .run();
     let incidentId = row.openIncidentId;
@@ -326,7 +351,7 @@ export function recordMonitorSample(
           id: incidentId,
           monitorId: id,
           startedAt: at,
-          reasons: checked.reasons,
+          reasons: reasons,
           openingRunId: runId,
         })
         .run();
@@ -344,10 +369,10 @@ export function recordMonitorSample(
         runId,
         state: next.state,
         metrics,
-        reasons: checked.reasons,
+        reasons: reasons,
       };
       emitEvent(row.workspaceId, next.event, data, at);
-      queueEmails(row, incidentId, next.event, schedule.name, checked.reasons, at);
+      queueEmails(row, incidentId, next.event, schedule.name, reasons, at);
     }
     db.update(monitors)
       .set({
@@ -391,6 +416,7 @@ export function pruneMonitorHistory(days: number, at = Date.now()) {
       .where(and(isNotNull(monitorEmails.finishedAt), lt(monitorEmails.finishedAt, at - days * 86400000)))
       .run();
   }
+  pruneRunnerJobs(at - 7 * 86400000);
   for (const monitor of db.select({ id: monitors.id }).from(monitors).all()) {
     getSqlite()
       .prepare(

@@ -35,6 +35,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - name: Build the VS Code extension
+        run: npm run build:vscode
       - name: Check startup memory
         run: npm run check:memory
 

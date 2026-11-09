@@ -1124,10 +1124,60 @@ export const monitors = sqliteTable(
     failures: integer("failures").notNull().default(0),
     successes: integer("successes").notNull().default(0),
     openIncidentId: text("open_incident_id"),
+    /** Private runner that executes this monitor; null means the Postbox server itself. */
+    runnerId: text("runner_id"),
     revision: integer("revision").notNull().default(1),
     ...timestamps,
   },
-  (t) => [index("monitors_workspace_idx").on(t.workspaceId)],
+  (t) => [index("monitors_workspace_idx").on(t.workspaceId), index("monitors_runner_idx").on(t.runnerId)],
+);
+/** Self-hosted runners that execute monitors from inside other networks. The token is stored only as a hash. */
+export const runners = sqliteTable(
+  "runners",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    location: text("location").notNull().default(""),
+    labels: text("labels", { mode: "json" }).$type<string[]>().notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    /** Whether jobs carry this workspace's secret values; otherwise the runner supplies its own. */
+    shareSecrets: integer("share_secrets", { mode: "boolean" }).notNull().default(false),
+    allowHosts: text("allow_hosts", { mode: "json" }).$type<string[]>().notNull(),
+    denyHosts: text("deny_hosts", { mode: "json" }).$type<string[]>().notNull(),
+    version: text("version"),
+    lastSeenAt: integer("last_seen_at"),
+    revokedAt: integer("revoked_at"),
+    createdBy: text("created_by"),
+    ...timestamps,
+  },
+  (t) => [index("runners_workspace_idx").on(t.workspaceId)],
+);
+/** One monitor check handed to a runner. `runId` is the idempotency key: a result is recorded at most once. */
+export const runnerJobs = sqliteTable(
+  "runner_jobs",
+  {
+    id: text("id").primaryKey(),
+    runId: text("run_id").notNull().unique(),
+    monitorId: text("monitor_id")
+      .notNull()
+      .references(() => monitors.id, { onDelete: "cascade" }),
+    runnerId: text("runner_id")
+      .notNull()
+      .references(() => runners.id, { onDelete: "cascade" }),
+    status: text("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    leaseExpiresAt: integer("lease_expires_at"),
+    error: text("error"),
+    createdAt: integer("created_at").notNull(),
+    finishedAt: integer("finished_at"),
+  },
+  (t) => [
+    index("runner_jobs_queue_idx").on(t.runnerId, t.status),
+    index("runner_jobs_monitor_idx").on(t.monitorId, t.status),
+  ],
 );
 export const monitorSamples = sqliteTable(
   "monitor_samples",
@@ -1143,6 +1193,8 @@ export const monitorSamples = sqliteTable(
       .$type<import("@/core/monitoring/model").MonitorMetrics>()
       .notNull(),
     reasons: text("reasons", { mode: "json" }).$type<string[]>().notNull(),
+    /** The runner that took the sample; null for the server. */
+    runnerId: text("runner_id"),
   },
   (t) => [index("monitor_samples_time_idx").on(t.monitorId, t.at)],
 );

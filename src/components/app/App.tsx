@@ -216,7 +216,7 @@ export function App({ authEnabled }: { authEnabled: boolean }) {
               <>
                 <Panel id="main" minSize="30">
                   <Group orientation="vertical" className="h-full">
-                    <Panel minSize="20">
+                    <Panel id="main-content" minSize="20">
                       <div className="flex h-full min-h-0 flex-col">
                         <TabBar />
                         <div className="min-h-0 flex-1">
@@ -227,7 +227,7 @@ export function App({ authEnabled }: { authEnabled: boolean }) {
                     {consoleOpen && (
                       <>
                         <Separator className="h-px bg-border transition-colors hover:bg-primary data-[separator=active]:bg-primary" />
-                        <Panel defaultSize="30" minSize="10">
+                        <Panel id="console-panel" defaultSize="30" minSize="10">
                           <ConsolePanel />
                         </Panel>
                       </>
@@ -263,7 +263,7 @@ export function App({ authEnabled }: { authEnabled: boolean }) {
                 <Separator className="w-px bg-border transition-colors hover:bg-primary data-[separator=active]:bg-primary" />
                 <Panel id="main" minSize="30">
                   <Group orientation="vertical" className="h-full">
-                    <Panel minSize="20">
+                    <Panel id="main-content-right" minSize="20">
                       <div className="flex h-full min-h-0 flex-col">
                         <TabBar />
                         <div className="min-h-0 flex-1">
@@ -274,7 +274,7 @@ export function App({ authEnabled }: { authEnabled: boolean }) {
                     {consoleOpen && (
                       <>
                         <Separator className="h-px bg-border transition-colors hover:bg-primary data-[separator=active]:bg-primary" />
-                        <Panel defaultSize="30" minSize="10">
+                        <Panel id="console-panel-right" defaultSize="30" minSize="10">
                           <ConsolePanel />
                         </Panel>
                       </>

@@ -6,12 +6,25 @@ import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE, isPublicPath } from "@/server/auth";
 import { FixedWindowLimiter } from "@/core/ratelimit";
 import { getAuthState, getCaller } from "@/server/caller";
+import { isCrossOriginWrite } from "@/server/request-origin";
 
 let warned = false;
 /** Per-key request counters (one minute windows). Counted here, once per request, never in the resolver. */
 export const keyLimiter = new FixedWindowLimiter();
 
+/**
+ * API routes whose cross-origin writes are checked. Public receivers (mocks, hooks, capture,
+ * telemetry ingest) accept requests from anywhere by design, and /api/mcp applies its own
+ * configurable origin allow-list. The sign-in routes stay covered: they issue the cookie.
+ */
+function guardsOrigin(pathname: string): boolean {
+  if (!pathname.startsWith("/api/") || pathname === "/api/mcp") return false;
+  return pathname.startsWith("/api/auth/") || !isPublicPath(pathname);
+}
+
 export function proxy(req: NextRequest) {
+  if (guardsOrigin(req.nextUrl.pathname) && isCrossOriginWrite(req.method, req.headers, req.url))
+    return NextResponse.json({ error: "Cross-origin request rejected" }, { status: 403 });
   const state = getAuthState();
   if (!state.enabled) {
     if (!warned) {

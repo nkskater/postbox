@@ -108,3 +108,5 @@ refused.
 This is the file format and the pull/push/import path. Not yet part of it: Postbox running `git` itself
 (connecting a repository, status, commit, branch, push and pull against a remote, with repository hooks
 disabled).
+
+To drive Git from Postbox (connect, commit, branch, push, pull, conflicts) see [git-adapter.md](git-adapter.md).

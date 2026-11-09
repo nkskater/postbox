@@ -242,6 +242,21 @@ beforeAll(async () => {
       updatedAt: Date.now(),
     })
     .run();
+  ids.runner = "access-runner";
+  getDb()
+    .insert(schema.runners)
+    .values({
+      id: ids.runner,
+      workspaceId,
+      name: "Access runner",
+      labels: [],
+      tokenHash: "access-runner-hash",
+      allowHosts: [],
+      denyHosts: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    })
+    .run();
   const snapshot = {
     schema: 1 as const,
     name: "Shared",

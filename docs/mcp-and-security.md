@@ -23,6 +23,17 @@ without a classification is treated as changing data.
 `YOUR_TOKEN`: create a personal API token on your profile page and substitute it. If sign-in is
 off the commands carry no token.
 
+## Browser request protection
+
+- **Cross-origin writes.** API requests that change data (`POST`, `PUT`, `PATCH`, `DELETE`) and rely on the
+  session cookie are accepted only from Postbox's own origin; other sites get HTTP 403, including other services
+  on the same host. Requests with an `Authorization` header and clients that send no `Origin` header (CLI, curl,
+  scripts) are unaffected. Behind a reverse proxy that rewrites `Host` without forwarding `X-Forwarded-Host`, list
+  the public origin in `POSTBOX_ALLOWED_ORIGINS`. Mock servers, webhook listeners, capture sessions and telemetry
+  ingest stay reachable from anywhere; `/api/mcp` uses its own allow-list above.
+- **Framing.** Pages and API responses send `X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff` and
+  `Referrer-Policy: same-origin`, so other sites cannot embed Postbox.
+
 ## Sign-in and sessions
 
 - **New sessions last** sets how long a new sign-in stays valid (1–365 days, `POSTBOX_SESSION_DAYS` pins it).
