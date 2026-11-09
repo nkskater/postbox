@@ -690,3 +690,5 @@ Share pinned helpers across collections using **Packages** and `pm.require`. See
 - [Request authentication](docs/authentication.md): inheritance, secrets vault integration, and all supported authentication schemes.
 
 See [the in-app assistant guide](docs/assistant.md) for Strata, Ollama and other OpenAI-compatible model servers.
+
+- [Managed gateway](docs/gateway.md): authenticated API, LLM and MCP routing with scoped vault credentials, policies, quotas, streaming and redacted traces.

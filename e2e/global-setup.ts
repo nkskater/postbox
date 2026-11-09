@@ -52,6 +52,7 @@ export default async function setup({ provide }: { provide: (key: string, value:
           ...process.env,
           DATABASE_PATH: path.join(dir, `${name}.sqlite`),
           NEXT_TELEMETRY_DISABLED: "1",
+          POSTBOX_VAULT_KEY_FILE: path.join(dir, `${name}.vault-keys.json`),
           NODE_ENV: "production",
           ...extraEnv,
         },
@@ -80,6 +81,7 @@ export default async function setup({ provide }: { provide: (key: string, value:
   // A second, password-protected instance for the sign-in tests.
   const authPort = await freePort();
   const authBase = await start("auth", authPort, {
+    GATEWAY_ENABLED: "true",
     POSTBOX_PASSWORD: "e2e-correct-horse",
     POSTBOX_SESSION_SECRET: "e2e-session-secret-value-0123456789",
   });

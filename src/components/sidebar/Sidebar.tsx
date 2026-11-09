@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { Database, History, Layers, Library, Server } from "lucide-react";
 import { useApp } from "@/stores/app";
 import { useSetting } from "@/stores/settings";
@@ -81,6 +82,16 @@ export function Sidebar() {
             {labels && v.label}
           </button>
         ))}
+        <Link
+          href="/gateway"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Managed gateway"
+          className="flex flex-col items-center gap-1 rounded p-2 text-[10px] text-muted-foreground hover:bg-accent/50"
+        >
+          <Server className="size-4" />
+          {labels && "Gateway"}
+        </Link>
       </nav>
       <div className="min-w-0 flex-1">
         {view === "telemetry" && (
