@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Jira Project Board
+    url: https://nkskater.atlassian.net/jira/software/projects/LAB
+    about: Track Postbox stories, epics, and active sprint items
