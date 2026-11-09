@@ -40,7 +40,7 @@ export function planTelemetryRepro(raw: z.input<typeof telemetryReproInput>) {
   const input = telemetryReproInput.parse(raw),
     failure = getTelemetryFailure(input.workspaceId, input.observationId);
   let environmentVariables = input.mapping.environmentVariables;
-  if (input.mapping.environmentId && !environmentVariables) {
+  if (input.mapping.environmentId) {
     const environment = getEnvironment(input.mapping.environmentId);
     if (!environment || environment.workspaceId !== input.workspaceId)
       throw new HttpError(404, "Environment not found");

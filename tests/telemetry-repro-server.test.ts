@@ -113,7 +113,12 @@ describe("telemetry reproduction automation", () => {
         repro.planTelemetryRepro({
           workspaceId: ws,
           observationId: failedGet,
-          mapping: { baseUrl: "{{baseUrl}}", pathValues: ["1"], environmentId: foreign.id },
+          mapping: {
+            baseUrl: "{{baseUrl}}",
+            pathValues: ["1"],
+            environmentId: foreign.id,
+            environmentVariables: [],
+          },
         }),
       ),
     ).toThrow(/Environment not found/);
