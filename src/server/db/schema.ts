@@ -1742,3 +1742,75 @@ export const mergeRequestReviews = sqliteTable(
   },
   (t) => [index("merge_request_reviews_idx").on(t.mergeRequestId, t.createdAt)],
 );
+
+/** Managed gateway routes reuse the vault-backed broker's providers and consumer grants. */
+export const gatewayRoutes = sqliteTable(
+  "gateway_routes",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    apiId: text("api_id")
+      .notNull()
+      .references(() => brokerApis.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    kind: text("kind").$type<"api" | "llm" | "mcp">().notNull(),
+    upstreamPrefix: text("upstream_prefix").notNull().default(""),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
+    policy: text("policy", { mode: "json" }).$type<import("@/core/gateway/model").GatewayPolicy>().notNull(),
+    minuteWindow: integer("minute_window").notNull().default(0),
+    minuteUsed: integer("minute_used").notNull().default(0),
+    dayWindow: integer("day_window").notNull().default(0),
+    dayUsed: integer("day_used").notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("gateway_routes_name_unique").on(t.workspaceId, t.name)],
+);
+
+export const gatewayTraces = sqliteTable(
+  "gateway_traces",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    routeId: text("route_id").references(() => gatewayRoutes.id, { onDelete: "set null" }),
+    consumerId: text("consumer_id"),
+    method: text("method").notNull(),
+    status: integer("status"),
+    outcome: text("outcome").notNull(),
+    code: text("code").notNull(),
+    requestBytes: integer("request_bytes").notNull(),
+    responseBytes: integer("response_bytes").notNull(),
+    durationMs: integer("duration_ms").notNull(),
+    startedAt: integer("started_at").notNull(),
+  },
+  (t) => [
+    index("gateway_traces_workspace_time_idx").on(t.workspaceId, t.startedAt),
+    index("gateway_traces_route_idx").on(t.routeId, t.startedAt),
+  ],
+);
+
+/** Only hashes of legacy upstream MCP session IDs are retained, bound to the creating grant. */
+export const gatewaySessions = sqliteTable(
+  "gateway_sessions",
+  {
+    routeId: text("route_id")
+      .notNull()
+      .references(() => gatewayRoutes.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    sessionHash: text("session_hash").notNull(),
+    grantId: text("grant_id")
+      .notNull()
+      .references(() => brokerGrants.id, { onDelete: "cascade" }),
+    createdAt: integer("created_at").notNull(),
+    expiresAt: integer("expires_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.routeId, t.sessionHash] }),
+    index("gateway_sessions_workspace_expiry_idx").on(t.workspaceId, t.expiresAt),
+  ],
+);

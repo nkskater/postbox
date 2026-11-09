@@ -646,11 +646,16 @@ function deny(
   throw new HttpError(status, reason);
 }
 
-export async function call(grantId: string, raw: z.input<typeof callInput>): Promise<CallResult> {
+export function prepareBrokerCall(
+  grantId: string,
+  raw: z.input<typeof callInput>,
+  options: { apiId?: string; auditPath?: string; maxRequestBytes?: number } = {},
+) {
   const input = callInput.parse(raw);
   const row = getDb().select().from(brokerGrants).where(eq(brokerGrants.id, grantId)).get();
   const me = consumer();
-  if (!row) throw notFound("Access");
+  if (!row || (options.apiId && row.apiId !== options.apiId)) throw notFound("Access");
+  const auditInput = options.auditPath ? { ...input, path: options.auditPath } : input;
   const api = apiRow(row.apiId);
   const verdict = evaluateCall(
     { ...row, status: row.status as GrantStatus },
@@ -674,14 +679,14 @@ export async function call(grantId: string, raw: z.input<typeof callInput>): Pro
       });
       throw notFound("Access");
     }
-    return deny(row, api, 403, verdict.code, verdict.reason, input);
+    return deny(row, api, 403, verdict.code, verdict.reason, auditInput);
   }
 
   let target;
   try {
     target = buildTarget(parseBaseUrl(api.baseUrl), input.path);
   } catch (error) {
-    if (error instanceof TargetError) return deny(row, api, 400, "path", error.message, input);
+    if (error instanceof TargetError) return deny(row, api, 400, "path", error.message, auditInput);
     throw error;
   }
   const injection = api.injection as unknown as Injection;
@@ -689,7 +694,7 @@ export async function call(grantId: string, raw: z.input<typeof callInput>): Pro
   try {
     headers = consumerHeaders(input.headers, injection);
   } catch (error) {
-    return deny(row, api, 400, "headers", (error as Error).message, input);
+    return deny(row, api, 400, "headers", (error as Error).message, auditInput);
   }
   let body: Buffer | undefined;
   if (input.body !== undefined || input.bodyBase64 !== undefined) {
@@ -697,8 +702,8 @@ export async function call(grantId: string, raw: z.input<typeof callInput>): Pro
       input.bodyBase64 !== undefined
         ? Buffer.from(input.bodyBase64, "base64")
         : Buffer.from(input.body ?? "");
-    if (body.length > MAX_REQUEST_BYTES)
-      return deny(row, api, 413, "size", "The request body is too large", input);
+    if (body.length > (options.maxRequestBytes ?? MAX_REQUEST_BYTES))
+      return deny(row, api, 413, "size", "The request body is too large", auditInput);
   }
 
   const vault = loadVaultForExecution(row.workspaceId, null, { unattended: true });
@@ -710,12 +715,19 @@ export async function call(grantId: string, raw: z.input<typeof callInput>): Pro
       409,
       "secret",
       `The credential "${api.secretName}" is not available to the broker`,
-      input,
+      auditInput,
     );
   const guarded = guardedSecrets({ vault: { [api.secretName]: secret }, vaultDomains: vault.domains });
-  const sensitive = [secret];
   const attached = attachCredential(target.url, headers, injection, secret);
+  const sensitive = [secret];
+  if (injection.type === "basic")
+    sensitive.push(Buffer.from(`${injection.username}:${secret}`).toString("base64"));
 
+  return { input, row, api, target, attached, body, sensitive, guarded };
+}
+
+export async function call(grantId: string, raw: z.input<typeof callInput>): Promise<CallResult> {
+  const { input, row, api, target, attached, body, sensitive, guarded } = prepareBrokerCall(grantId, raw);
   const started = Date.now();
   try {
     const response = await sendRequest(

@@ -188,6 +188,20 @@ beforeAll(async () => {
     baseUrl: "https://example.test/api",
     secretName: "access-secret",
   }).id;
+  ids.gatewayRoute = "access-gateway";
+  getDb()
+    .insert(schema.gatewayRoutes)
+    .values({
+      id: ids.gatewayRoute,
+      workspaceId,
+      apiId: ids.brokerApi,
+      name: "Access gateway",
+      kind: "api",
+      policy: (await import("@/core/gateway/model")).gatewayPolicy.parse({}),
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    .run();
   ids.brokerGrant = withCaller(caller(owner), () => requestAccess(ids.brokerApi, {})).id;
   ids.loadRun = "access-load-run";
   getDb()
@@ -401,7 +415,9 @@ describe("explicit authorization inventory", () => {
     it(`isolates foreign users before handler work: ${entry.key}`, async () => {
       const policy = REST_POLICIES[entry.key];
       const id = ids[policy.kind ?? "workspace"];
-      const url = entry.key.split(" ")[1].replace("[id]", id) + `?workspaceId=${workspaceId}`;
+      const url =
+        entry.key.split(" ")[1].replace("[id]", id).replace("/[[...path]]", "") +
+        `?workspaceId=${workspaceId}`;
       const body = ["POST", "PUT", "PATCH", "DELETE"].includes(entry.method)
         ? { workspaceId, id: ids.request, kind: "request" }
         : undefined;
