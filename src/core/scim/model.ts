@@ -27,9 +27,9 @@ export class ScimError extends Error {
 
 /** The error body every SCIM endpoint answers with (instead of the generic { error }). */
 export const scimErrorBody = (status: number, detail: string): ScimRecord => ({
-  schema: SCIM_ERROR_SCHEMA,
+  schemas: [SCIM_ERROR_SCHEMA],
   detail,
-  status,
+  status: String(status),
 });
 
 // ------------------------------------------------------------------ pagination
@@ -107,21 +107,27 @@ export const scimUserInput = z.object({
 });
 
 /** A SCIM Group resource body, as accepted by POST and PUT. */
-export const scimGroupInput = z.object({
-  name: z.string().min(1).max(120),
-  displayName: z.string().max(240).optional(),
-  externalId: z.string().max(120).optional(),
-  members: z.array(scimMemberSchema).optional(),
-});
+export const scimGroupInput = z
+  .object({
+    name: z.string().min(1).max(120).optional(),
+    displayName: z.string().min(1).max(240).optional(),
+    externalId: z.string().max(120).optional(),
+    members: z.array(scimMemberSchema).optional(),
+  })
+  .refine((group) => group.name || group.displayName, "Group displayName is required")
+  .transform((group) => ({ ...group, name: group.name ?? group.displayName! }));
 
 export const scimPatchOperationSchema = z.object({
-  op: z.enum(["add", "remove", "replace"]),
+  op: z.preprocess(
+    (value) => (typeof value === "string" ? value.toLowerCase() : value),
+    z.enum(["add", "remove", "replace"]),
+  ),
   path: z.string().min(1).max(120).optional(),
   value: z.unknown().optional(),
 });
 
 export const scimPatchInput = z.object({
-  schema: z.string().optional(),
+  schemas: z.array(z.string()).optional(),
   Operations: z.array(scimPatchOperationSchema).min(1),
 });
 
@@ -161,7 +167,7 @@ export interface ScimGroupData {
 
 export function scimUserResource(user: ScimUserData): ScimRecord {
   return {
-    schema: SCIM_USER_SCHEMA,
+    schemas: [SCIM_USER_SCHEMA],
     id: user.id,
     ...(user.externalId ? { externalId: user.externalId } : {}),
     userName: user.userName,
@@ -174,7 +180,7 @@ export function scimUserResource(user: ScimUserData): ScimRecord {
 
 export function scimGroupResource(group: ScimGroupData): ScimRecord {
   return {
-    schema: SCIM_GROUP_SCHEMA,
+    schemas: [SCIM_GROUP_SCHEMA],
     id: group.id,
     ...(group.externalId ? { externalId: group.externalId } : {}),
     name: group.name,
@@ -202,7 +208,7 @@ export function scimListResponse(
   options: ListOptions,
 ): ScimRecord {
   return {
-    schema: SCIM_LIST_SCHEMA,
+    schemas: [SCIM_LIST_SCHEMA],
     totalResults,
     startIndex: options.page.startIndex,
     itemsPerPage: resources.length,

@@ -101,7 +101,7 @@ describe("SCIM provisioning", () => {
       userName: "never-created",
     });
     expect(refused.status).toBe(403);
-    expect((await jsonOf(refused)).schema).toBe(model.SCIM_ERROR_SCHEMA);
+    expect((await jsonOf(refused)).schemas).toEqual([model.SCIM_ERROR_SCHEMA]);
 
     // A provisioning key narrower than the API cannot provision, even for an administrator.
     const readKey = users.createToken(admin.id, "read-only", null, { scope: "read" }).token;
@@ -134,7 +134,7 @@ describe("SCIM provisioning", () => {
     const grace = await jsonOf(response);
     ids.grace = String(grace.id);
 
-    expect(grace.schema).toBe(model.SCIM_USER_SCHEMA);
+    expect(grace.schemas).toEqual([model.SCIM_USER_SCHEMA]);
     expect(grace.userName).toBe("grace"); // usernames are normalised like every other account
     expect(grace.externalId).toBe("idp-42");
     expect((grace.name as ScimRecord).familyName).toBe("Hopper");
@@ -172,7 +172,7 @@ describe("SCIM provisioning", () => {
     const first = await jsonOf(await list("Users", "count=2"));
     const second = await jsonOf(await list("Users", "count=2&startIndex=3"));
     const third = await jsonOf(await list("Users", "count=2&startIndex=5"));
-    expect(first.schema).toBe(model.SCIM_LIST_SCHEMA);
+    expect(first.schemas).toEqual([model.SCIM_LIST_SCHEMA]);
     expect(first.totalResults).toBe(total);
     expect(first.startIndex).toBe(1);
     expect(first.itemsPerPage).toBe(2);
@@ -347,6 +347,37 @@ describe("SCIM provisioning", () => {
     expect(roleOf(member.id)).toBe("viewer"); // the group carries the role its name maps to
   });
 
+  it("rolls back failed multi-member group changes and releases renamed roles", async () => {
+    const first = await jsonOf(await post("Users", { userName: "atomic-first" }));
+    withCaller(callerOf(admin), () => setMember(workspaceId, "atomic-first", "editor"));
+    const owner = users.getUser(ids.bob)!;
+    const failed = await post("Groups", {
+      displayName: "viewers",
+      members: [{ value: String(first.id) }, { value: owner.id }],
+    });
+    expect(failed.status).toBe(409);
+    expect(roleOf(String(first.id))).toBe("editor");
+    expect(
+      getDb().select().from(schema.scimGroups).where(eq(schema.scimGroups.name, "viewers")).all(),
+    ).toHaveLength(0);
+    const renamed = await post("Groups", { displayName: "editors", members: [{ value: String(first.id) }] });
+    expect(renamed.status).toBe(201);
+    const group = await jsonOf(renamed);
+    expect(group.schemas).toEqual([model.SCIM_GROUP_SCHEMA]);
+    expect(roleOf(String(first.id))).toBe("editor");
+    const changed = await call("PATCH", `/api/scim/Groups/${group.id}${root()}`, tokens[admin.id], {
+      Operations: [{ op: "Replace", value: { name: "No role" } }],
+    });
+    expect(changed.status).toBe(200);
+    expect(roleOf(String(first.id))).toBeNull();
+    withCaller(callerOf(admin), () => setMember(workspaceId, "atomic-first", "viewer"));
+    const invalid = await call("PATCH", `/api/scim/Users/${first.id}${root()}`, tokens[admin.id], {
+      Operations: [{ op: "replace", path: "active", value: "false" }],
+    });
+    expect(invalid.status).toBe(400);
+    expect(users.getUser(String(first.id))!.disabled).toBe(false);
+  });
+
   it("answers 404 for unknown resources and 410 for tombstones, without erasing the trail", async () => {
     expect((await call("GET", `/api/scim/Users/nope${root()}`, tokens[admin.id])).status).toBe(404);
     expect((await call("GET", `/api/scim/Groups/nope${root()}`, tokens[admin.id])).status).toBe(404);
@@ -364,8 +395,8 @@ describe("SCIM provisioning", () => {
     expect(users.resolveToken(key)).toBeNull();
 
     const gone = await jsonOf(await call("GET", `/api/scim/Users/${ids.erin}${root()}`, tokens[admin.id]));
-    expect(gone.status).toBe(410);
-    expect(gone.schema).toBe(model.SCIM_ERROR_SCHEMA);
+    expect(gone.status).toBe("410");
+    expect(gone.schemas).toEqual([model.SCIM_ERROR_SCHEMA]);
     expect(
       (await call("PUT", `/api/scim/Users/${ids.erin}${root()}`, tokens[admin.id], { userName: "erin" }))
         .status,
@@ -387,6 +418,17 @@ describe("SCIM provisioning", () => {
     expect(
       (await call("GET", `/api/scim/Groups/${ids.editors}?workspaceId=${other}`, tokens[admin.id])).status,
     ).toBe(404);
+  });
+
+  it("rejects unsafe or unsupported PATCH paths without mutating resources", async () => {
+    const { applyOperations } = await import("@/core/scim/patch");
+    expect(() => applyOperations({}, [{ op: "add", path: "__proto__.scimPolluted", value: true }])).toThrow();
+    expect(({} as Record<string, unknown>).scimPolluted).toBeUndefined();
+    const record = { members: [{ value: "one" }, { value: "two" }] };
+    expect(() =>
+      applyOperations(record, [{ op: "replace", path: 'members[value eq "one"]', value: [] }]),
+    ).toThrow();
+    expect(record.members).toHaveLength(2);
   });
 
   it("records every provisioning decision, with values redacted where they must be", async () => {

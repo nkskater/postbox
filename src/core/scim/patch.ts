@@ -25,6 +25,8 @@ export function parsePatchPath(path: string): ParsedPath {
   const match = /^([^[\]]+)(?:\[([^\]]*)\])?$/.exec(path.trim());
   if (!match) throw new ScimError(400, `Invalid PATCH path "${path}"`);
   const segments = match[1].split(".").filter(Boolean);
+  if (segments.some((segment) => ["__proto__", "prototype", "constructor"].includes(segment)))
+    throw new ScimError(400, "Invalid PATCH attribute");
   if (!segments.length) throw new ScimError(400, `Invalid PATCH path "${path}"`);
   return { segments, filter: match[2] ? parseFilter(match[2]) : undefined };
 }
@@ -73,14 +75,16 @@ function parentOf(root: ScimRecord, segments: string[]): ScimRecord {
 /** Apply one operation to a record (mutating it), as SCIM PATCH semantics allow. */
 export function applyOperation(record: ScimRecord, operation: PatchOperation): void {
   const { op, path, value } = operation;
-  if (op === "add" && !path) {
+  if ((op === "add" || op === "replace") && !path) {
     if (!isRecord(value)) throw new ScimError(400, "add without a path requires an object value");
+    for (const key of Object.keys(value)) parsePatchPath(key);
     Object.assign(record, value);
     return;
   }
   if (!path) throw new ScimError(400, `${op} needs a path`);
   const parsed = parsePatchPath(path);
   if (parsed.filter) {
+    if (op !== "remove") throw new ScimError(400, "Filtered PATCH supports remove only");
     // The `[filter]` selects elements of the multi-valued attribute the path leads to.
     const target = walk(record, parsed.segments);
     const array = target[0];

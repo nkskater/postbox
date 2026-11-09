@@ -171,7 +171,7 @@ const bodyWorkspaceId = (raw: ScimRecord) =>
 // ------------------------------------------------------------------ users
 
 /** Everything on a record that is not owned by a column of its own. */
-const RESERVED = new Set(["schema", "id", "userName", "active", "groups", "meta", "password"]);
+const RESERVED = new Set(["schema", "schemas", "id", "userName", "active", "groups", "meta", "password"]);
 
 function profileOf(record: ScimRecord): ScimRecord {
   const profile: ScimRecord = {};
@@ -300,7 +300,7 @@ export async function listScimUsers(req: Request, caller: Caller): Promise<Respo
     200,
     listResponse(
       "User",
-      rows.map((row) => userResource(row)),
+      rows.map((row) => userResource(row, workspaceId)),
       query,
     ),
   );
@@ -385,7 +385,10 @@ export async function patchScimUser(req: Request, ctx: Ctx, caller: Caller): Pro
   const workspaceId = scimWorkspace(req, caller, bodyWorkspaceId(raw));
   const existing = requireUser((await ctx.params).id, workspaceId);
   const record = applyOperations(userResource(existing, workspaceId), input.Operations as PatchOperation[]);
+  scimUserInput.parse(record);
   const username = claimUsername(String(record.userName ?? existing.username), existing.id);
+  if (record.active !== undefined && typeof record.active !== "boolean")
+    throw new ScimError(400, "active must be a boolean");
   const active = record.active !== false;
   const profile = profileOf(record);
   const displayName = displayNameOf(record, username);
@@ -561,8 +564,10 @@ export async function createScimGroup(req: Request, caller: Caller): Promise<Res
     updatedAt: now,
     deletedAt: null,
   };
-  getDb().insert(schema.scimGroups).values(row).run();
-  syncGroupRole(workspaceId, name, [], members);
+  getDb().transaction(() => {
+    getDb().insert(schema.scimGroups).values(row).run();
+    syncGroupRole(workspaceId, name, [], members);
+  });
   scimAudit(
     "scim.group.create",
     "other",
@@ -596,12 +601,15 @@ export async function replaceScimGroup(req: Request, ctx: Ctx, caller: Caller): 
     throw new ScimError(409, `Group ${name} already exists in this workspace`);
   const members = checkedMembers(input.members ?? []);
   // Sync first: a refused role change must leave the group exactly as it was.
-  syncGroupRole(workspaceId, name, existing.members, members);
-  saveGroup(existing.id, {
-    name,
-    displayName: input.displayName?.trim() || name,
-    externalId: input.externalId ?? null,
-    members,
+  getDb().transaction(() => {
+    if (name !== existing.name) syncGroupRole(workspaceId, existing.name, existing.members, []);
+    syncGroupRole(workspaceId, name, name === existing.name ? existing.members : [], members);
+    saveGroup(existing.id, {
+      name,
+      displayName: input.displayName?.trim() || name,
+      externalId: input.externalId ?? null,
+      members,
+    });
   });
   scimAudit(
     "scim.group.replace",
@@ -626,7 +634,25 @@ export async function patchScimGroup(req: Request, ctx: Ctx, caller: Caller): Pr
   const workspaceId = scimWorkspace(req, caller, bodyWorkspaceId(raw));
   const existing = requireGroup((await ctx.params).id, workspaceId);
   const record = applyOperations(groupResource(existing), input.Operations as PatchOperation[]);
-  const name = typeof record.name === "string" ? record.name.trim() : existing.name;
+  const changesDisplayName = input.Operations.some(
+    (operation) =>
+      operation.path === "displayName" ||
+      (!operation.path &&
+        operation.value &&
+        typeof operation.value === "object" &&
+        "displayName" in operation.value),
+  );
+  const changesName = input.Operations.some(
+    (operation) =>
+      operation.path === "name" ||
+      (!operation.path &&
+        operation.value &&
+        typeof operation.value === "object" &&
+        "name" in operation.value),
+  );
+  if (changesDisplayName && !changesName) record.name = record.displayName;
+  const validated = scimGroupInput.parse(record);
+  const name = validated.name.trim();
   const taken = getDb()
     .select({ id: schema.scimGroups.id })
     .from(schema.scimGroups)
@@ -639,14 +665,17 @@ export async function patchScimGroup(req: Request, ctx: Ctx, caller: Caller): Pr
   );
   // Sync first: a refused role change (the last owner, for example) must leave the group
   // exactly as it was, so nothing is saved when this throws.
-  syncGroupRole(workspaceId, name, existing.members, members);
   const displayName = String(record.displayName ?? name);
   const externalId = typeof record.externalId === "string" ? record.externalId : null;
-  saveGroup(existing.id, {
-    name,
-    displayName,
-    externalId,
-    members,
+  getDb().transaction(() => {
+    if (name !== existing.name) syncGroupRole(workspaceId, existing.name, existing.members, []);
+    syncGroupRole(workspaceId, name, name === existing.name ? existing.members : [], members);
+    saveGroup(existing.id, {
+      name,
+      displayName,
+      externalId,
+      members,
+    });
   });
   scimAudit(
     "scim.group.patch",
@@ -665,9 +694,11 @@ export async function patchScimGroup(req: Request, ctx: Ctx, caller: Caller): Pr
 export async function deleteScimGroup(req: Request, ctx: Ctx, caller: Caller): Promise<Response> {
   const workspaceId = scimWorkspace(req, caller);
   const existing = requireGroup((await ctx.params).id, workspaceId);
-  syncGroupRole(workspaceId, existing.name, existing.members, []);
   const deletedAt = Date.now();
-  saveGroup(existing.id, { deletedAt });
+  getDb().transaction(() => {
+    syncGroupRole(workspaceId, existing.name, existing.members, []);
+    saveGroup(existing.id, { deletedAt });
+  });
   scimAudit(
     "scim.group.delete",
     "other",
