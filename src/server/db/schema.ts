@@ -453,6 +453,10 @@ export const users = sqliteTable(
     /** A service identity: no password or sessions, only API keys, with workspace roles like any user. */
     isService: integer("is_service", { mode: "boolean" }).notNull().default(false),
     sessionVersion: integer("session_version").notNull().default(1),
+    /** SCIM profile attributes (name, emails, ...) stored as JSON; always read and written as a unit. */
+    scimProfile: text("scim_profile", { mode: "json" }).$type<Record<string, unknown>>(),
+    /** Tombstone for resources removed through the SCIM API: they answer 410 after deletion. */
+    deletedAt: integer("deleted_at"),
     ...timestamps,
   },
   (t) => [uniqueIndex("users_username_unique").on(t.username)],
@@ -519,6 +523,33 @@ export const workspaceMembers = sqliteTable(
     index("workspace_members_user_idx").on(t.userId),
   ],
 );
+
+/**
+ * SCIM 2.0 groups. Members are stored as JSON because a group is always read and written as a
+ * unit. A group named after a workspace role carries that role for its members (src/core/scim/roles.ts).
+ * `deleted_at` is the tombstone that makes later requests for the group answer 410.
+ */
+export const scimGroups = sqliteTable(
+  "scim_groups",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    displayName: text("display_name").notNull().default(""),
+    externalId: text("external_id"),
+    members: text("members", { mode: "json" }).$type<Record<string, unknown>[]>().notNull().default([]),
+    ...timestamps,
+    deletedAt: integer("deleted_at"),
+  },
+  (t) => [
+    uniqueIndex("scim_groups_workspace_name_unique").on(t.workspaceId, t.name),
+    index("scim_groups_workspace_idx").on(t.workspaceId),
+  ],
+);
+
+export type ScimGroupRow = typeof scimGroups.$inferSelect;
 
 export const userSettings = sqliteTable(
   "user_settings",
