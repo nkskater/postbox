@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { useApp } from "@/stores/app";
+import { ReproPanel } from "@/components/telemetry/ReproPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { telemetryConfig, type TelemetryConfig, type TelemetryQuery } from "@/core/telemetry/model";
@@ -47,6 +48,7 @@ function Dashboard({ workspaceId }: { workspaceId: string }) {
     [offset, setOffset] = useState(0);
   const [result, setResult] = useState<Metrics | null>(null),
     [detail, setDetail] = useState<Endpoint | null>(null),
+    [reproId, setReproId] = useState<string | null>(null),
     [loading, setLoading] = useState(true);
   useEffect(() => {
     let active = true;
@@ -576,6 +578,7 @@ function Dashboard({ workspaceId }: { workspaceId: string }) {
           <h3>Recent failed spans (up to 20)</h3>
           <p className="text-xs text-muted-foreground">
             Trace/span IDs can correlate with your tracing backend. Payloads and error messages are discarded.
+            Reproduce opens an editable draft for a target environment; nothing is sent until you send it.
           </p>
           {!detail.failedSpans.length && <p>No failed spans.</p>}
           {detail.failedSpans.map((s) => (
@@ -584,6 +587,17 @@ function Dashboard({ workspaceId }: { workspaceId: string }) {
               · source revision {s.sourceRevision} · {s.sampleRate * 100}% sampling
               <br />
               Trace {s.traceId} · span {s.spanId}
+              {reproId === s.id ? (
+                <div className="mt-2">
+                  <ReproPanel evidence={s} onClose={() => setReproId(null)} />
+                </div>
+              ) : (
+                <div className="mt-2">
+                  <Button size="sm" variant="outline" onClick={() => setReproId(s.id)}>
+                    Reproduce
+                  </Button>
+                </div>
+              )}
             </article>
           ))}
         </section>

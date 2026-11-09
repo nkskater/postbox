@@ -110,6 +110,28 @@ estimate total traffic and cannot correct upstream sampling bias. Span duration 
 limited to one hour. The endpoint detail shows at most 20 recent failed metadata
 examples; JSON export contains only the normalized data displayed by the app.
 
+## Reproducing failures
+
+Failed spans listed on the endpoint detail can be reproduced as editable Postbox
+request drafts. Because telemetry redacts sensitive payloads and discards host
+information at intake, reproduction is an explicit, safe mapping workflow:
+
+1. **Select a captured failure:** inspect the read-only metadata (trace/span IDs,
+   HTTP status, timing, source revision, normalized route).
+2. **Map target environment & base URL:** supply a target base URL
+   (e.g. `{{baseUrl}}` or `https://staging.example.test`) and provide values or
+   `{{variable}}` references for any `:id` or `:segment` route placeholders.
+   Unmapped routes (`/[unmapped]`) require an explicit path.
+3. **Review missing/redacted gaps:** headers, cookies, query parameters and request
+   bodies were never recorded and are reported as gaps. 401/403 failures flag
+   credential requirements in the target environment.
+4. **Safeguard side-effectful methods:** state-altering methods (such as POST,
+   PUT, PATCH, DELETE) require explicit user confirmation before a draft can be
+   opened, preventing accidental replay against sensitive services.
+5. **Open draft:** opens a new unsent tab with the original evidence documented in
+   the request description. The user retains complete control over editing and
+   sending the request.
+
 Each batch permits at most 1,000 spans, 100 resource groups, 100 scopes/resource,
 128 attributes/span or resource, and 2 MiB both compressed and decoded. Gzip and
 identity encoding are supported. Intake is limited to 120 batches/minute/source
@@ -140,6 +162,7 @@ All management endpoints require normal Postbox workspace authorization:
 | DELETE               | `/api/telemetry/sources/[id]/observations` | Purge observations                     |
 | GET                  | `/api/telemetry/metrics`                   | Inventory, distributions, timeline     |
 | GET                  | `/api/telemetry/endpoints/[endpointId]`    | Endpoint and failed metadata           |
+| POST                 | `/api/telemetry/repro`                     | Plan reproduction draft from failure   |
 
 Edits send `{expectedRevision, config}`; rotations send `{expectedRevision}`.
 Stale revisions return 409. Metrics/detail require `workspaceId` and accept `from`,
@@ -149,7 +172,7 @@ Stale revisions return 409. Metrics/detail require `workspaceId` and accept `fro
 Equivalent MCP tools: `list_telemetry_sources`, `get_telemetry_source`,
 `create_telemetry_source`, `save_telemetry_source`, `delete_telemetry_source`,
 `rotate_telemetry_source`, `purge_telemetry_source`, `get_telemetry_metrics`,
-`get_telemetry_endpoint`. The latter two take `workspaceId` and `query` with
+`get_telemetry_endpoint`, `plan_telemetry_repro`. The metrics/endpoint tools take `workspaceId` and `query` with
 explicit `from` and `to`; endpoint lookup also takes `endpointId`. Source-scoped
 tools take `sourceId`. MCP read-only mode excludes all mutations. Ingestion uses
 the dedicated OTLP endpoint, never a general MCP tool.
