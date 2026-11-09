@@ -48,9 +48,12 @@ it("maps a production failure to an editable draft without sending it", async ()
     expect(await panel.getByLabel("Original evidence").innerText()).not.toContain("SECRET");
     await open.click();
     await page.getByText("Repro: POST /api/orders/:id (HTTP 500)", { exact: true }).first().waitFor();
-    const url = page.getByPlaceholder("Enter URL or paste a cURL command");
+    const url = page
+      .locator(".cm-content")
+      .filter({ hasText: "https://staging.example.test/api/orders/{{orderId}}" })
+      .first();
     await url.waitFor();
-    expect(await url.inputValue()).toBe("https://staging.example.test/api/orders/{{orderId}}");
+    expect(await url.innerText()).toBe("https://staging.example.test/api/orders/{{orderId}}");
     expect(sends).toBe(0);
     expect(errors).toEqual([]);
   } finally {
