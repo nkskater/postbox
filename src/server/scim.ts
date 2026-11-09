@@ -365,8 +365,19 @@ export async function replaceScimUser(req: Request, ctx: Ctx, caller: Caller): P
   const profile = profileOf(input as ScimRecord);
   const active = input.active !== false;
   const displayName = displayNameOf(input as ScimRecord, username);
-  applyActive(existing, active);
-  saveUser(existing.id, { username, displayName, scimProfile: profile });
+  const password = input.password;
+  if (password !== undefined) checkPasswordPolicy(password);
+  const passwordHash = password === undefined ? undefined : await hashPassword(password);
+  getDb().transaction(() => {
+    applyActive(existing, active);
+    saveUser(existing.id, {
+      username,
+      displayName,
+      scimProfile: profile,
+      ...(passwordHash ? { passwordHash } : {}),
+    });
+    if (passwordHash) revokeUserAccess(existing.id);
+  });
   scimAudit(
     "scim.user.replace",
     "user",
@@ -385,15 +396,26 @@ export async function patchScimUser(req: Request, ctx: Ctx, caller: Caller): Pro
   const workspaceId = scimWorkspace(req, caller, bodyWorkspaceId(raw));
   const existing = requireUser((await ctx.params).id, workspaceId);
   const record = applyOperations(userResource(existing, workspaceId), input.Operations as PatchOperation[]);
-  scimUserInput.parse(record);
+  const validated = scimUserInput.parse(record);
   const username = claimUsername(String(record.userName ?? existing.username), existing.id);
   if (record.active !== undefined && typeof record.active !== "boolean")
     throw new ScimError(400, "active must be a boolean");
   const active = record.active !== false;
   const profile = profileOf(record);
   const displayName = displayNameOf(record, username);
-  applyActive(existing, active);
-  saveUser(existing.id, { username, displayName, scimProfile: profile });
+  const password = validated.password;
+  if (password !== undefined) checkPasswordPolicy(password);
+  const passwordHash = password === undefined ? undefined : await hashPassword(password);
+  getDb().transaction(() => {
+    applyActive(existing, active);
+    saveUser(existing.id, {
+      username,
+      displayName,
+      scimProfile: profile,
+      ...(passwordHash ? { passwordHash } : {}),
+    });
+    if (passwordHash) revokeUserAccess(existing.id);
+  });
   scimAudit(
     "scim.user.patch",
     "user",

@@ -420,6 +420,23 @@ describe("SCIM provisioning", () => {
     ).toBe(404);
   });
 
+  it("applies password replacements without exposing them and revokes previous access", async () => {
+    const user = await jsonOf(
+      await post("Users", { userName: "password-user", password: "old-password123" }),
+    );
+    const key = users.createToken(String(user.id), "before-reset").token;
+    const response = await call("PUT", `/api/scim/Users/${user.id}${root()}`, tokens[admin.id], {
+      userName: "password-user",
+      password: "replacement-password123",
+    });
+    expect(response.status).toBe(200);
+    expect(JSON.stringify(await jsonOf(response))).not.toContain("replacement-password123");
+    expect(
+      await users.verifyPassword("replacement-password123", users.getUser(String(user.id))!.passwordHash),
+    ).toBe(true);
+    expect(users.resolveToken(key)).toBeNull();
+  });
+
   it("rejects unsafe or unsupported PATCH paths without mutating resources", async () => {
     const { applyOperations } = await import("@/core/scim/patch");
     expect(() => applyOperations({}, [{ op: "add", path: "__proto__.scimPolluted", value: true }])).toThrow();
