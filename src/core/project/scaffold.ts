@@ -25,7 +25,8 @@ export const projectConfigSchema = z
 export type ProjectConfig = z.infer<typeof projectConfigSchema>;
 
 export function isInsideProject(path: string): boolean {
-  if (!path || isAbsolute(path) || path.includes("\\") || path.includes("\0")) return false;
+  if (!path || isAbsolute(path) || /^[A-Za-z]:/.test(path) || path.includes("\\") || path.includes("\0"))
+    return false;
   const normal = normalize(path);
   return normal !== ".." && !normal.startsWith(`..${sep}`) && !normal.startsWith("../");
 }

@@ -74,7 +74,15 @@ describe("postbox init scaffolding", () => {
 
   it("accepts only relative paths inside the project", () => {
     expect(isInsideProject("collections/a.json")).toBe(true);
-    for (const bad of ["/etc/passwd", "../x.json", "a/../../x", "a\\b", ".."])
+    for (const bad of [
+      "/etc/passwd",
+      "../x.json",
+      "a/../../x",
+      "a\\b",
+      "..",
+      "C:../../outside",
+      "C:relative",
+    ])
       expect(isInsideProject(bad)).toBe(false);
   });
 });

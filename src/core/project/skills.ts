@@ -99,7 +99,7 @@ async function writeManifest(dir: string, manifest: SkillManifest) {
   };
   const target = join(dir, SKILL_MANIFEST);
   const temporary = `${target}.${process.pid}.tmp`;
-  await writeFile(temporary, JSON.stringify(stable, null, 2) + "\n");
+  await writeFile(temporary, JSON.stringify(stable, null, 2) + "\n", { flag: "wx" });
   await rename(temporary, target);
 }
 
