@@ -21,6 +21,7 @@ import { registerGit } from "./git";
 import { registerGovernance } from "./governance";
 import { registerSdk } from "./sdk";
 import { registerAppTest } from "./app-test";
+import { registerDescribe } from "./describe";
 import { registerProject } from "./project";
 import { registerLoad } from "./load";
 import { registerRunnerAgent } from "./runner";
@@ -257,6 +258,7 @@ registerGovernance(program);
 registerGit(program);
 registerAppTest(program);
 registerProject(program);
+registerDescribe(program, version);
 
 await program.parseAsync().catch((error: unknown) => {
   const { code } = error as { code?: unknown; exitCode?: number };
