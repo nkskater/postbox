@@ -1,4 +1,4 @@
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, normalize, sep } from "node:path";
 import { z } from "zod";
 
@@ -28,6 +28,22 @@ export function isInsideProject(path: string): boolean {
   if (!path || isAbsolute(path) || path.includes("\\") || path.includes("\0")) return false;
   const normal = normalize(path);
   return normal !== ".." && !normal.startsWith(`..${sep}`) && !normal.startsWith("../");
+}
+
+/** Refuse links beneath the selected destination so project operations stay inside it. */
+export async function assertProjectPath(dir: string, relative: string): Promise<void> {
+  if (!isInsideProject(relative)) throw new Error("Path must stay inside the project");
+  const segments = normalize(relative).split(sep);
+  let current = dir;
+  for (const segment of segments) {
+    current = join(current, segment);
+    try {
+      if ((await lstat(current)).isSymbolicLink()) throw new Error(`Refusing symbolic link: ${relative}`);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw error;
+    }
+  }
 }
 
 export interface ScaffoldOptions {
@@ -138,6 +154,7 @@ export async function scaffoldProject(
   { dryRun = false }: { dryRun?: boolean } = {},
 ): Promise<ScaffoldResult[]> {
   const results: ScaffoldResult[] = [];
+  await assertProjectPath(dir, PROJECT_CONFIG);
   const config = await existingConfig(dir);
   const listed = config && new Set([...config.collections, config.environment]);
   const files = config
@@ -146,6 +163,7 @@ export async function scaffoldProject(
       )
     : projectFiles(options);
   for (const file of files) {
+    await assertProjectPath(dir, file.path);
     const target = join(dir, file.path);
     if (await exists(target)) {
       results.push({ path: file.path, action: "kept" });

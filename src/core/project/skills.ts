@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { z } from "zod";
+import { assertProjectPath, isInsideProject } from "./scaffold";
 import { SKILL_SOURCES, type SkillSource } from "./skill-catalog";
 
 /** Records what `postbox skills` installed, so updates can tell edited files from shipped ones. */
@@ -37,11 +38,14 @@ function build(source: SkillSource): Skill {
 
 export const SKILLS: Skill[] = SKILL_SOURCES.map(build);
 
+const safePath = z.string().refine((value) => isInsideProject(value) && value !== ".", "Invalid skill path");
+const skillName = z.string().regex(/^[a-z0-9][a-z0-9-]*$/);
+
 const manifestSchema = z.object({
   format: z.literal(1),
   skills: z.record(
-    z.string(),
-    z.object({ version: z.string(), files: z.record(z.string(), z.string().regex(/^[0-9a-f]{64}$/)) }),
+    skillName,
+    z.object({ version: z.string(), files: z.record(safePath, z.string().regex(/^[0-9a-f]{64}$/)) }),
   ),
 });
 export type SkillManifest = z.infer<typeof manifestSchema>;
@@ -67,6 +71,7 @@ async function readText(file: string): Promise<string | null> {
 }
 
 export async function readManifest(dir: string): Promise<SkillManifest> {
+  await assertProjectPath(dir, SKILL_MANIFEST);
   const text = await readText(join(dir, SKILL_MANIFEST));
   if (text === null) return { format: 1, skills: {} };
   try {
@@ -125,6 +130,7 @@ export async function skillStatus(dir: string, manifest?: SkillManifest): Promis
     // Shipped files that were kept because they were not written by Postbox have no recorded hash.
     const paths = [...new Set([...Object.keys(entry.files), ...skill.files.map((file) => file.path)])].sort();
     for (const path of paths) {
+      await assertProjectPath(dir, `${skill.name}/${path}`);
       const text = await readText(join(dir, skill.name, path));
       const hash = entry.files[path];
       if (text === null) {
@@ -184,6 +190,7 @@ export async function installSkills(
     const previous = manifest.skills[skill.name];
     const files: Record<string, string> = {};
     for (const file of skill.files) {
+      await assertProjectPath(dir, `${skill.name}/${file.path}`);
       const target = join(dir, skill.name, file.path);
       const current = await readText(target);
       const next = sha256(file.content);
@@ -206,13 +213,17 @@ export async function installSkills(
     }
     for (const [path, recorded] of Object.entries(previous?.files ?? {})) {
       if (skill.files.some((file) => file.path === path)) continue;
+      await assertProjectPath(dir, `${skill.name}/${path}`);
       const target = join(dir, skill.name, path);
       const current = await readText(target);
       if (current === null) continue;
       if (force || sha256(current) === recorded) {
         if (!dryRun) await rm(target);
         changes.push({ skill: skill.name, path, action: "removed" });
-      } else changes.push({ skill: skill.name, path, action: "kept-removed" });
+      } else {
+        changes.push({ skill: skill.name, path, action: "kept-removed" });
+        files[path] = recorded;
+      }
     }
     manifest.skills[skill.name] = { version: skill.version, files };
   }

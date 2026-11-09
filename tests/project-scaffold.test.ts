@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -249,4 +249,46 @@ describe("postbox skills", () => {
     await writeFile(path.join(dir, SKILL_MANIFEST), "{");
     await expect(installSkills(dir, SKILLS)).rejects.toThrow(/not a valid skills manifest/);
   });
+});
+
+describe("skill manifest safety", () => {
+  it("rejects traversal in recorded files before updating or removing anything", async () => {
+    await writeFile(
+      path.join(dir, SKILL_MANIFEST),
+      JSON.stringify({
+        format: 1,
+        skills: {
+          [SKILLS[0].name]: { version: "old", files: { "../../outside.txt": sha256("keep") } },
+        },
+      }),
+    );
+    await expect(installSkills(dir, [SKILLS[0]], { force: true })).rejects.toThrow(
+      "not a valid skills manifest",
+    );
+  });
+
+  it("keeps tracking edited retired files across repeated updates", async () => {
+    const old = { ...SKILLS[0], files: [...SKILLS[0].files, { path: "retired.txt", content: "original" }] };
+    await installSkills(dir, [old]);
+    await writeFile(path.join(dir, old.name, "retired.txt"), "local changes");
+    await installSkills(dir, [SKILLS[0]]);
+    expect((await readManifest(dir)).skills[old.name].files["retired.txt"]).toBe(sha256("original"));
+    expect(await installSkills(dir, [SKILLS[0]])).toContainEqual({
+      skill: old.name,
+      path: "retired.txt",
+      action: "kept-removed",
+    });
+    expect(await read(path.join(old.name, "retired.txt"))).toBe("local changes");
+  });
+});
+
+it("refuses linked project and skill directories", async () => {
+  const destination = path.join(dir, "outside");
+  await mkdir(destination);
+  await symlink(destination, path.join(dir, "collections"), "junction");
+  await expect(scaffoldProject(dir, options)).rejects.toThrow("Refusing symbolic link");
+  await expect(readFile(path.join(destination, "orders-api.postman_collection.json"))).rejects.toThrow();
+  await symlink(destination, path.join(dir, SKILLS[0].name), "junction");
+  await expect(installSkills(dir, [SKILLS[0]], { force: true })).rejects.toThrow("Refusing symbolic link");
+  await expect(readFile(path.join(destination, "SKILL.md"))).rejects.toThrow();
 });
