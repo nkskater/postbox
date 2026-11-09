@@ -352,6 +352,10 @@ Options include `-g` (globals), `-n` (iterations), `--delay`, `--bail`, `--insec
 
 The same CLI can manage a running server: `postbox profile add`, then `workspace`, `collection`, `folder`, `request`, `env`, `globals`, `mock` and `import` commands with JSON output, paging, `--yes` confirmation for deletes and stable exit codes. See [docs/cli-management.md](docs/cli-management.md).
 
+`postbox init` sets up a test project (config, sample collection and environment) without overwriting files,
+`postbox doctor` checks it, `postbox describe` prints every command and option as JSON, and `postbox skills` installs
+versioned agent skills into a directory you choose. See [docs/cli-projects.md](docs/cli-projects.md).
+
 ## Development
 
 ```bash
@@ -681,6 +685,7 @@ Share pinned helpers across collections using **Packages** and `pm.require`. See
 - [Comments and review discussions](docs/comments.md): threaded comments, @mentions, resolve/reopen and notifications on requests, collections and specifications.
 - [Shared collection dependencies](docs/shared-dependencies.md): publish versioned, secret-free collections, install them in other workspaces and update with a three-way merge that keeps local edits.
 - [Forks and merge requests](docs/forks-and-merge-requests.md): fork a collection, keep it current with the original, and propose changes back through review with conflict detection and owner-only script changes.
+- [CLI projects and agent skills](docs/cli-projects.md): `postbox init`, `doctor`, machine-readable `describe` output and versioned agent skills that keep local edits.
 - [Collections as repository files](docs/repository-format.md): a stable, secret-free file format for keeping collections in Git, with `collection pull`, `push` and `import-dir`.
 - [Request authentication](docs/authentication.md): inheritance, secrets vault integration, and all supported authentication schemes.
 
