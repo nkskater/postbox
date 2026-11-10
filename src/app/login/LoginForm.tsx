@@ -4,7 +4,15 @@ import { Mailbox, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-export function LoginForm({ next, accounts }: { next: string; accounts: boolean }) {
+export function LoginForm({
+  next,
+  accounts,
+  providers = [],
+}: {
+  next: string;
+  accounts: boolean;
+  providers?: { id: string; name: string }[];
+}) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -37,6 +45,15 @@ export function LoginForm({ next, accounts }: { next: string; accounts: boolean 
         <p className="text-sm text-muted-foreground">
           {accounts ? "Sign in to your Postbox account." : "This Postbox instance is password protected."}
         </p>
+        {providers.map((provider) => (
+          <a
+            key={provider.id}
+            className="block rounded border p-2 text-center text-sm hover:bg-accent"
+            href={`/api/auth/sso/${encodeURIComponent(provider.id)}/start?next=${encodeURIComponent(next)}`}
+          >
+            Continue with {provider.name}
+          </a>
+        ))}
         {accounts && (
           <Input
             autoFocus

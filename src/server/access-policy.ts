@@ -19,6 +19,15 @@ const p = (source: Source, action?: WorkspaceAction, kind?: ResourceKind): Polic
 });
 /** Explicit inventory: unclassified routes fail closed. Tests compare this to every route export. */
 export const REST_POLICIES: Record<string, Policy> = {
+  "GET /api/admin/sso": p("admin"),
+  "POST /api/admin/sso": p("admin"),
+  "PUT /api/admin/sso/[id]": p("admin"),
+  "DELETE /api/admin/sso/[id]": p("admin"),
+  "POST /api/admin/sso/[id]/identities": p("admin"),
+  "GET /api/auth/sso/[id]/start": p("public"),
+  "GET /api/auth/sso/[id]/callback": p("public"),
+  "POST /api/auth/sso/[id]/callback": p("public"),
+  "GET /api/auth/sso/[id]/metadata": p("public"),
   "GET /api/gateway": p("query", "read"),
   "POST /api/gateway/providers": p("body", "manage"),
   "POST /api/gateway/providers/[id]/grant": p("resource", "manage", "brokerApi"),

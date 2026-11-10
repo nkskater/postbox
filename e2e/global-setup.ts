@@ -85,6 +85,11 @@ export default async function setup({ provide }: { provide: (key: string, value:
     POSTBOX_PASSWORD: "e2e-correct-horse",
     POSTBOX_SESSION_SECRET: "e2e-session-secret-value-0123456789",
   });
+  const ssoBase = await start("sso", await freePort(), {
+    POSTBOX_TOKEN: "e2e-sso-admin-token",
+    POSTBOX_SESSION_SECRET: "e2e-sso-session-secret",
+  });
+  provide("ssoUrl", ssoBase);
   provide("baseUrl", base);
   provide("authUrl", authBase);
   provide("targetUrl", `http://127.0.0.1:${targetPort}`);
@@ -99,6 +104,7 @@ export default async function setup({ provide }: { provide: (key: string, value:
 declare module "vitest" {
   export interface ProvidedContext {
     baseUrl: string;
+    ssoUrl: string;
     targetUrl: string;
     wsUrl: string;
     authUrl: string;
