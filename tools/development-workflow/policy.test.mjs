@@ -75,7 +75,9 @@ test("blocks attribution variants and metadata, allows legitimate product discus
   rejected((f) => (f.commits[0].commit.committer.email = "codex@openai.com"));
   rejected((f) => (f.commits[0].author = { login: "copilot[bot]" }));
   rejected((f) => (f.pr.head.ref = "DEMO-42-codex-work"));
+  rejected((f) => (f.pr.user = { login: "copilot[bot]" }));
   const f = fixture();
+  f.pr.head.ref = "DEMO-42-openai-provider";
   f.pr.body += "\nAdds Claude API and OpenAI request support.";
   f.commits[0].commit.message = "[DEMO-42] feat: add Claude API and OpenAI support";
   f.commits[0].commit.committer = { name: "GitHub", email: "noreply@github.com" };

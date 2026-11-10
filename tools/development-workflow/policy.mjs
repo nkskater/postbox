@@ -4,6 +4,8 @@ import { pathToFileURL } from "node:url";
 const attribution =
   /(?:co-authored-by\s*:|generated[- ](?:with|by)\s*:?)|(?:\b(?:implemented|written|authored|created)\s+by\s+(?:an?\s+)?(?:codex|claude|antigravity|copilot|chatgpt)\b)|(?:\bagent\s*:\s*(?:codex|claude|antigravity)\b)/i;
 const agentIdentity = /(?:\b(?:codex|claude|antigravity|copilot|chatgpt|anthropic|openai)\b|\[bot\])/i;
+const branchAttribution =
+  /(?:^|-)(?:agent|by|with)-(?:codex|claude|antigravity|copilot|chatgpt)(?:-|$)|(?:^|-)(?:codex|claude|antigravity|copilot|chatgpt)-(?:work|implementation|patch|changes)(?:-|$)/i;
 const conventional =
   "(?:feat|fix|perf|chore|docs|test|refactor|build|ci|style|revert)(?:\\([a-zA-Z0-9._/-]+\\))?!?: .+";
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -41,7 +43,8 @@ export function validatePullRequest(config, pr, commits) {
   if (!/\bValidation\s*:/i.test(body) || !body.split(/\bValidation\s*:/i)[1]?.trim())
     errors.push("PR body needs Validation: evidence");
   if (attribution.test(`${pr.title}\n${body}`)) errors.push("PR contains attribution");
-  if (agentIdentity.test(pr.head.ref)) errors.push("Branch contains attribution");
+  if (branchAttribution.test(pr.head.ref)) errors.push("Branch contains attribution");
+  if (agentIdentity.test(pr.user?.login ?? "")) errors.push("PR author contains attribution");
   if (!commits.length) errors.push("PR has no commits");
   for (const commit of commits) {
     const message = commit.commit.message;
