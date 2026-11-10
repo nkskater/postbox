@@ -7,26 +7,18 @@ Postbox is worked on by several coding agents (Claude, Codex, Antigravity). Jira
 
 ## Workflow (mandatory)
 
-1. **Check Jira first.** Open LAB-25 and read its child stories before touching code.
-2. **Claim exactly one `To Do` story.** Move it to `In Progress`, add the label `agent:claude`, `agent:codex` or
-   `agent:antigravity`, and comment the branch name you will use.
-3. **One dedicated branch per story:** `<issue-key>-<slug>` (e.g. `LAB-32-cli-runner`), branched from the latest `main`.
-4. **Stay in scope.** Each story lists the files/modules it owns. Never modify files owned by another agent's
-   `In Progress` story; if you must, coordinate via a Jira comment and rebase after their merge.
-5. **Open a PR** titled `[<issue-key>] <conventional summary>` and link the PR URL on the ticket. Move the story to
-   `In Review` once these pass:
-   ```bash
-   npm test && npm run typecheck && npm run lint && npm run build
-   ```
-   Changes to UI behaviour should also pass `npm run test:e2e` (browser tests in `e2e/`, run against the build) and,
-   when fixing a UI bug, add a browser test that fails without the fix.
-6. **`Done`** only after the PR is merged into `main`. New work you discover becomes a new `To Do` story under LAB-25.
+Read [the shared lifecycle](tools/development-workflow/WORKFLOW.md) and
+[repository configuration](.github/development-workflow.json) before starting.
+That document is the canonical story-to-merge process for every contributor.
+Run `node tools/development-workflow/setup.mjs` on each new checkout to add
+local instruction pointers for other environments. If an environment does not
+load a pointer automatically, configure its startup instructions to read AGENTS.md.
 
 ## Repository rules
 
 - Commits use the repo's configured git identity (`nkskater`). No `Co-Authored-By`/"Generated with" trailers and no
   mention of AI in commits, code comments, README or docs.
-- Small conventional commits: `feat:`, `fix:`, `perf:`, `chore:`, `docs:`, `test:`.
+- Development commits: `[LAB-123] type: summary`, with the same story key as branch and PR.
 - Do not commit `CLAUDE.md`, `.claude/`, scratch/worklog files or local databases.
 - Architecture and layering rules: `ARCHITECTURE.md` (core engine in `src/core` must not import Next.js or the DB).
 - Schema changes: edit `src/server/db/schema.ts`, then `npm run db:generate`; never edit applied migrations.

@@ -1,28 +1,11 @@
-## Description
+<!-- Title: [ISSUE-123] type: summary. Branch and every development commit use the same key. -->
 
-<!-- Provide a clear and concise description of the changes in this pull request. -->
+Jira: https://nkskater.atlassian.net/browse/LAB-123
 
-## Associated Issue / Jira Story
+Describe the problem and resulting behavior.
 
-- Issue / Story: `LAB-` <!-- e.g. LAB-123 -->
+Validation: list commands, results, and relevant regression/browser coverage.
 
-## Type of Change
-
-- [ ] `feat`: New feature or capability
-- [ ] `fix`: Bug fix
-- [ ] `perf`: Performance improvement
-- [ ] `chore`: Tooling, configuration, or dependency updates
-- [ ] `docs`: Documentation updates
-- [ ] `test`: Test additions or test infrastructure improvements
-- [ ] `refactor`: Code change that neither fixes a bug nor adds a feature
-
-## Verification Checklist
-
-Please verify before requesting review:
-
-- [ ] **Tests pass:** `npm test`
-- [ ] **Typecheck passes:** `npm run typecheck`
-- [ ] **Lint passes:** `npm run lint` (0 errors)
-- [ ] **Build passes:** `npm run build`
-- [ ] **Layering compliance:** Core logic in `src/core` does not import Next.js or database modules (see `ARCHITECTURE.md`)
-- [ ] **Git conventions:** Conventional commit format, no `Co-Authored-By` / AI attribution trailers, clean branch history
+<!-- Before review: run configured local checks and link this PR on the story.
+Before merge: final-head CI/reviews and native Jira Development linkage must pass.
+Follow tools/development-workflow/WORKFLOW.md. -->

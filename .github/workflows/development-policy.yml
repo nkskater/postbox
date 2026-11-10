@@ -1,0 +1,31 @@
+name: Development policy
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pull_request:
+        description: Pull request number to revalidate
+        required: true
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  policy:
+    name: Workflow policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: "22"
+      - run: node --test tools/development-workflow/*.test.mjs
+      - run: node tools/development-workflow/policy.mjs "$PR_NUMBER"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pull_request }}
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
