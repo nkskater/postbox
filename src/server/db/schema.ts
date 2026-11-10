@@ -1814,3 +1814,56 @@ export const gatewaySessions = sqliteTable(
     index("gateway_sessions_workspace_expiry_idx").on(t.workspaceId, t.expiresAt),
   ],
 );
+
+/** SSO configuration never contains plaintext credentials. */
+export const ssoProviders = sqliteTable("sso_providers", {
+  id: text("id").primaryKey(),
+  config: text("config", { mode: "json" }).$type<import("@/core/sso/model").Provider>().notNull(),
+  secrets: text("secrets").notNull(),
+  revision: integer("revision").notNull().default(1),
+  ...timestamps,
+});
+export const ssoIdentities = sqliteTable(
+  "sso_identities",
+  {
+    providerId: text("provider_id")
+      .notNull()
+      .references(() => ssoProviders.id, { onDelete: "cascade" }),
+    subject: text("subject").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+  },
+  (t) => [primaryKey({ columns: [t.providerId, t.subject] })],
+);
+export const ssoStates = sqliteTable("sso_states", {
+  id: text("id").primaryKey(),
+  providerId: text("provider_id")
+    .notNull()
+    .references(() => ssoProviders.id, { onDelete: "cascade" }),
+  browserHash: text("browser_hash").notNull(),
+  payload: text("payload").notNull(),
+  revision: integer("revision").notNull(),
+  expiresAt: integer("expires_at").notNull(),
+});
+export const ssoReplayCache = sqliteTable("sso_replay_cache", {
+  id: text("id").primaryKey(),
+  value: text("value").notNull(),
+  expiresAt: integer("expires_at").notNull(),
+});
+export const ssoRoleGrants = sqliteTable(
+  "sso_role_grants",
+  {
+    providerId: text("provider_id")
+      .notNull()
+      .references(() => ssoProviders.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    role: text("role").$type<"owner" | "editor" | "viewer">().notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.workspaceId] })],
+);

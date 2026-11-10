@@ -18,6 +18,8 @@ export const keyLimiter = new FixedWindowLimiter();
  * configurable origin allow-list. The sign-in routes stay covered: they issue the cookie.
  */
 function guardsOrigin(pathname: string): boolean {
+  // SAML POST callbacks authenticate the signed assertion and one-use browser-bound RelayState.
+  if (/^\/api\/auth\/sso\/[a-zA-Z0-9_-]+\/callback$/.test(pathname)) return false;
   if (!pathname.startsWith("/api/") || pathname === "/api/mcp") return false;
   return pathname.startsWith("/api/auth/") || !isPublicPath(pathname);
 }

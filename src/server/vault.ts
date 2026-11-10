@@ -436,6 +436,34 @@ export function rotateKeys(opts: { newKey?: boolean; prune?: boolean } = {}) {
         unreadable.push(`${r.workspaceId}/${r.name}`);
       }
     }
+    for (const row of tx.select().from(schema.ssoProviders).all()) {
+      if (keyIdOfCiphertext(row.secrets) === keys.ring.current.id) continue;
+      try {
+        const value = decryptSecret(keys.ring, "instance", `sso-${row.id}`, row.secrets);
+        const next = encryptSecret(keys.ring, "instance", `sso-${row.id}`, value);
+        tx.update(schema.ssoProviders)
+          .set({ secrets: next.ciphertext })
+          .where(eq(schema.ssoProviders.id, row.id))
+          .run();
+        reencrypted++;
+      } catch {
+        unreadable.push(`sso-provider/${row.id}`);
+      }
+    }
+    for (const row of tx.select().from(schema.ssoStates).all()) {
+      if (keyIdOfCiphertext(row.payload) === keys.ring.current.id) continue;
+      try {
+        const value = decryptSecret(keys.ring, "instance", `sso-${row.id}`, row.payload);
+        const next = encryptSecret(keys.ring, "instance", `sso-${row.id}`, value);
+        tx.update(schema.ssoStates)
+          .set({ payload: next.ciphertext })
+          .where(eq(schema.ssoStates.id, row.id))
+          .run();
+        reencrypted++;
+      } catch {
+        unreadable.push(`sso-login/${row.id}`);
+      }
+    }
   });
   let removedKeys: string[] = [];
   if (opts.prune && !unreadable.length) {
@@ -446,6 +474,14 @@ export function rotateKeys(opts: { newKey?: boolean; prune?: boolean } = {}) {
         .all()
         .map((r) => r.keyId),
     );
+    for (const row of db.select().from(schema.ssoProviders).all()) {
+      const keyId = keyIdOfCiphertext(row.secrets);
+      if (keyId) inUse.add(keyId);
+    }
+    for (const row of db.select().from(schema.ssoStates).all()) {
+      const keyId = keyIdOfCiphertext(row.payload);
+      if (keyId) inUse.add(keyId);
+    }
     removedKeys = pruneFileKeys(inUse);
   }
   audit({

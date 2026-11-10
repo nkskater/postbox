@@ -494,6 +494,8 @@ After editing `.env`, apply the limits with `docker compose up -d`. Check the re
 
 ### Authentication
 
+Administrators can add OpenID Connect and SAML 2.0 user sign-in under Profile → Manage single sign-on. See the [SSO setup and recovery guide](docs/sso.md).
+
 Postbox is open until you turn on one of the options below. Once auth is on, the UI and every API route, including
 `/api/mcp`, require it. `/api/health`, `/login` and `/api/auth/*` stay public.
 

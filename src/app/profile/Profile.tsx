@@ -25,6 +25,7 @@ interface Status {
   envCredentials: boolean;
   caller: {
     kind: "open" | "env" | "user" | "anonymous";
+    isAdmin: boolean;
     user: { id: string; username: string; displayName: string; isAdmin: boolean } | null;
   };
 }
@@ -309,6 +310,11 @@ export function Profile() {
           <Mailbox className="size-5 text-primary" />
           <h1 className="text-lg font-semibold">Profile</h1>
         </div>
+        {status?.caller.isAdmin && (
+          <Link className="text-sm underline" href="/admin/sso">
+            Manage single sign-on
+          </Link>
+        )}
         {!status && <Loader2 className="size-5 animate-spin text-muted-foreground" />}
         {status && !status.hasUsers && <SetupForm />}
         {status?.hasUsers && status.caller.kind === "env" && (
