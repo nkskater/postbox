@@ -100,3 +100,13 @@ or account scope has been changed by this package.
   in Jira. Retain old PR/commit relationships when follow-up PRs are necessary.
 - See [GitHub protection behavior](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches)
   and [repository merge defaults](https://docs.github.com/en/rest/repos/repos#update-a-repository).
+
+## Instruction discovery
+
+The shared `AGENTS.md` covers environments that discover it natively.
+Local setup adds `CLAUDE.md` and `.claude/CLAUDE.md` pointers for environments
+using those entry points, and `.agents/rules/development-workflow.md` with
+`trigger: always_on` for workspace rules. Check loaded instructions in the actual
+client after setup; local rules are guidance, while CI supplies the merge gate.
+See [Claude instruction discovery](https://code.claude.com/docs/en/memory) and
+[Antigravity workspace rules](https://antigravity.google/docs/rules/).

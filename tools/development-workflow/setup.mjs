@@ -8,13 +8,7 @@ export function setup(root, config) {
   const marker =
     "Read AGENTS.md and tools/development-workflow/WORKFLOW.md before working. Follow the shared lifecycle and .github/development-workflow.json.";
   // Instruction files stay local and contain pointers only, never duplicate rules.
-  const files = [
-    "CLAUDE.md",
-    ".claude/CLAUDE.md",
-    ".antigravity/rules.md",
-    ".agents/workflow.md",
-    ".gemini/GEMINI.md",
-  ];
+  const files = ["CLAUDE.md", ".claude/CLAUDE.md", ".agents/rules/development-workflow.md"];
   for (const name of files) {
     const path = resolve(root, name);
     let ancestor = path;
@@ -28,6 +22,8 @@ export function setup(root, config) {
   for (const name of files) {
     const path = resolve(root, name);
     mkdirSync(dirname(path), { recursive: true });
+    if (name.startsWith(".agents/rules/") && !existsSync(path))
+      appendFileSync(path, "---\ntrigger: always_on\n---\n");
     if (!existsSync(path) || !readFileSync(path, "utf8").includes(marker))
       appendFileSync(path, `\n${marker}\n`);
   }

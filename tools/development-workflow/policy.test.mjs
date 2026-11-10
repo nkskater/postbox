@@ -135,6 +135,10 @@ test("bootstrap is additive, idempotent, independent of local account paths and 
   setup(root, config);
   for (const file of files)
     assert.equal(readFileSync(join(root, file), "utf8").match(/Read AGENTS.md/g).length, 1);
+  assert.match(
+    readFileSync(join(root, ".agents/rules/development-workflow.md"), "utf8"),
+    /^---\ntrigger: always_on\n---/,
+  );
   const bad = mkdtempSync(join(tmpdir(), "workflow-symlink-"));
   mkdirSync(join(bad, "outside"));
   symlinkSync(join(bad, "outside"), join(bad, ".claude"));
