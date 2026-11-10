@@ -14,8 +14,8 @@ it("upgrades a populated pre-SSO database without changing users or roles and pr
     fs.cpSync("drizzle", old, { recursive: true });
     const journalPath = path.join(old, "meta", "_journal.json"),
       journal = JSON.parse(fs.readFileSync(journalPath, "utf8"));
-    const latest = journal.entries.pop();
-    expect(latest.idx).toBe(46);
+    expect(journal.entries.some((entry: { idx: number }) => entry.idx === 46)).toBe(true);
+    journal.entries = journal.entries.filter((entry: { idx: number }) => entry.idx < 46);
     fs.writeFileSync(journalPath, JSON.stringify(journal));
     const db = drizzle(sqlite);
     migrate(db, { migrationsFolder: old });
