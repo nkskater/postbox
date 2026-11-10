@@ -1,0 +1,20 @@
+{
+  "name": "@postbox/postman-faker-compat",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Legacy generator interface for the Postman SDK, backed by patched Faker",
+  "license": "MIT",
+  "type": "commonjs",
+  "main": "locale/en.cjs",
+  "exports": {
+    ".": "./locale/en.cjs",
+    "./locale/en": "./locale/en.cjs",
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "@postbox/faker-modern": "npm:@faker-js/faker@10.6.0"
+  },
+  "engines": {
+    "node": "^20.19.0 || ^22.13.0 || ^23.5.0 || >=24.0.0"
+  }
+}
