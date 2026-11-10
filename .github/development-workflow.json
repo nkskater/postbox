@@ -1,0 +1,16 @@
+{
+  "projectKeys": ["LAB"],
+  "jiraUrl": "https://nkskater.atlassian.net",
+  "repository": "nkskater/postbox",
+  "baseBranch": "main",
+  "statuses": { "todo": "To Do", "active": "In Progress", "review": "In Review", "done": "Done" },
+  "ownershipLabelPrefix": "agent:",
+  "localChecks": ["npm test", "npm run typecheck", "npm run lint", "npm run build"],
+  "requiredChecks": [
+    "Workflow policy",
+    "Lint, typecheck, test, and build",
+    "Browser smoke tests",
+    "Build and smoke test portable Windows package",
+    "Build and smoke test container"
+  ]
+}

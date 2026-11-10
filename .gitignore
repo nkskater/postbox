@@ -46,3 +46,6 @@ CLAUDE.md
 src/core/scripts/libraries.generated.ts
 
 src/core/visualizer/runtime.generated.ts
+# Local workflow instruction pointers
+.agents/
+.gemini/
