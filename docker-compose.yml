@@ -19,6 +19,7 @@ services:
       # Authentication (recommended). Empty values leave Postbox open.
       POSTBOX_PASSWORD: ${POSTBOX_PASSWORD:-}
       POSTBOX_TOKEN: ${POSTBOX_TOKEN:-}
+      POSTBOX_SESSION_SECRET: ${POSTBOX_SESSION_SECRET:-}
       POSTBOX_SESSION_DAYS: ${POSTBOX_SESSION_DAYS:-30}
       # Outgoing request policy and limits (see README).
       PROXY_ALLOW_HOSTS: ${PROXY_ALLOW_HOSTS:-}
@@ -28,6 +29,23 @@ services:
       GATEWAY_ENABLED: ${GATEWAY_ENABLED:-false}
       MCP_ALLOWED_ORIGINS: ${MCP_ALLOWED_ORIGINS:-}
       API_BODY_LIMIT_MB: ${API_BODY_LIMIT_MB:-25}
+      RESPONSE_MAX_BYTES: ${RESPONSE_MAX_BYTES:-52428800}
+      HISTORY_LIMIT: ${HISTORY_LIMIT:-500}
+      # Empty values keep MCP options configurable under Settings.
+      MCP_ENABLED: ${MCP_ENABLED:-}
+      MCP_READ_ONLY: ${MCP_READ_ONLY:-}
+      # Vault paths refer to files inside the container; mount external keys separately.
+      POSTBOX_VAULT_KEY: ${POSTBOX_VAULT_KEY:-}
+      POSTBOX_VAULT_KEY_FILE: ${POSTBOX_VAULT_KEY_FILE:-}
+      POSTBOX_VAULT_PREVIOUS_KEYS: ${POSTBOX_VAULT_PREVIOUS_KEYS:-}
+      # Monitor email notifications. Empty HOST/FROM disables delivery.
+      POSTBOX_SMTP_HOST: ${POSTBOX_SMTP_HOST:-}
+      POSTBOX_SMTP_PORT: ${POSTBOX_SMTP_PORT:-587}
+      POSTBOX_SMTP_FROM: ${POSTBOX_SMTP_FROM:-}
+      POSTBOX_SMTP_USER: ${POSTBOX_SMTP_USER:-}
+      POSTBOX_SMTP_PASSWORD: ${POSTBOX_SMTP_PASSWORD:-}
+      POSTBOX_SMTP_SECURE: ${POSTBOX_SMTP_SECURE:-false}
+      POSTBOX_SMTP_REQUIRE_TLS: ${POSTBOX_SMTP_REQUIRE_TLS:-true}
       # Empty = configurable under Settings → Request execution; a value pins it.
       SCRIPT_TIMEOUT_MS: ${SCRIPT_TIMEOUT_MS:-}
       SCRIPT_MEMORY_MB: ${SCRIPT_MEMORY_MB:-}
