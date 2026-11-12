@@ -23,8 +23,9 @@ curl -X POST "https://postbox.example/capture/cap_…/http:/api.internal:8080/or
 The web server turns a double slash in a path into a redirect, which many clients do not follow for
 requests with a body, so `http:/host` (or the percent-encoded form below) is the form to use.
 
-Postbox forwards the request, returns the real response to your client, and stores a copy for
-review. Because it is the one making the connection, nothing is installed on the client and no
+Postbox forwards the API request, returns the upstream status, body and ordinary headers to your
+client, and stores a copy for review. Browser control headers are removed as described below.
+Because it is the one making the connection, nothing is installed on the client and no
 certificate has to be trusted. A percent-encoded target (`…/cap_…/https%3A%2F%2Fapi.example.com%2Fa`)
 works too, and is safest when the target has its own query string.
 
@@ -35,6 +36,19 @@ session instead, export a HAR file from the browser's network tab and add it to 
 
 ## What is protected
 
+- **Postbox credentials never go to the target.** The relay removes `postbox_session` and
+  `postbox_sso_*` cookies, Postbox `pbx_` bearer keys (including expired/revoked keys), and the
+  configured `POSTBOX_TOKEN` bearer credential before forwarding. API clients can still supply
+  other upstream authorization and cookies. Proxy authorization and referrers are never forwarded.
+- **Browser requests are isolated.** Requests with any `Sec-Fetch-*` header lose all cookies and
+  authorization before forwarding. Browser navigations (`Sec-Fetch-Mode: navigate`, including
+  frames) are refused with `403` before contacting the target. Use an API client or import a HAR
+  to record browser traffic.
+- **Relayed content is inert in a browser.** Every relay response has
+  `Content-Security-Policy: sandbox; default-src 'none'; frame-ancestors 'none'`,
+  `Cache-Control: no-store`, `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`. Upstream cookie,
+  storage-clearing, service-worker, refresh and browser-reporting headers are removed. An API
+  client still receives HTML bytes, but a browser cannot execute them as the Postbox app.
 - **Credentials are removed before anything is stored.** `Authorization`, `Proxy-Authorization`, API
   key and token headers, credentials in the URL, secret-looking query parameters, and secret-looking
   fields in JSON and form bodies are replaced with `[redacted]`. Every credential value seen in a
@@ -51,9 +65,9 @@ session instead, export a HAR file from the browser's network tab and add it to 
 - **Outbound policy.** Every target passes the same host policy as the request proxy, including DNS
   resolution, so blocked or private ranges stay blocked. Redirects are not followed; the client sees
   them and decides.
-- **The relay URL is the credential.** It is stored hashed, never listed, and unknown, malformed and
-  stopped URLs all answer `404`. _New URL_ replaces it at once. Requests are rate limited and bodies
-  are bounded (1 MiB sent, 256 KiB stored per body). Binary bodies are recorded by size only.
+- **The relay URL is the credential.** It is stored hashed and never listed. API requests to unknown,
+  malformed and stopped URLs all answer `404`. _New URL_ replaces it at once. Requests are rate limited
+  and bodies are bounded (1 MiB sent, 256 KiB stored per body). Binary bodies are recorded by size only.
 - **Retention.** A session keeps its newest 500 entries, and entries older than _Keep recorded traffic
   for_ (App Settings → History & data, default 14 days, 0 keeps them) are deleted automatically.
 
