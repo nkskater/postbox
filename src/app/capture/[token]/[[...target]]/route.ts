@@ -13,8 +13,18 @@ type Context = { params: Promise<{ token: string; target?: string[] }> };
  */
 async function handle(request: Request, { params }: Context): Promise<Response> {
   const { token } = await params;
-  const secure = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };
+  const secure = {
+    "Cache-Control": "no-store",
+    "Content-Security-Policy": "sandbox; default-src 'none'; frame-ancestors 'none'",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+  };
   try {
+    if (request.headers.get("sec-fetch-mode")?.trim().toLowerCase() === "navigate")
+      return Response.json(
+        { error: "Browser navigation is disabled for the capture relay" },
+        { status: 403, headers: secure },
+      );
     const url = new URL(request.url);
     const prefix = `/capture/${token}`;
     const rest = url.pathname.startsWith(prefix) ? url.pathname.slice(prefix.length) : "";
@@ -31,7 +41,7 @@ async function handle(request: Request, { params }: Context): Promise<Response> 
       headers: [...request.headers.entries()],
       body,
     });
-    const headers = new Headers(secure);
+    const headers = new Headers();
     for (const [name, value] of result.headers) {
       try {
         headers.append(name, value);
@@ -39,6 +49,7 @@ async function handle(request: Request, { params }: Context): Promise<Response> 
         /* a header Node cannot forward */
       }
     }
+    for (const [name, value] of Object.entries(secure)) headers.set(name, value);
     return new Response(result.body.length ? new Uint8Array(result.body) : null, {
       status: result.status,
       headers,

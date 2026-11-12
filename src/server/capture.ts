@@ -48,6 +48,29 @@ const RELAY_TIMEOUT_MS = 30_000;
 const RELAY_RESPONSE_BYTES = 5 * 1024 * 1024;
 const RELAY_PER_MINUTE = 600;
 const limiter = new FixedWindowLimiter();
+const BLOCKED_RELAY_RESPONSE_HEADERS = new Set([
+  "content-encoding",
+  "content-length",
+  "transfer-encoding",
+  "connection",
+  "keep-alive",
+  "proxy-connection",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailer",
+  "upgrade",
+  "set-cookie",
+  "set-cookie2",
+  "clear-site-data",
+  "service-worker-allowed",
+  "refresh",
+  "content-security-policy",
+  "content-security-policy-report-only",
+  "report-to",
+  "reporting-endpoints",
+  "nel",
+]);
 
 // ------------------------------------------------------------------ sessions
 
@@ -457,7 +480,7 @@ export async function relay(token: string, request: RelayRequest, now = Date.now
   if (problem) return failure(403, problem);
   if (request.body.length > MAX_RELAY_REQUEST_BYTES) return failure(413, "Request body too large");
 
-  const forward = forwardableHeaders(request.headers);
+  const forward = forwardableHeaders(request.headers, { postboxToken: process.env.POSTBOX_TOKEN });
   let outcome: CapturedExchange = {
     method: request.method,
     url: request.target,
@@ -499,7 +522,7 @@ export async function relay(token: string, request: RelayRequest, now = Date.now
     store(session, outcome, request.body, raw);
     // The bytes are decoded already, so encoding and length headers would be wrong.
     const headers = response.headers.filter(
-      ([name]) => !/^(content-encoding|content-length|transfer-encoding|connection|keep-alive)$/i.test(name),
+      ([name]) => !BLOCKED_RELAY_RESPONSE_HEADERS.has(name.toLowerCase()),
     );
     return { status: response.status, headers, body: raw };
   } catch (error) {

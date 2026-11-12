@@ -312,9 +312,50 @@ export function toHar(entries: StoredEntry[]) {
 
 /** Headers an upstream request must not carry over from the recording client. */
 const HOP_BY_HOP =
-  /^(host|connection|keep-alive|proxy-connection|transfer-encoding|te|trailer|upgrade|content-length)$/i;
-export const forwardableHeaders = (headers: Iterable<[string, string]>): [string, string][] =>
-  [...headers].filter(([name]) => !HOP_BY_HOP.test(name));
+  /^(host|connection|keep-alive|proxy-connection|proxy-authorization|transfer-encoding|te|trailer|upgrade|content-length)$/i;
+export function forwardableHeaders(
+  headers: Iterable<[string, string]>,
+  options: { postboxToken?: string } = {},
+): [string, string][] {
+  const incoming = [...headers];
+  const browser = incoming.some(([name]) => /^sec-fetch-/i.test(name));
+  const connectionHeaders = new Set(
+    incoming
+      .filter(([name]) => /^connection$/i.test(name))
+      .flatMap(([, value]) =>
+        value
+          .toLowerCase()
+          .split(",")
+          .map((name) => name.trim()),
+      ),
+  );
+  const out: [string, string][] = [];
+  for (const [name, value] of incoming) {
+    const key = name.toLowerCase();
+    if (HOP_BY_HOP.test(name) || connectionHeaders.has(key) || /^sec-fetch-/i.test(name) || key === "referer")
+      continue;
+    if (key === "authorization") {
+      const bearer = /^Bearer\s+(.+)$/i.exec(value.trim())?.[1].trim();
+      if (browser || (bearer && (bearer.startsWith("pbx_") || bearer === options.postboxToken))) continue;
+    }
+    if (key === "cookie") {
+      if (browser) continue;
+      const cookies = value
+        .split(";")
+        .map((cookie) => cookie.trim())
+        .filter((cookie) => {
+          const equals = cookie.indexOf("=");
+          if (equals < 1) return false;
+          const cookieName = cookie.slice(0, equals).trim();
+          return !/^postbox_session$|^postbox_sso_/i.test(cookieName);
+        });
+      if (cookies.length) out.push([name, cookies.join("; ")]);
+      continue;
+    }
+    out.push([name, value]);
+  }
+  return out;
+}
 
 /**
  * The absolute URL a relay request names. The path after the token is the URL itself

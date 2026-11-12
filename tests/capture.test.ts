@@ -1,4 +1,6 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import http from "node:http";
+import type { AddressInfo } from "node:net";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -287,6 +289,122 @@ afterAll(async () => {
 });
 
 describe("recording through the relay", () => {
+  it("keeps Postbox credentials out of upstream requests while preserving API-client cookies", async () => {
+    const session = await create();
+    vi.stubEnv("POSTBOX_TOKEN", "recovery-credential-for-capture-test");
+    try {
+      for (const credential of [keys[owner.id], "pbx_revoked_key", process.env.POSTBOX_TOKEN]) {
+        const result = await through(session.token, `${local.url}/echo`, {
+          headers: {
+            Authorization: `bEaReR ${credential}`,
+            Cookie:
+              "theme=dark; postbox_session=v2.victim; postbox_sso_state=sso-secret; other=1; postbox_session=duplicate",
+            "Proxy-Authorization": "Basic cHJveHk6c2VjcmV0",
+            Referer: `http://localhost/capture/${session.token}/`,
+          },
+        });
+        expect(result.status).toBe(200);
+        const received = local.requests.at(-1)!.headers;
+        expect(received.authorization).toBeUndefined();
+        expect(received["proxy-authorization"]).toBeUndefined();
+        expect(received.referer).toBeUndefined();
+        expect(received.cookie).toBe("theme=dark; other=1");
+      }
+    } finally {
+      vi.unstubAllEnvs();
+      withCaller(caller(owner), () => capture.deleteSession(session.id));
+    }
+  });
+
+  it("does not forward any browser cookies or authorization", async () => {
+    const session = await create();
+    try {
+      const result = await through(session.token, `${local.url}/echo`, {
+        headers: {
+          Cookie: "theme=dark; postbox_session=victim",
+          Authorization: "Bearer upstream-key",
+          "Sec-Fetch-Site": "same-origin",
+        },
+      });
+      expect(result.status).toBe(200);
+      expect(local.requests.at(-1)!.headers.cookie).toBeUndefined();
+      expect(local.requests.at(-1)!.headers.authorization).toBeUndefined();
+      expect(local.requests.at(-1)!.headers["sec-fetch-site"]).toBeUndefined();
+    } finally {
+      withCaller(caller(owner), () => capture.deleteSession(session.id));
+    }
+  });
+
+  it("rejects browser navigation before contacting the target and protects error responses", async () => {
+    const session = await create();
+    try {
+      const before = local.requests.length;
+      const result = await through(session.token, `${local.url}/echo`, {
+        method: "GET",
+        headers: { "Sec-Fetch-Mode": "navigate", Cookie: "postbox_session=victim" },
+      });
+      expect(result.status).toBe(403);
+      expect(local.requests).toHaveLength(before);
+      expect(result.headers.get("content-security-policy")).toBe(
+        "sandbox; default-src 'none'; frame-ancestors 'none'",
+      );
+      const missing = await through("nope", `${local.url}/echo`);
+      expect(missing.status).toBe(404);
+      expect(missing.headers.get("content-security-policy")).toBe(
+        result.headers.get("content-security-policy"),
+      );
+    } finally {
+      withCaller(caller(owner), () => capture.deleteSession(session.id));
+    }
+  });
+
+  it("isolates hostile upstream HTML and headers while preserving status, body and ordinary headers", async () => {
+    const session = await create();
+    const html = '<h1>Upstream</h1><script>document.cookie="postbox_session=attacker"</script>';
+    const hostile = http.createServer((_req, res) => {
+      res.writeHead(201, {
+        "Content-Type": "text/html",
+        "Set-Cookie": "postbox_session=attacker; Path=/",
+        "Set-Cookie2": "other=attacker",
+        "Clear-Site-Data": '"*"',
+        "Service-Worker-Allowed": "/",
+        Refresh: "0; url=/api/health",
+        "X-Upstream": "preserved",
+        "Content-Security-Policy": "default-src * 'unsafe-inline'",
+        "Cache-Control": "public, max-age=9999",
+        "Referrer-Policy": "unsafe-url",
+        "X-Content-Type-Options": "allow",
+      });
+      res.end(html);
+    });
+    await new Promise<void>((resolve) => hostile.listen(0, "127.0.0.1", resolve));
+    try {
+      const target = `http://127.0.0.1:${(hostile.address() as AddressInfo).port}/html`;
+      const result = await through(session.token, target);
+      expect(result.status).toBe(201);
+      expect(result.text).toBe(html);
+      expect(result.headers.get("content-type")).toBe("text/html");
+      expect(result.headers.get("x-upstream")).toBe("preserved");
+      for (const name of [
+        "set-cookie",
+        "set-cookie2",
+        "clear-site-data",
+        "service-worker-allowed",
+        "refresh",
+      ])
+        expect(result.headers.get(name), name).toBeNull();
+      expect(result.headers.get("content-security-policy")).toBe(
+        "sandbox; default-src 'none'; frame-ancestors 'none'",
+      );
+      expect(result.headers.get("cache-control")).toBe("no-store");
+      expect(result.headers.get("referrer-policy")).toBe("no-referrer");
+      expect(result.headers.get("x-content-type-options")).toBe("nosniff");
+    } finally {
+      await new Promise<void>((resolve) => hostile.close(() => resolve()));
+      withCaller(caller(owner), () => capture.deleteSession(session.id));
+    }
+  });
+
   it("forwards the request, returns the real response and stores a redacted copy", async () => {
     const session = await create();
     expect(session.path).toBe(`/capture/${session.token}/`);
