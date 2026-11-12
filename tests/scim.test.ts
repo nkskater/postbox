@@ -372,7 +372,7 @@ describe("SCIM provisioning", () => {
     expect(roleOf(String(first.id))).toBeNull();
     withCaller(callerOf(admin), () => setMember(workspaceId, "atomic-first", "viewer"));
     const invalid = await call("PATCH", `/api/scim/Users/${first.id}${root()}`, tokens[admin.id], {
-      Operations: [{ op: "replace", path: "active", value: "false" }],
+      Operations: [{ op: "replace", path: "active", value: "disabled" }],
     });
     expect(invalid.status).toBe(400);
     expect(users.getUser(String(first.id))!.disabled).toBe(false);
@@ -473,6 +473,50 @@ describe("SCIM provisioning", () => {
     expect(deleted.changes.length).toBe(1);
     expect(typeof deleted.changes[0].after).toBe("string");
     expect(JSON.stringify(trail.events)).not.toMatch(/passwordHash|sessionVersion/);
+  });
+
+  it("accepts the string booleans Entra ID sends for active", async () => {
+    const created = await jsonOf(await post("Users", { userName: "entra-user" }));
+    const id = created.id as string;
+    const key = users.createToken(id, "entra key").token;
+    const patch = (value: unknown) =>
+      call("PATCH", `/api/scim/Users/${id}${root()}`, tokens[admin.id], {
+        schemas: [model.SCIM_PATCH_SCHEMA],
+        Operations: [{ op: "Replace", path: "active", value }],
+      });
+
+    // "False" must deactivate and revoke, not be refused.
+    const off = await patch("False");
+    expect(off.status).toBe(200);
+    expect((await jsonOf(off)).active).toBe(false);
+    expect(users.getUser(id)?.disabled).toBe(true);
+    expect(users.resolveTokenInfo(key)).toBeNull();
+
+    const on = await jsonOf(await patch(" true "));
+    expect(on.active).toBe(true);
+    expect(users.getUser(id)?.disabled).toBe(false);
+
+    expect((await patch("maybe")).status).toBe(400);
+    expect(users.getUser(id)?.disabled).toBe(false);
+
+    const disabled = await jsonOf(await post("Users", { userName: "entra-off", active: "false" }));
+    expect(disabled.active).toBe(false);
+    expect(users.getUser(disabled.id as string)?.disabled).toBe(true);
+    expect((await post("Users", { userName: "entra-bad", active: "nope" })).status).toBe(400);
+  });
+
+  it("lists every user with their groups", async () => {
+    const a = await jsonOf(await post("Users", { userName: "grouped-a" }));
+    const b = await jsonOf(await post("Users", { userName: "grouped-b" }));
+    const group = await jsonOf(await post("Groups", { name: "Platform", members: [{ value: a.id }] }));
+    const listed = await jsonOf(
+      await list("Users", "filter=" + encodeURIComponent('userName sw "grouped-"')),
+    );
+    const byName = new Map((listed.Resources as ScimRecord[]).map((r) => [r.userName, r]));
+    expect((byName.get("grouped-a")?.groups as ScimRecord[]).map((g) => g.value)).toEqual([group.id]);
+    expect(byName.get("grouped-b")).toBeDefined();
+    expect(byName.get("grouped-b")?.groups).toBeUndefined();
+    expect(b.id).toBeTruthy();
   });
 
   it("keeps every SCIM route classified as administrator access", async () => {

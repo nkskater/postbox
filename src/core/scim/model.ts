@@ -94,6 +94,24 @@ export const scimMemberSchema = z
   })
   .passthrough();
 
+/**
+ * Some identity providers (Entra ID) send booleans as the strings "True" and "False".
+ * Anything that is not clearly a boolean is left alone so validation rejects it.
+ */
+export function coerceBoolean(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  const text = value.trim().toLowerCase();
+  return text === "true" ? true : text === "false" ? false : value;
+}
+
+/** The `active` flag of a patched resource: absent means active, a non-boolean is a 400. */
+export function activeOf(value: unknown): boolean {
+  if (value === undefined || value === null) return true;
+  const coerced = coerceBoolean(value);
+  if (typeof coerced !== "boolean") throw new ScimError(400, "active must be a boolean");
+  return coerced;
+}
+
 /** A SCIM User resource body, as accepted by POST and PUT. */
 export const scimUserInput = z.object({
   userName: z.string().regex(/^[A-Za-z0-9._-]{2,64}$/),
@@ -101,7 +119,7 @@ export const scimUserInput = z.object({
   name: scimNameSchema.optional(),
   emails: z.array(scimEmailSchema).optional(),
   phoneNumbers: z.array(scimPhoneSchema).optional(),
-  active: z.boolean().optional(),
+  active: z.preprocess(coerceBoolean, z.boolean().optional()),
   /** Provisioned accounts have no password until one is set; a create may carry one. */
   password: z.string().min(8).max(1024).optional(),
 });

@@ -14,6 +14,7 @@ import { matchFilter, matchSearch, parseFilter, sortResources } from "@/core/sci
 import { applyOperations, type PatchOperation } from "@/core/scim/patch";
 import { roleForGroupName } from "@/core/scim/roles";
 import {
+  activeOf,
   ATTRIBUTE_RE,
   type ListOptions,
   parsePage,
@@ -190,17 +191,22 @@ function displayNameOf(record: ScimRecord, fallback: string): string {
   );
 }
 
-function userGroups(userId: string, workspaceId: string) {
+/** The workspace's live groups, loaded once per request and shared by every user resource. */
+function workspaceGroups(workspaceId: string): ScimGroupRow[] {
   return getDb()
     .select()
     .from(schema.scimGroups)
     .where(and(eq(schema.scimGroups.workspaceId, workspaceId), isNull(schema.scimGroups.deletedAt)))
-    .all()
+    .all();
+}
+
+function userGroups(userId: string, groups: ScimGroupRow[]) {
+  return groups
     .filter((group) => group.members.some((member) => member.value === userId))
     .map((group) => ({ value: group.id, display: group.name, type: "group" }));
 }
 
-function userResource(row: UserRow, workspaceId?: string): ScimRecord {
+function userResource(row: UserRow, groups?: ScimGroupRow[]): ScimRecord {
   const profile = row.scimProfile ?? {};
   return scimUserResource({
     id: row.id,
@@ -208,7 +214,7 @@ function userResource(row: UserRow, workspaceId?: string): ScimRecord {
     userName: row.username,
     active: !row.disabled,
     profile,
-    ...(workspaceId ? { groups: userGroups(row.id, workspaceId) } : {}),
+    ...(groups ? { groups: userGroups(row.id, groups) } : {}),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   });
@@ -296,11 +302,12 @@ export async function listScimUsers(req: Request, caller: Caller): Promise<Respo
         .orderBy(asc(schema.users.createdAt))
         .all()
     : [];
+  const groups = workspaceGroups(workspaceId);
   return scimResponse(
     200,
     listResponse(
       "User",
-      rows.map((row) => userResource(row, workspaceId)),
+      rows.map((row) => userResource(row, groups)),
       query,
     ),
   );
@@ -309,7 +316,7 @@ export async function listScimUsers(req: Request, caller: Caller): Promise<Respo
 export async function readScimUser(req: Request, ctx: Ctx, caller: Caller): Promise<Response> {
   const workspaceId = scimWorkspace(req, caller);
   const row = requireUser((await ctx.params).id, workspaceId);
-  return scimResponse(200, userResource(row, workspaceId));
+  return scimResponse(200, userResource(row, workspaceGroups(workspaceId)));
 }
 
 export async function createScimUser(req: Request, caller: Caller): Promise<Response> {
@@ -353,7 +360,7 @@ export async function createScimUser(req: Request, caller: Caller): Promise<Resp
     "POST",
     "/api/scim/Users",
   );
-  return scimResponse(201, userResource(getUser(row.id)!, workspaceId));
+  return scimResponse(201, userResource(getUser(row.id)!, workspaceGroups(workspaceId)));
 }
 
 /** PUT is a whole replacement: attributes the body does not carry are gone. */
@@ -388,19 +395,20 @@ export async function replaceScimUser(req: Request, ctx: Ctx, caller: Caller): P
     "PUT",
     "/api/scim/Users/[id]",
   );
-  return scimResponse(200, userResource(getUser(existing.id)!, workspaceId));
+  return scimResponse(200, userResource(getUser(existing.id)!, workspaceGroups(workspaceId)));
 }
 
 export async function patchScimUser(req: Request, ctx: Ctx, caller: Caller): Promise<Response> {
   const { input, raw } = await readInput(req, scimPatchInput);
   const workspaceId = scimWorkspace(req, caller, bodyWorkspaceId(raw));
   const existing = requireUser((await ctx.params).id, workspaceId);
-  const record = applyOperations(userResource(existing, workspaceId), input.Operations as PatchOperation[]);
+  const record = applyOperations(
+    userResource(existing, workspaceGroups(workspaceId)),
+    input.Operations as PatchOperation[],
+  );
   const validated = scimUserInput.parse(record);
   const username = claimUsername(String(record.userName ?? existing.username), existing.id);
-  if (record.active !== undefined && typeof record.active !== "boolean")
-    throw new ScimError(400, "active must be a boolean");
-  const active = record.active !== false;
+  const active = activeOf(record.active);
   const profile = profileOf(record);
   const displayName = displayNameOf(record, username);
   const password = validated.password;
@@ -426,7 +434,7 @@ export async function patchScimUser(req: Request, ctx: Ctx, caller: Caller): Pro
     "PATCH",
     "/api/scim/Users/[id]",
   );
-  return scimResponse(200, userResource(getUser(existing.id)!, workspaceId));
+  return scimResponse(200, userResource(getUser(existing.id)!, workspaceGroups(workspaceId)));
 }
 
 /**
