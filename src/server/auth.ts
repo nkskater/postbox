@@ -137,20 +137,53 @@ export function isPublicPath(pathname: string): boolean {
 
 // ------------------------------------------------------------------ login rate limiting
 
-const attempts = new Map<string, { count: number; resetAt: number }>();
-const MAX_ATTEMPTS = 10;
-const WINDOW_MS = 5 * 60_000;
+/**
+ * Failed-attempt budgets, by key kind (the part of the key before the first ":").
+ *
+ * - `client`: one client address, any credential.
+ * - `pair`: one account from one client address, so nobody else can lock that account out.
+ * - `account`: one account from anywhere; a high ceiling against guessing from many addresses.
+ * - `secret`: the single-user POSTBOX_PASSWORD / POSTBOX_TOKEN from anywhere, so rotating
+ *   addresses gains nothing.
+ */
+export const LOGIN_LIMITS = {
+  client: { max: 10, windowMs: 5 * 60_000 },
+  invite: { max: 10, windowMs: 5 * 60_000 },
+  pair: { max: 10, windowMs: 5 * 60_000 },
+  account: { max: 100, windowMs: 15 * 60_000 },
+  secret: { max: 100, windowMs: 15 * 60_000 },
+} as const;
+type LimitKind = keyof typeof LOGIN_LIMITS;
 
-/** Returns false when the client has exceeded the failed-login budget. */
+export const loginKeys = {
+  client: (address: string) => `client:${address}`,
+  invite: (address: string) => `invite:${address}`,
+  pair: (username: string, address: string) => `pair:${username}\0${address}`,
+  account: (username: string) => `account:${username}`,
+  secret: () => "secret:",
+};
+
+// Shared through globalThis: the request gate and the route handlers can be separate bundles.
+const STORE = "__postboxLoginAttempts";
+const attempts: Map<string, { count: number; resetAt: number }> = ((
+  globalThis as { [STORE]?: Map<string, { count: number; resetAt: number }> }
+)[STORE] ??= new Map());
+
+function limitOf(key: string) {
+  const kind = key.slice(0, key.indexOf(":")) as LimitKind;
+  return LOGIN_LIMITS[kind] ?? LOGIN_LIMITS.client;
+}
+
+/** Returns false when the key has used up its failed-attempt budget. */
 export function loginAllowed(key: string, now = Date.now()): boolean {
   const a = attempts.get(key);
   if (!a || a.resetAt <= now) return true;
-  return a.count < MAX_ATTEMPTS;
+  return a.count < limitOf(key).max;
 }
 
 export function recordLoginFailure(key: string, now = Date.now()) {
   const a = attempts.get(key);
-  if (!a || a.resetAt <= now) attempts.set(key, { count: 1, resetAt: now + WINDOW_MS });
+  if (!a || a.resetAt <= now) attempts.set(key, { count: 1, resetAt: now + limitOf(key).windowMs });
   else a.count++;
   if (attempts.size > 10_000) for (const [k, v] of attempts) if (v.resetAt <= now) attempts.delete(k);
 }
@@ -159,6 +192,11 @@ export function clearLoginFailures(key: string) {
   attempts.delete(key);
 }
 
-export function clientKey(headers: Headers): string {
-  return headers.get("x-forwarded-for")?.split(",")[0].trim() || headers.get("x-real-ip") || "local";
+/** Forget every counter (tests). */
+export function resetLoginFailures() {
+  attempts.clear();
 }
+
+/** Longest login or invite body accepted; passwords are capped at 1024 characters anyway. */
+export const LOGIN_BODY_LIMIT = 8 * 1024;
+export const MAX_PASSWORD_LENGTH = 1024;

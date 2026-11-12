@@ -3,7 +3,15 @@
  * (env credentials or user accounts) for the UI and every API route, including /api/mcp.
  */
 import { NextResponse, type NextRequest } from "next/server";
-import { SESSION_COOKIE, isPublicPath } from "@/server/auth";
+import {
+  SESSION_COOKIE,
+  bearerToken,
+  isPublicPath,
+  loginAllowed,
+  loginKeys,
+  recordLoginFailure,
+} from "@/server/auth";
+import { clientAddress } from "@/server/client-address";
 import { FixedWindowLimiter } from "@/core/ratelimit";
 import { getAuthState, getCaller } from "@/server/caller";
 import { isCrossOriginWrite } from "@/server/request-origin";
@@ -39,7 +47,20 @@ export function proxy(req: NextRequest) {
   }
   const { pathname, search } = req.nextUrl;
   if (isPublicPath(pathname)) return NextResponse.next();
+  // A configured POSTBOX_TOKEN is a guessable secret: throttle failed bearer attempts like logins.
+  const guarded = Boolean(state.cfg?.token && bearerToken(req.headers.get("authorization")));
+  const clientKey = loginKeys.client(clientAddress(req.headers));
+  const secretKey = loginKeys.secret();
+  if (guarded && (!loginAllowed(clientKey) || (!state.hasUsers && !loginAllowed(secretKey))))
+    return NextResponse.json(
+      { error: "Too many failed attempts. Try again in a few minutes." },
+      { status: 429, headers: { "Retry-After": "300" } },
+    );
   const caller = getCaller(req.headers, req.cookies.get(SESSION_COOKIE)?.value, state);
+  if (!caller && guarded) {
+    recordLoginFailure(clientKey);
+    if (!state.hasUsers) recordLoginFailure(secretKey);
+  }
   if (caller) {
     const key = caller.kind === "user" ? caller.token : undefined;
     const limit = key?.rateLimitPerMinute;
