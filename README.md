@@ -97,6 +97,12 @@ docker compose up -d --build
 Data lives in the `postbox-data` volume (`/data/postbox.db`). To use a bind mount instead, replace the volume with
 `./data:/data` and make the directory writable by UID 1001.
 
+Compose forwards the runtime settings in `.env.example` from `.env` or your shell (shell values win).
+It fixes `DATABASE_PATH` to `/data/postbox.db` and the internal `PORT` to `3000`; use `POSTBOX_PORT` for the host port.
+Vault key file paths are inside the container: add a separate persistent directory mount for
+`POSTBOX_VAULT_KEY_FILE` if the key should live outside `postbox-data`. Do not commit `.env` or share
+`docker compose config` output containing credentials. Configuration forwarding is checked by `npm test`.
+
 ## Portable Windows edition
 
 The portable x64 bundle runs on Windows 10/11 without an installer or administrator rights. Download
@@ -386,6 +392,7 @@ Chromium binary (otherwise run `npx playwright-core install chromium` once).
 |---|---|---|
 | `DATABASE_PATH` | `/data/postbox.db` (prod), `./data/postbox.db` (dev) | SQLite file |
 | `PORT` | `3000` | HTTP port |
+| `POSTBOX_PORT` | `3000` | Compose host port (container port stays 3000) |
 | `POSTBOX_PASSWORD` | _(none)_ | Enables login with this password |
 | `POSTBOX_TOKEN` | _(none)_ | Enables `Authorization: Bearer` access (API, MCP, automation) |
 | `POSTBOX_SESSION_SECRET` | _(generated)_ | Optional explicit key for signing session cookies (otherwise derived from the env credentials, or generated and stored for accounts) |
@@ -404,6 +411,20 @@ Chromium binary (otherwise run `npx playwright-core install chromium` once).
 | `MCP_ENABLED` | `true` | Serve `/api/mcp`; `false` makes it refuse every request. Also a setting |
 | `MCP_READ_ONLY` | `false` | Hide and block MCP tools that change data. Also a setting |
 | `HISTORY_LIMIT` | `500` | History entries kept per workspace |
+| `GATEWAY_ENABLED` | `false` | Enable the managed API/LLM/MCP gateway; requires account or recovery authentication |
+| `POSTBOX_VAULT_KEY` | _(none)_ | Vault encryption key: 32 bytes as base64 or 64 hex digits; takes precedence over the key file |
+| `POSTBOX_VAULT_KEY_FILE` | _(next to database)_ | Vault key file path; mount its directory separately in Docker to keep it outside the data volume |
+| `POSTBOX_VAULT_PREVIOUS_KEYS` | _(none)_ | Comma-separated older vault keys for rotation |
+| `POSTBOX_SMTP_HOST` | _(none)_ | Monitor notification SMTP relay; HOST and FROM are required to enable delivery |
+| `POSTBOX_SMTP_PORT` | `587` (`465` with secure mode outside Compose) | SMTP port; Compose defaults to 587, so set 465 explicitly for implicit TLS |
+| `POSTBOX_SMTP_FROM` | _(none)_ | Monitor notification sender address |
+| `POSTBOX_SMTP_USER` | _(none)_ | Optional SMTP authentication username |
+| `POSTBOX_SMTP_PASSWORD` | _(none)_ | Optional SMTP authentication password |
+| `POSTBOX_SMTP_SECURE` | `false` | Implicit SMTP TLS, usually on port 465 |
+| `POSTBOX_SMTP_REQUIRE_TLS` | `true` | Require STARTTLS; disable only for an intentionally plaintext local/test relay |
+
+The container resource settings `POSTBOX_MEMORY_LIMIT`, `POSTBOX_CPU_LIMIT`, and `POSTBOX_PIDS_LIMIT` are
+also in `.env.example`; see [Container resource limits](#container-resource-limits) below.
 
 ### Outbound host policy and redirects
 
