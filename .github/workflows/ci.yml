@@ -258,6 +258,10 @@ jobs:
           $env:DATA_DIR = $data
           $env:PORT = '47411'
           $base = 'http://127.0.0.1:47411'
+          # Downloads go to a test folder; the DevTools port lets the smoke test click in the window.
+          $downloads = Join-Path $PWD 'desktop-smoke-downloads'
+          $env:POSTBOX_DOWNLOAD_DIR = $downloads
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=47412'
           $uninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall'
 
           function Find-UninstallEntry([string]$hive) {
@@ -340,6 +344,13 @@ jobs:
             }
             $wsId = @(Invoke-RestMethod "$base/api/workspaces")[0].id
             if (-not $wsId) { throw 'Default workspace was not created' }
+
+            # 3b. Downloads from the window land in the download folder without overwriting, including
+            #     server URLs, blobs and window.open exports.
+            $envBody = @{ workspaceId = $wsId; name = 'Smoke'; variables = @() } | ConvertTo-Json
+            $envId = (Invoke-RestMethod "$base/api/environments" -Method Post -ContentType 'application/json' -Body $envBody).id
+            node scripts/desktop-download-smoke.mjs 47412 $base $downloads $envId
+            if ($LASTEXITCODE -ne 0) { throw 'Desktop download smoke test failed' }
 
             # 4. Second launch focuses the first window and exits 0.
             $second = Start-Process -FilePath $exe -PassThru
