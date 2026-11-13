@@ -313,7 +313,8 @@ jobs:
             # 2. Silent per-user install.
             Invoke-Installer
             foreach ($rel in @('postbox-desktop.exe', 'uninstall.exe', 'runtime\postbox-node.exe', 'app\server.js',
-                'app\local.mjs', 'app\.next\server', 'app\.next\static', 'app\drizzle\meta\_journal.json')) {
+                'app\local.mjs', 'app\.next\server', 'app\.next\static', 'app\.next\node_modules',
+                'app\drizzle\meta\_journal.json')) {
               if (-not (Test-Path (Join-Path $inst $rel))) { throw "Missing from install: $rel" }
             }
             $exeText = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($exe))
