@@ -381,6 +381,10 @@ jobs:
             if (-not (Test-Path (Join-Path $data 'postbox.db'))) { throw 'Uninstall removed postbox.db' }
             Write-Host 'Windows desktop installer OK'
           } catch {
+            Write-Host '----- WebView2 processes and DevTools port'
+            Get-CimInstance Win32_Process -Filter "Name = 'msedgewebview2.exe'" -ErrorAction SilentlyContinue |
+              Select-Object -First 3 | ForEach-Object { Write-Host $_.CommandLine }
+            Get-NetTCPConnection -LocalPort 47412 -ErrorAction SilentlyContinue | Format-Table -AutoSize | Out-String | Write-Host
             foreach ($log in @((Join-Path $data 'logs\server.log'), (Join-Path $data 'logs\server.log.1'), (Join-Path $data 'startup-error.log'))) {
               if (Test-Path $log) { Write-Host "----- $log"; Get-Content $log -Tail 200 }
             }

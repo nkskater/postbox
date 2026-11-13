@@ -18,10 +18,15 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function until(what, check, timeoutMs = 60_000) {
   const deadline = Date.now() + timeoutMs;
+  let last = "";
   for (;;) {
-    const value = await check().catch(() => undefined);
+    const value = await check().catch((error) => {
+      last = String(error?.cause ?? error);
+      return undefined;
+    });
     if (value) return value;
-    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}`);
+    if (Date.now() > deadline)
+      throw new Error(`Timed out waiting for ${what}${last ? ` (last error: ${last})` : ""}`);
     await sleep(500);
   }
 }
@@ -29,9 +34,12 @@ async function until(what, check, timeoutMs = 60_000) {
 const pages = async () =>
   (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).filter((t) => t.type === "page");
 
-const target = await until("the app window on the DevTools port", async () =>
-  (await pages()).find((t) => t.url.startsWith(base)),
-);
+const target = await until("the app window on the DevTools port", async () => {
+  const list = await pages();
+  const found = list.find((t) => t.url.startsWith(base));
+  if (!found) throw new Error(`pages: ${JSON.stringify(list.map((t) => t.url))}`);
+  return found;
+});
 const socket = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((resolve, reject) => {
   socket.onopen = resolve;
