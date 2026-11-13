@@ -13,6 +13,7 @@ import type {
   OAuth2Config,
   RawLanguage,
   RequestNode,
+  RequestSettings,
   ResponseExample,
   TreeNode,
   Variable,
@@ -59,7 +60,8 @@ interface PmBody {
   raw?: string;
   urlencoded?: PmKV[];
   formdata?: PmKV[];
-  file?: { src?: string };
+  /** `contentType` is a Postbox extension; Postman ignores it. */
+  file?: { src?: string; contentType?: string };
   graphql?: { query?: string; variables?: string | object; operationName?: string };
   options?: { raw?: { language?: string } };
   disabled?: boolean;
@@ -72,8 +74,17 @@ interface PmRequest {
   auth?: PmAuth | null;
   description?: PmDescription;
 }
+/** Postman's own request options (also written by Postman itself). */
+interface PmProtocolProfileBehavior {
+  followRedirects?: boolean;
+  maxRedirects?: number;
+  strictSSL?: boolean;
+  disableCookies?: boolean;
+}
 interface PmItem {
-  _postbox?: { contract?: RequestContract | null };
+  /** Postbox extensions Postman ignores: the contract and settings Postman has no field for. */
+  _postbox?: { contract?: RequestContract | null; settings?: Partial<RequestSettings> };
+  protocolProfileBehavior?: PmProtocolProfileBehavior;
   name?: string;
   item?: PmItem[];
   request?: PmRequest | string;
@@ -137,7 +148,7 @@ export function importAuth(a: PmAuth | null | undefined): AuthConfig {
     case "noauth":
       return { type: "none" };
     case "bearer":
-      return { type: "bearer", bearer: { token: p.token ?? "" } };
+      return { type: "bearer", bearer: { token: p.token ?? "", ...(p.prefix ? { prefix: p.prefix } : {}) } };
     case "basic":
       return { type: "basic", basic: { username: p.username ?? "", password: p.password ?? "" } };
     case "digest":
@@ -336,7 +347,12 @@ function importBody(b: PmBody | undefined): BodyConfig {
       return {
         mode: "binary",
         binary: b.file?.src
-          ? { fileName: b.file.src.split(/[\\/]/).pop() ?? "", data: "", missing: true }
+          ? {
+              fileName: b.file.src.split(/[\\/]/).pop() ?? "",
+              ...(b.file.contentType ? { contentType: b.file.contentType } : {}),
+              data: "",
+              missing: true,
+            }
           : null,
       };
     case "graphql":
@@ -354,6 +370,56 @@ function importBody(b: PmBody | undefined): BodyConfig {
     default:
       return { mode: "none" };
   }
+}
+
+/** Request settings from `protocolProfileBehavior` and the `_postbox.settings` extension. */
+function importSettings(item: PmItem): RequestSettings {
+  const settings: RequestSettings = { ...DEFAULT_SETTINGS };
+  const extra = item._postbox?.settings;
+  if (extra && typeof extra === "object") {
+    if (typeof extra.timeoutMs === "number" && extra.timeoutMs > 0) settings.timeoutMs = extra.timeoutMs;
+    if (extra.httpVersion === "http1" || extra.httpVersion === "auto" || extra.httpVersion === "http2")
+      settings.httpVersion = extra.httpVersion;
+    if (typeof extra.socketPath === "string" && extra.socketPath) settings.socketPath = extra.socketPath;
+    // Socket.IO, MQTT and gRPC profiles are copied as exported, as a restored backup does.
+    for (const key of ["socketio", "mqtt", "grpc"] as const)
+      if (extra[key] && typeof extra[key] === "object") Object.assign(settings, { [key]: extra[key] });
+  }
+  const b = item.protocolProfileBehavior;
+  if (b && typeof b === "object") {
+    if (typeof b.followRedirects === "boolean") settings.followRedirects = b.followRedirects;
+    if (typeof b.maxRedirects === "number" && b.maxRedirects >= 0) settings.maxRedirects = b.maxRedirects;
+    if (typeof b.strictSSL === "boolean") settings.verifySsl = b.strictSSL;
+    if (typeof b.disableCookies === "boolean") settings.useCookieJar = !b.disableCookies;
+  }
+  return settings;
+}
+
+/** Settings carried in Postman's own `protocolProfileBehavior`; the rest goes to `_postbox.settings`. */
+const SETTINGS_IN_BEHAVIOR = new Set(["followRedirects", "maxRedirects", "verifySsl", "useCookieJar"]);
+
+function exportSettings(settings: RequestSettings | undefined): Pick<PmItem, "protocolProfileBehavior"> & {
+  extra?: Partial<RequestSettings>;
+} {
+  const s = { ...DEFAULT_SETTINGS, ...settings };
+  const behavior: PmProtocolProfileBehavior = {};
+  if (s.followRedirects !== DEFAULT_SETTINGS.followRedirects) behavior.followRedirects = s.followRedirects;
+  if (s.maxRedirects !== DEFAULT_SETTINGS.maxRedirects) behavior.maxRedirects = s.maxRedirects;
+  if (s.verifySsl !== DEFAULT_SETTINGS.verifySsl) behavior.strictSSL = s.verifySsl;
+  if (s.useCookieJar !== DEFAULT_SETTINGS.useCookieJar) behavior.disableCookies = !s.useCookieJar;
+  const defaults = DEFAULT_SETTINGS as unknown as Record<string, unknown>;
+  const extra = Object.fromEntries(
+    Object.entries(s).filter(
+      ([key, value]) =>
+        !SETTINGS_IN_BEHAVIOR.has(key) &&
+        value !== undefined &&
+        JSON.stringify(value) !== JSON.stringify(defaults[key]),
+    ),
+  ) as Partial<RequestSettings>;
+  return {
+    ...(Object.keys(behavior).length ? { protocolProfileBehavior: behavior } : {}),
+    ...(Object.keys(extra).length ? { extra } : {}),
+  };
 }
 
 function importRequest(item: PmItem): RequestNode {
@@ -407,7 +473,7 @@ function importRequest(item: PmItem): RequestNode {
     auth: r.auth === undefined ? { type: "inherit" } : importAuth(r.auth),
     preRequestScript: scriptOf(item.event, "prerequest"),
     testScript: scriptOf(item.event, "test"),
-    settings: { ...DEFAULT_SETTINGS },
+    settings: importSettings(item),
     description: desc(r.description ?? item.description),
     examples,
     ...(item._postbox?.contract ? { contract: parseContract(item._postbox.contract) } : {}),
@@ -553,7 +619,14 @@ function exportAuth(a: AuthConfig, includeCredentials = false): PmAuth | null | 
     case "none":
       return { type: "noauth" };
     case "bearer":
-      return { type: "bearer", bearer: arr({ token: credential(a.bearer.token) }) };
+      // `prefix` is a Postbox extension (for example "Token" instead of "Bearer"); Postman ignores it.
+      return {
+        type: "bearer",
+        bearer: arr({
+          token: credential(a.bearer.token),
+          ...(a.bearer.prefix ? { prefix: a.bearer.prefix } : {}),
+        }),
+      };
     case "basic":
       return {
         type: "basic",
@@ -738,7 +811,13 @@ function exportBody(b: BodyConfig): PmBody | undefined {
         ),
       };
     case "binary":
-      return { mode: "file", file: { src: b.binary?.fileName ?? "" } };
+      return {
+        mode: "file",
+        file: {
+          src: b.binary?.fileName ?? "",
+          ...(b.binary?.contentType ? { contentType: b.binary.contentType } : {}),
+        },
+      };
     case "graphql":
       return {
         mode: "graphql",
@@ -757,7 +836,12 @@ function exportUrl(raw: string, params: KeyValue[]): PmUrl {
   const m = /^([a-z][a-z0-9+.-]*):\/\/([^/]*)(\/.*)?$/i.exec(base);
   const query = params
     .filter((p) => p.key)
-    .map((p) => ({ key: p.key, value: p.value, disabled: !p.enabled }));
+    .map((p) => ({
+      key: p.key,
+      value: p.value,
+      disabled: !p.enabled,
+      ...(p.description ? { description: p.description } : {}),
+    }));
   if (!m) return { raw, host: [base.split("/")[0]], path: base.split("/").slice(1), query };
   const [hostPart, port] = m[2].split(":");
   return {
@@ -801,6 +885,7 @@ function exportNode(
       value: h.value,
       disabled: !h.enabled,
       type: "text",
+      ...(h.description ? { description: h.description } : {}),
     }));
   const requestData = {
     header,
@@ -811,9 +896,15 @@ function exportNode(
     opts.includeCredentials ? requestData : redactSensitiveFields(requestData),
     secrets,
   );
+  const { protocolProfileBehavior, extra } = exportSettings(n.settings);
+  const postbox = {
+    ...(n.contract ? { contract: redactStoredValue(n.contract, secrets) } : {}),
+    ...(extra ? { settings: redactStoredValue(extra, secrets) } : {}),
+  };
   return {
     name: n.name,
-    ...(n.contract ? { _postbox: { contract: redactStoredValue(n.contract, secrets) } } : {}),
+    ...(Object.keys(postbox).length ? { _postbox: postbox } : {}),
+    ...(protocolProfileBehavior ? { protocolProfileBehavior } : {}),
     event: events(n.preRequestScript, n.testScript),
     request: {
       method: n.method,
