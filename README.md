@@ -1,7 +1,7 @@
 # Postbox
 
 A self-hosted, lightweight, open-source alternative to Postman. Run it as a Docker web app on your LAN,
-or use the portable Windows edition for a local, zero-install app. Requests, scripts and collection runs
+or use the Windows desktop app or portable edition for a local app. Requests, scripts and collection runs
 execute on the machine running Postbox, so VPN-connected Windows users can reach services from their PC.
 
 ![Postbox: a request with its JSON response, collection sidebar and environment selector](docs/screenshots/request-response.png)
@@ -21,6 +21,7 @@ execute on the machine running Postbox, so VPN-connected Windows users can reach
 
 - [Features](#features)
 - [Quick start (Docker)](#quick-start-docker)
+- [Windows desktop app](#windows-desktop-app)
 - [Portable Windows edition](#portable-windows-edition)
 - [Usage guide](#usage-guide)
   1. [Send your first request](#1-send-your-first-request)
@@ -102,6 +103,19 @@ It fixes `DATABASE_PATH` to `/data/postbox.db` and the internal `PORT` to `3000`
 Vault key file paths are inside the container: add a separate persistent directory mount for
 `POSTBOX_VAULT_KEY_FILE` if the key should live outside `postbox-data`. Do not commit `.env` or share
 `docker compose config` output containing credentials. Configuration forwarding is checked by `npm test`.
+
+## Windows desktop app
+
+Postbox Desktop installs Postbox as a regular Windows app with its own window, Start menu entry and uninstaller.
+Download `Postbox-Desktop-windows-x64-setup.exe` from the
+[latest GitHub release](https://github.com/nkskater/postbox/releases/latest) and run it. The installer is per-user:
+it needs no administrator rights and installs to `%LOCALAPPDATA%\Postbox Desktop`. Data lives in
+`%LOCALAPPDATA%\Postbox` and is kept on upgrade and uninstall. The installer is not code-signed yet, so SmartScreen
+may ask you to confirm with **More info → Run anyway**.
+
+See the [Windows desktop guide](docs/windows-desktop.md) for settings, silent install, moving data from the portable
+edition or Docker, and troubleshooting. The portable edition below remains available for PCs where you cannot run
+an installer.
 
 ## Portable Windows edition
 
