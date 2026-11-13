@@ -14,7 +14,9 @@ import {
   findAppBrowser,
   findFreePort,
   findRunningCopy,
+  formatHostEvent,
   formatLocalDate,
+  isHostMode,
   isWindowMode,
   lockFilePath,
   resolveLocalPaths,
@@ -104,9 +106,7 @@ describe("portable Windows local edition", () => {
     expect(paths.dataDir).toBe(path.resolve(customData));
     expect(paths.databasePath).toBe(path.resolve(customData, "postbox.db"));
     expect(paths.migrationsPath).toBe(path.resolve(tmp, "app", "drizzle"));
-    expect(paths.runningFile).toBe(
-      runningFilePath(paths.databasePath, "win32", customEnv, tmp),
-    );
+    expect(paths.runningFile).toBe(runningFilePath(paths.databasePath, "win32", customEnv, tmp));
     expect(paths.lockFile).toBe(lockFilePath(paths.databasePath, "win32", customEnv, tmp));
   });
 
@@ -141,10 +141,7 @@ describe("portable Windows local edition", () => {
     const port = (srv.address() as net.AddressInfo).port;
 
     try {
-      fs.writeFileSync(
-        runningFile,
-        JSON.stringify({ port, pid: process.pid, instance: "instance-live-1" }),
-      );
+      fs.writeFileSync(runningFile, JSON.stringify({ port, pid: process.pid, instance: "instance-live-1" }));
       expect(await findRunningCopy(runningFile, "127.0.0.1")).toBe(port);
 
       activeInstance = "different-instance";
@@ -171,9 +168,7 @@ describe("portable Windows local edition", () => {
 
     const pinnedReader = new Database(dbPath, { readonly: true });
     pinnedReader.exec("BEGIN DEFERRED");
-    expect(pinnedReader.prepare("SELECT name FROM items ORDER BY id").all()).toEqual([
-      { name: "row-1" },
-    ]);
+    expect(pinnedReader.prepare("SELECT name FROM items ORDER BY id").all()).toEqual([{ name: "row-1" }]);
 
     // Commit row-2 while pinnedReader holds the snapshot open so row-2 stays in the WAL file.
     writer.prepare("INSERT INTO items (name) VALUES (?)").run("row-2-in-wal");
@@ -207,10 +202,7 @@ describe("portable Windows local edition", () => {
 
     // Only the newest 2 backups remain.
     const remaining = fs.readdirSync(backupsDir).sort();
-    expect(remaining).toEqual([
-      "postbox-2026-01-03.db",
-      `postbox-${formatLocalDate(now)}.db`,
-    ]);
+    expect(remaining).toEqual(["postbox-2026-01-03.db", `postbox-${formatLocalDate(now)}.db`]);
   });
 
   it("fails closed without pruning existing backups when the source database is corrupt", () => {
@@ -231,19 +223,13 @@ describe("portable Windows local edition", () => {
     ).toThrow();
 
     // Existing backups are untouched when today's backup fails.
-    expect(fs.readdirSync(backupsDir).sort()).toEqual([
-      "postbox-2026-01-01.db",
-      "postbox-2026-01-02.db",
-    ]);
+    expect(fs.readdirSync(backupsDir).sort()).toEqual(["postbox-2026-01-01.db", "postbox-2026-01-02.db"]);
   });
 
   it("reclaims stale instance locks from dead PIDs and coordinates concurrent initial launches", async () => {
     const tmp = makeTempDir();
     const lockFile = path.join(tmp, "running-test.lock");
-    fs.writeFileSync(
-      lockFile,
-      JSON.stringify({ pid: 99999999, instance: "dead-instance", startedAt: 1 }),
-    );
+    fs.writeFileSync(lockFile, JSON.stringify({ pid: 99999999, instance: "dead-instance", startedAt: 1 }));
     const acquired = tryAcquireInstanceLock(lockFile, "live-instance", process.pid);
     expect(acquired.acquired).toBe(true);
     acquired.release!();
@@ -327,11 +313,9 @@ describe("portable Windows local edition", () => {
       child.stderr.on("data", (d) => {
         stderr += d.toString();
       });
-      const exitPromise = new Promise<{ code: number | null; stdout: string; stderr: string }>(
-        (resolve) => {
-          child.on("exit", (code) => resolve({ code, stdout, stderr }));
-        },
-      );
+      const exitPromise = new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve) => {
+        child.on("exit", (code) => resolve({ code, stdout, stderr }));
+      });
       return { child, getOutput: () => ({ stdout, stderr }), exitPromise };
     };
 
@@ -351,10 +335,7 @@ describe("portable Windows local edition", () => {
 
       // Wait until the leader prints "Postbox is running."
       const deadline = Date.now() + 10_000;
-      while (
-        Date.now() < deadline &&
-        !firstExit.leader.getOutput().stdout.includes("Postbox is running.")
-      ) {
+      while (Date.now() < deadline && !firstExit.leader.getOutput().stdout.includes("Postbox is running.")) {
         await new Promise((r) => setTimeout(r, 50));
       }
       expect(firstExit.leader.getOutput().stdout).toContain("Postbox is running.");
@@ -400,9 +381,7 @@ describe("portable Windows local edition", () => {
     const actualHash = crypto.createHash("sha256").update(validPe).digest("hex");
     const wrongHash = "0".repeat(64);
 
-    expect(() => verifyNodeExe(validPe, `${wrongHash}  win-x64/node.exe`)).toThrow(
-      /checksum mismatch/,
-    );
+    expect(() => verifyNodeExe(validPe, `${wrongHash}  win-x64/node.exe`)).toThrow(/checksum mismatch/);
     expect(() => verifyNodeExe(validPe, `${actualHash}  linux-x64/node`)).toThrow(
       /missing from SHASUMS256\.txt/,
     );
@@ -421,9 +400,7 @@ describe("portable Windows local edition", () => {
   });
 
   it("validates PE binaries, sanitizes standalone server.js paths, and writes valid zip archives", () => {
-    expect(() =>
-      assertWindowsBinary(Buffer.from([0x4d, 0x5a, 0x90, 0x00]), "test.exe"),
-    ).not.toThrow();
+    expect(() => assertWindowsBinary(Buffer.from([0x4d, 0x5a, 0x90, 0x00]), "test.exe")).not.toThrow();
     expect(() => assertWindowsBinary(Buffer.from([0x7f, 0x45, 0x4c, 0x46]), "elf")).toThrow(
       /not a Windows PE executable/,
     );
@@ -647,6 +624,172 @@ describe("portable Windows local edition", () => {
       expect(fs.readFileSync(path.join(dataDir, "startup-error.log"), "utf8")).toContain(
         "Microsoft Edge or Google Chrome",
       );
+    }, 20_000);
+  });
+  it("detects host mode and formats host protocol lines", () => {
+    expect(isHostMode({})).toBe(false);
+    expect(isHostMode({ POSTBOX_HOST_PIPE: "0" })).toBe(false);
+    expect(isHostMode({ POSTBOX_HOST_PIPE: "false" })).toBe(false);
+    expect(isHostMode({ POSTBOX_HOST_PIPE: "1" })).toBe(true);
+    expect(formatHostEvent("ready", { port: 1, role: "leader" })).toBe(
+      'POSTBOX_READY {"port":1,"role":"leader"}\n',
+    );
+    expect(formatHostEvent("error", { message: "x" })).toBe('POSTBOX_ERROR {"message":"x"}\n');
+  });
+
+  describe.skipIf(process.platform === "win32")("desktop host mode", () => {
+    type HostRun = {
+      child: ReturnType<typeof spawn>;
+      exited: Promise<number | null>;
+      stdout: () => string;
+      out: () => string;
+    };
+
+    function makeHostFixture(serverJs?: string) {
+      const tmp = makeTempDir();
+      const appDir = path.join(tmp, "app");
+      const dataDir = path.join(tmp, "Data");
+      fs.mkdirSync(path.join(appDir, "drizzle"), { recursive: true });
+      fs.writeFileSync(path.join(appDir, "package.json"), '{"type":"module"}');
+      fs.writeFileSync(
+        path.join(appDir, "server.js"),
+        serverJs ??
+          `import http from "node:http";
+           const srv = http.createServer((req, res) => {
+             res.setHeader("Content-Type", "application/json");
+             res.end(JSON.stringify({ status: "ok", app: "postbox", instance: process.env.POSTBOX_INSTANCE_ID }));
+           });
+           srv.listen(Number(process.env.PORT), "127.0.0.1");
+           process.on("SIGTERM", () => srv.close(() => process.exit(0)));`,
+      );
+      const browser = path.join(tmp, "fake-browser.sh");
+      const browserMarker = path.join(tmp, "browser-ran.txt");
+      fs.writeFileSync(browser, `#!/bin/sh\necho "$@" > ${JSON.stringify(browserMarker)}\n`, {
+        mode: 0o755,
+      });
+      return { tmp, appDir, dataDir, browserMarker, browser };
+    }
+
+    function startHost(fixture: ReturnType<typeof makeHostFixture>, port: number): HostRun {
+      const env = { ...process.env } as unknown as NodeJS.ProcessEnv;
+      delete env.NO_BROWSER;
+      delete env.DATABASE_PATH;
+      Object.assign(env, {
+        BACKUP_KEEP: "0",
+        DATA_DIR: fixture.dataDir,
+        LOCALAPPDATA: fixture.tmp,
+        PORT: String(port),
+        POSTBOX_APP_DIR: fixture.appDir,
+        POSTBOX_BROWSER: fixture.browser,
+        POSTBOX_WINDOW: "1",
+        POSTBOX_HOST_PIPE: "1",
+      });
+      const child = spawn(process.execPath, [path.join(ROOT, "scripts", "local-server.mjs"), "--window"], {
+        env,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      let stdout = "";
+      let out = "";
+      child.stdout!.on("data", (d) => {
+        stdout += d;
+        out += d;
+      });
+      child.stderr!.on("data", (d) => (out += d));
+      const exited = new Promise<number | null>((r) => child.on("exit", (c) => r(c)));
+      return { child, exited, stdout: () => stdout, out: () => out };
+    }
+
+    async function waitForLine(run: HostRun, prefix: string, timeoutMs = 15_000) {
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        const line = run
+          .stdout()
+          .split("\n")
+          .find((l) => l.startsWith(prefix + " "));
+        if (line) return JSON.parse(line.slice(prefix.length + 1));
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      throw new Error(`No ${prefix} line. Output:\n${run.out()}`);
+    }
+
+    function withTimeout<T>(p: Promise<T>, ms: number) {
+      return Promise.race([p, new Promise<string>((r) => setTimeout(() => r("timeout"), ms))]);
+    }
+
+    it("reports readiness, serves a second start as secondary, and stops when stdin closes", async () => {
+      const fixture = makeHostFixture();
+      const port = await findFreePort(0, "127.0.0.1");
+      const leader = startHost(fixture, port);
+      try {
+        const ready = await waitForLine(leader, "POSTBOX_READY");
+        expect(ready).toEqual({
+          port,
+          url: `http://127.0.0.1:${port}/`,
+          role: "leader",
+          dataDir: fixture.dataDir,
+        });
+        expect(leader.stdout().match(/^POSTBOX_READY /gm)).toHaveLength(1);
+
+        const databasePath = path.join(fixture.dataDir, "postbox.db");
+        const runningFile = runningFilePath(databasePath);
+        const lockFile = lockFilePath(databasePath);
+        expect(fs.existsSync(runningFile)).toBe(true);
+        expect(fs.existsSync(lockFile)).toBe(true);
+
+        const second = startHost(fixture, port);
+        try {
+          expect(await withTimeout(second.exited, 15_000), second.out()).toBe(0);
+          expect(await waitForLine(second, "POSTBOX_READY")).toMatchObject({ port, role: "secondary" });
+        } finally {
+          second.child.kill("SIGKILL");
+        }
+
+        leader.child.stdin!.end();
+        expect(await withTimeout(leader.exited, 10_000), leader.out()).toBe(0);
+        expect(fs.existsSync(runningFile)).toBe(false);
+        expect(fs.existsSync(lockFile)).toBe(false);
+        expect(fs.existsSync(fixture.browserMarker)).toBe(false);
+      } finally {
+        leader.child.kill("SIGKILL");
+      }
+    }, 40_000);
+
+    it("stops before readiness when stdin closes during start-up", async () => {
+      const fixture = makeHostFixture(`await new Promise((r) => setTimeout(r, 60_000));`);
+      const port = await findFreePort(0, "127.0.0.1");
+      const run = startHost(fixture, port);
+      try {
+        const databasePath = path.join(fixture.dataDir, "postbox.db");
+        const lockFile = lockFilePath(databasePath);
+        const deadline = Date.now() + 10_000;
+        while (Date.now() < deadline && !fs.existsSync(lockFile)) {
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        expect(fs.existsSync(lockFile)).toBe(true);
+        run.child.stdin!.end();
+        expect(await withTimeout(run.exited, 10_000), run.out()).toBe(0);
+        expect(fs.existsSync(lockFile)).toBe(false);
+        expect(run.stdout()).not.toContain("POSTBOX_READY");
+      } finally {
+        run.child.kill("SIGKILL");
+      }
+    }, 20_000);
+
+    it("reports a failed start with POSTBOX_ERROR and leaves the reason on disk", async () => {
+      const fixture = makeHostFixture(`throw new Error("fixture start failure");`);
+      const port = await findFreePort(0, "127.0.0.1");
+      const run = startHost(fixture, port);
+      try {
+        expect(await withTimeout(run.exited, 15_000), run.out()).toBe(1);
+        const error = await waitForLine(run, "POSTBOX_ERROR", 1000);
+        const log = path.join(fixture.dataDir, "startup-error.log");
+        expect(error).toEqual({ message: "fixture start failure", log });
+        expect(fs.readFileSync(log, "utf8")).toContain("fixture start failure");
+        expect(fs.existsSync(lockFilePath(path.join(fixture.dataDir, "postbox.db")))).toBe(false);
+        expect(fs.existsSync(fixture.browserMarker)).toBe(false);
+      } finally {
+        run.child.kill("SIGKILL");
+      }
     }, 20_000);
   });
 });
