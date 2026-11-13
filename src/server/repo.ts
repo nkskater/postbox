@@ -3,7 +3,7 @@ import { parseContract } from "@/core/contracts/validate";
  * Repository layer: maps SQLite rows to core domain types and back.
  * All functions are synchronous (better-sqlite3).
  */
-import { and, asc, desc, eq, inArray, isNull, lt, max, notInArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lt, max, notInArray, sql } from "drizzle-orm";
 import type {
   CookieInfo,
   Environment,
@@ -205,8 +205,34 @@ export function getFolderTree(folderId: string): FolderNode | null {
   const db = getDb();
   const root = db.select().from(folders).where(eq(folders.id, folderId)).get();
   if (!root) return null;
-  const allFolders = db.select().from(folders).where(eq(folders.workspaceId, root.workspaceId)).all();
-  const allRequests = db.select().from(requests).where(eq(requests.workspaceId, root.workspaceId)).all();
+  // UNION deduplicates IDs so corrupt cyclic parent links cannot loop in SQL.
+  const subtree = sql`(
+    WITH RECURSIVE subtree(id) AS (
+      SELECT ${folders.id} FROM ${folders} WHERE ${folders.id} = ${folderId}
+      UNION
+      SELECT child.id FROM folders AS child INDEXED BY folders_parent_idx
+      JOIN subtree ON child.parent_id = subtree.id
+      WHERE child.workspace_id = ${root.workspaceId}
+    )
+    SELECT id FROM subtree
+  )`;
+  const allFolders = db
+    .select()
+    .from(folders)
+    .where(inArray(folders.id, subtree))
+    .orderBy(asc(folders.sort), asc(sql`${folders}.rowid`))
+    .all();
+  // Select IDs through the folder index before hydrating payloads by primary key.
+  const subtreeRequests = sql`(
+    SELECT id FROM requests INDEXED BY requests_folder_idx
+    WHERE folder_id IN ${subtree} AND workspace_id = ${root.workspaceId}
+  )`;
+  const allRequests = db
+    .select()
+    .from(requests)
+    .where(inArray(requests.id, subtreeRequests))
+    .orderBy(asc(requests.sort), asc(requests.createdAt), asc(sql`${requests}.rowid`))
+    .all();
   const foldersByParent = new Map<string | null, FolderRow[]>();
   const requestsByFolder = new Map<string, RequestRow[]>();
   for (const folder of allFolders) {
@@ -235,6 +261,30 @@ export function getFolderTree(folderId: string): FolderNode | null {
     return { ...def, kind: "folder", children };
   };
   return build(root);
+}
+
+/** Ordered immediate children without loading request bodies, examples or scripts. */
+export function getFolderChildIds(folderId: string): string[] {
+  const db = getDb();
+  const root = db
+    .select({ workspaceId: folders.workspaceId })
+    .from(folders)
+    .where(eq(folders.id, folderId))
+    .get();
+  if (!root) return [];
+  const subFolders = db
+    .select({ id: folders.id, sort: folders.sort })
+    .from(folders)
+    .where(and(eq(folders.parentId, folderId), eq(folders.workspaceId, root.workspaceId)))
+    .orderBy(asc(folders.sort))
+    .all();
+  const reqs = db
+    .select({ id: sql<string>`${requests.id}`, sort: sql<number>`${requests.sort}` })
+    .from(sql`${requests} INDEXED BY requests_folder_idx`)
+    .where(and(eq(requests.folderId, folderId), eq(requests.workspaceId, root.workspaceId)))
+    .orderBy(asc(requests.sort), asc(requests.createdAt))
+    .all();
+  return [...subFolders, ...reqs].sort((a, b) => a.sort - b.sort).map((child) => child.id);
 }
 
 /** Ancestors of a folder, collection first, including the folder itself. */

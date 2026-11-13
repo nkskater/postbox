@@ -109,8 +109,7 @@ function applyOrder(incoming: Snapshot["root"], map: Record<string, string>) {
     if (node.kind !== "folder") return;
     const folderId = map[node.sid];
     const wanted = node.children.map((c) => map[c.sid]).filter((id): id is string => !!id);
-    const tree = repo.getFolderTree(folderId);
-    const have = tree?.children.map((c) => c.id) ?? [];
+    const have = repo.getFolderChildIds(folderId);
     const sameOrder = wanted.every((id, i) => have.filter((h) => wanted.includes(h))[i] === id);
     if (!sameOrder)
       wanted.forEach((id, i) => {
