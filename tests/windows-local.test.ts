@@ -449,7 +449,13 @@ describe("portable Windows local edition", () => {
     write(".next/standalone/node_modules/better-sqlite3/src/sqlite3.c");
     write(".next/standalone/node_modules/@img/sharp-linux-x64/lib.node");
     write(".next/standalone/node_modules/@img/sharp-win32-x64/lib.node");
-    write(".next/standalone/.next/node_modules/better-sqlite3-abc123/package.json", "{}");
+    // Turbopack links hashed externals to the real package, like a production build.
+    fs.mkdirSync(path.join(root, ".next/standalone/.next/node_modules"), { recursive: true });
+    fs.symlinkSync(
+      path.join(root, ".next/standalone/node_modules/better-sqlite3"),
+      path.join(root, ".next/standalone/.next/node_modules/better-sqlite3-abc123"),
+      "junction",
+    );
     write(".next/static/chunks/main.js");
     write("public/favicon.ico");
     write("drizzle/meta/_journal.json", "{}");
@@ -485,9 +491,17 @@ describe("portable Windows local edition", () => {
         );
       }
       expect(fs.readFileSync(path.join(appDir, "server.js"), "utf8")).not.toContain(root);
+      const linked = path.join(appDir, ".next/node_modules/better-sqlite3-abc123");
+      expect(fs.lstatSync(linked).isSymbolicLink()).toBe(false);
+      expect(fs.readFileSync(path.join(linked, "package.json"), "utf8")).toBe("{}");
       expect(has("cli.mjs")).toBe(includeCli);
       expect(has("node_modules/cli-dep/index.js")).toBe(includeCli);
     }
+    // Staging must never write through a link into the build output.
+    expect(fs.existsSync(path.join(root, ".next/standalone/node_modules/better-sqlite3/prebuilds"))).toBe(
+      false,
+    );
+    expect(fs.existsSync(path.join(root, ".next/standalone/node_modules/better-sqlite3/src"))).toBe(true);
   });
 
   it("ships Windows launcher scripts configured for loopback and Windows certificate store", () => {

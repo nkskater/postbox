@@ -246,6 +246,27 @@ export function ensureAppBuilt(skipBuild) {
 }
 
 /**
+ * Replaces every symlink or junction under `dir` with a real copy of its
+ * target. `fs.cpSync(..., { dereference: true })` only dereferences the source
+ * root, so links inside it (such as Turbopack's `.next/node_modules/<pkg>-<hash>`
+ * links) would otherwise be copied as links pointing back into the build tree.
+ * @param {string} dir
+ */
+export function materializeLinks(dir) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isSymbolicLink()) {
+      const target = fs.realpathSync(full);
+      fs.rmSync(full, { recursive: true, force: true });
+      fs.cpSync(target, full, { recursive: true, dereference: true });
+      if (fs.statSync(full).isDirectory()) materializeLinks(full);
+    } else if (entry.isDirectory()) {
+      materializeLinks(full);
+    }
+  }
+}
+
+/**
  * Stages the runnable app folder (what ships as `app\\`): the standalone
  * Next.js server, static assets, public files, migrations, the local launcher
  * entry point (`local.mjs`) and the Windows better-sqlite3 binding.
@@ -281,6 +302,7 @@ export async function stageApp({ appDir, includeCli, root = ROOT, binding }) {
     recursive: true,
     dereference: true,
   });
+  materializeLinks(appDir);
 
   if (includeCli) {
     // Bundle the CLI alongside server.js so `Postbox CLI.cmd` shares app/node_modules.
