@@ -30,6 +30,7 @@ import {
   crc32,
   fetchNodeExe,
   sanitizeStandaloneServerJs,
+  stageApp,
   verifyNodeExe,
   writeZip,
 } from "../scripts/build-windows.mjs";
@@ -434,6 +435,59 @@ describe("portable Windows local edition", () => {
     expect(zipBytes.includes(Buffer.from("Postbox/sub/nested.json"))).toBe(true);
     expect(zipBytes.includes(Buffer.from("Postbox/linked-pkg/index.js"))).toBe(true);
     expect(crc32(Buffer.from("123456789"))).toBe(0xcbf43926);
+  });
+
+  it("stages the app folder with or without the CLI and the Windows sqlite binding", async () => {
+    const root = makeTempDir();
+    const write = (rel: string, text = "x") => {
+      fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+      fs.writeFileSync(path.join(root, rel), text);
+    };
+    write(".next/standalone/server.js", `const dir = ${JSON.stringify(root)};`);
+    write(".next/standalone/.next/server/app.js");
+    write(".next/standalone/node_modules/better-sqlite3/package.json", "{}");
+    write(".next/standalone/node_modules/better-sqlite3/src/sqlite3.c");
+    write(".next/standalone/node_modules/@img/sharp-linux-x64/lib.node");
+    write(".next/standalone/node_modules/@img/sharp-win32-x64/lib.node");
+    write(".next/standalone/.next/node_modules/better-sqlite3-abc123/package.json", "{}");
+    write(".next/static/chunks/main.js");
+    write("public/favicon.ico");
+    write("drizzle/meta/_journal.json", "{}");
+    write("scripts/local-server.mjs", "// launcher");
+    write("dist/cli.mjs", "// cli");
+    write("dist/node_modules/cli-dep/index.js");
+    const binding = Buffer.from("MZfake-binding");
+
+    for (const includeCli of [true, false]) {
+      const appDir = path.join(root, includeCli ? "out-zip" : "out-desktop", "app");
+      fs.mkdirSync(appDir, { recursive: true });
+      fs.writeFileSync(path.join(appDir, "stale.txt"), "old");
+      await stageApp({ appDir, includeCli, root, binding });
+      const has = (rel: string) => fs.existsSync(path.join(appDir, rel));
+      expect(has("stale.txt")).toBe(false);
+      for (const rel of [
+        "server.js",
+        "local.mjs",
+        ".next/server/app.js",
+        ".next/static/chunks/main.js",
+        "public/favicon.ico",
+        "drizzle/meta/_journal.json",
+        "node_modules/@img/sharp-win32-x64/lib.node",
+      ]) {
+        expect(has(rel), rel).toBe(true);
+      }
+      expect(has("node_modules/@img/sharp-linux-x64")).toBe(false);
+      expect(has("node_modules/better-sqlite3/src")).toBe(false);
+      for (const bsq of ["node_modules/better-sqlite3", ".next/node_modules/better-sqlite3-abc123"]) {
+        expect(fs.readFileSync(path.join(appDir, bsq, "prebuilds", "win32-x64.node"))).toEqual(binding);
+        expect(fs.readFileSync(path.join(appDir, bsq, "build", "Release", "better_sqlite3.node"))).toEqual(
+          binding,
+        );
+      }
+      expect(fs.readFileSync(path.join(appDir, "server.js"), "utf8")).not.toContain(root);
+      expect(has("cli.mjs")).toBe(includeCli);
+      expect(has("node_modules/cli-dep/index.js")).toBe(includeCli);
+    }
   });
 
   it("ships Windows launcher scripts configured for loopback and Windows certificate store", () => {

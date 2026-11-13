@@ -90,7 +90,7 @@ export async function fetchNodeExe({
 // Pulls one file out of a .tar.gz (ustar), by path suffix.
 export function extractFromTarGz(tgz, suffix) {
   const tar = zlib.gunzipSync(tgz);
-  for (let off = 0; off + 512 <= tar.length; ) {
+  for (let off = 0; off + 512 <= tar.length;) {
     const header = tar.subarray(off, off + 512);
     if (header.every((b) => b === 0)) break;
     const field = (s, n) =>
@@ -106,8 +106,8 @@ export function extractFromTarGz(tgz, suffix) {
   throw new Error(`${suffix} not found in archive`);
 }
 
-async function fetchSqliteBinding() {
-  const bsqDir = path.join(ROOT, "node_modules", "better-sqlite3");
+export async function fetchSqliteBinding(root = ROOT) {
+  const bsqDir = path.join(root, "node_modules", "better-sqlite3");
   const prebuiltPath = path.join(bsqDir, "prebuilds", "win32-x64.node");
   if (fs.existsSync(prebuiltPath)) {
     const binding = fs.readFileSync(prebuiltPath);
@@ -227,7 +227,7 @@ export function writeZip(srcDir, prefix, outFile) {
   return central.length / 2;
 }
 
-function ensureAppBuilt(skipBuild) {
+export function ensureAppBuilt(skipBuild) {
   const standaloneServer = path.join(ROOT, ".next", "standalone", "server.js");
   const cliBundle = path.join(ROOT, "dist", "cli.mjs");
   if (skipBuild && fs.existsSync(standaloneServer) && fs.existsSync(cliBundle)) {
@@ -245,65 +245,68 @@ function ensureAppBuilt(skipBuild) {
   }
 }
 
-async function main() {
-  const skipBuild = process.argv.includes("--skip-build");
-  log(`Building the Postbox Windows edition with Node.js v${NODE_VERSION}`);
-  if (!fs.existsSync(path.join(ROOT, "node_modules", "better-sqlite3"))) {
-    throw new Error("Run `npm ci` first (the build reads the installed better-sqlite3 package)");
-  }
+/**
+ * Stages the runnable app folder (what ships as `app\\`): the standalone
+ * Next.js server, static assets, public files, migrations, the local launcher
+ * entry point (`local.mjs`) and the Windows better-sqlite3 binding.
+ * `includeCli` adds the bundled CLI (portable zip only).
+ * @param {{ appDir: string, includeCli: boolean, root?: string, binding?: Buffer }} options
+ */
+export async function stageApp({ appDir, includeCli, root = ROOT, binding }) {
+  const sqliteBinding = binding ?? (await fetchSqliteBinding(root));
+  fs.rmSync(appDir, { recursive: true, force: true });
+  fs.mkdirSync(appDir, { recursive: true });
 
-  ensureAppBuilt(skipBuild);
-
-  const [nodeExe, binding] = await Promise.all([fetchNodeExe(), fetchSqliteBinding()]);
-
-  fs.rmSync(STAGE, { recursive: true, force: true });
-  fs.rmSync(ZIP_PATH, { force: true });
-  fs.mkdirSync(APP, { recursive: true });
-
-  log("Staging standalone server, static assets, migrations, and CLI");
+  log(
+    includeCli
+      ? "Staging standalone server, static assets, migrations, and CLI"
+      : "Staging standalone server, static assets, and migrations",
+  );
   // Dereference symlinks/junctions (such as Turbopack's .next/node_modules/*
   // junctions) so the zipped package contains real files and directories that
   // extract cleanly on any Windows PC without admin/symlink privileges.
-  fs.cpSync(path.join(ROOT, ".next", "standalone"), APP, {
+  fs.cpSync(path.join(root, ".next", "standalone"), appDir, {
     recursive: true,
     dereference: true,
   });
-  fs.cpSync(path.join(ROOT, ".next", "static"), path.join(APP, ".next", "static"), {
+  fs.cpSync(path.join(root, ".next", "static"), path.join(appDir, ".next", "static"), {
     recursive: true,
     dereference: true,
   });
-  fs.cpSync(path.join(ROOT, "public"), path.join(APP, "public"), {
+  fs.cpSync(path.join(root, "public"), path.join(appDir, "public"), {
     recursive: true,
     dereference: true,
   });
-  fs.cpSync(path.join(ROOT, "drizzle"), path.join(APP, "drizzle"), {
+  fs.cpSync(path.join(root, "drizzle"), path.join(appDir, "drizzle"), {
     recursive: true,
     dereference: true,
   });
 
-  // Bundle the CLI alongside server.js so `Postbox CLI.cmd` shares app/node_modules.
-  fs.copyFileSync(path.join(ROOT, "dist", "cli.mjs"), path.join(APP, "cli.mjs"));
-  const cliNodeModules = path.join(ROOT, "dist", "node_modules");
-  if (fs.existsSync(cliNodeModules)) {
-    fs.cpSync(cliNodeModules, path.join(APP, "node_modules"), {
-      recursive: true,
-      dereference: true,
-    });
+  if (includeCli) {
+    // Bundle the CLI alongside server.js so `Postbox CLI.cmd` shares app/node_modules.
+    fs.copyFileSync(path.join(root, "dist", "cli.mjs"), path.join(appDir, "cli.mjs"));
+    const cliNodeModules = path.join(root, "dist", "node_modules");
+    if (fs.existsSync(cliNodeModules)) {
+      fs.cpSync(cliNodeModules, path.join(appDir, "node_modules"), {
+        recursive: true,
+        dereference: true,
+      });
+    }
   }
 
   // Strip build-machine paths from app/server.js.
-  const serverJsPath = path.join(APP, "server.js");
-  const sanitizedServer = sanitizeStandaloneServerJs(fs.readFileSync(serverJsPath, "utf8"));
+  const serverJsPath = path.join(appDir, "server.js");
+  const sanitizedServer = sanitizeStandaloneServerJs(fs.readFileSync(serverJsPath, "utf8"), root);
   fs.writeFileSync(serverJsPath, sanitizedServer);
 
   // Copy the local Windows server entrypoint.
-  fs.copyFileSync(path.join(ROOT, "scripts", "local-server.mjs"), path.join(APP, "local.mjs"));
+  fs.copyFileSync(path.join(root, "scripts", "local-server.mjs"), path.join(appDir, "local.mjs"));
 
   // Ensure every better-sqlite3 package copy (both app/node_modules/better-sqlite3
   // and any Turbopack externalized app/.next/node_modules/better-sqlite3-*) contains
   // only the Windows x64 prebuilt addon and drops C/C++ sources and non-Windows prebuilds.
-  const bsqDirs = [path.join(APP, "node_modules", "better-sqlite3")];
-  const nextNodeModules = path.join(APP, ".next", "node_modules");
+  const bsqDirs = [path.join(appDir, "node_modules", "better-sqlite3")];
+  const nextNodeModules = path.join(appDir, ".next", "node_modules");
   if (fs.existsSync(nextNodeModules)) {
     for (const entry of fs.readdirSync(nextNodeModules)) {
       if (entry.startsWith("better-sqlite3")) {
@@ -317,13 +320,13 @@ async function main() {
       fs.rmSync(path.join(bsq, dir), { recursive: true, force: true });
     }
     fs.mkdirSync(path.join(bsq, "prebuilds"), { recursive: true });
-    fs.writeFileSync(path.join(bsq, "prebuilds", "win32-x64.node"), binding);
+    fs.writeFileSync(path.join(bsq, "prebuilds", "win32-x64.node"), sqliteBinding);
     fs.mkdirSync(path.join(bsq, "build", "Release"), { recursive: true });
-    fs.writeFileSync(path.join(bsq, "build", "Release", "better_sqlite3.node"), binding);
+    fs.writeFileSync(path.join(bsq, "build", "Release", "better_sqlite3.node"), sqliteBinding);
   }
 
   // Drop non-Windows @img/sharp-* native directories if built on Linux/macOS.
-  const imgDir = path.join(APP, "node_modules", "@img");
+  const imgDir = path.join(appDir, "node_modules", "@img");
   if (fs.existsSync(imgDir)) {
     for (const entry of fs.readdirSync(imgDir)) {
       if (!entry.includes("win32-x64") && !entry.includes("wasm")) {
@@ -331,6 +334,23 @@ async function main() {
       }
     }
   }
+}
+
+async function main() {
+  const skipBuild = process.argv.includes("--skip-build");
+  log(`Building the Postbox Windows edition with Node.js v${NODE_VERSION}`);
+  if (!fs.existsSync(path.join(ROOT, "node_modules", "better-sqlite3"))) {
+    throw new Error("Run `npm ci` first (the build reads the installed better-sqlite3 package)");
+  }
+
+  ensureAppBuilt(skipBuild);
+
+  const [nodeExe, binding] = await Promise.all([fetchNodeExe(), fetchSqliteBinding()]);
+
+  fs.rmSync(STAGE, { recursive: true, force: true });
+  fs.rmSync(ZIP_PATH, { force: true });
+
+  await stageApp({ appDir: APP, includeCli: true, binding });
 
   // Bundle the official signed Windows Node.js executable.
   fs.mkdirSync(path.join(STAGE, "runtime"), { recursive: true });
@@ -344,9 +364,7 @@ async function main() {
     "Create desktop shortcut.cmd",
     "READ ME.txt",
   ]) {
-    const text = fs
-      .readFileSync(path.join(ROOT, "windows", f), "utf8")
-      .replace(/\r?\n/g, "\r\n");
+    const text = fs.readFileSync(path.join(ROOT, "windows", f), "utf8").replace(/\r?\n/g, "\r\n");
     fs.writeFileSync(path.join(STAGE, f), text);
   }
   fs.copyFileSync(path.join(ROOT, "windows", "app.ico"), path.join(APP, "app.ico"));
@@ -370,8 +388,7 @@ async function main() {
 
 const isMain =
   process.argv[1] &&
-  path.resolve(process.argv[1]).toLowerCase() ===
-    path.resolve(fileURLToPath(import.meta.url)).toLowerCase();
+  path.resolve(process.argv[1]).toLowerCase() === path.resolve(fileURLToPath(import.meta.url)).toLowerCase();
 
 if (isMain) {
   main().catch((err) => {
