@@ -50,6 +50,11 @@ struct Downloads {
     pending: Mutex<HashMap<PathBuf, String>>,
 }
 
+/// The browser arguments the window gets by default (see wry's WebView2 setup).
+const DEFAULT_BROWSER_ARGS: &str =
+    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection \
+     --autoplay-policy=no-user-gesture-required";
+
 /// Numbers the labels of pop-up windows.
 static POPUPS: AtomicUsize = AtomicUsize::new(0);
 
@@ -293,13 +298,21 @@ fn open_popup(app: &AppHandle, features: NewWindowFeatures) -> tauri::Result<Web
 /// The main window. It is built here rather than from tauri.conf.json so it can
 /// handle downloads and pop-ups.
 fn build_main_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
-    WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+    let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
         .title("Postbox")
         .inner_size(1280.0, 800.0)
         .min_inner_size(900.0, 600.0)
         .on_download(handle_download)
-        .on_new_window(new_window_handler(app.clone()))
-        .build()
+        .on_new_window(new_window_handler(app.clone()));
+    // The shell always passes its own browser arguments, which hides the standard
+    // WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS variable; add it to the defaults instead.
+    if let Some(extra) = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+    {
+        builder = builder.additional_browser_args(&format!("{DEFAULT_BROWSER_ARGS} {extra}"));
+    }
+    builder.build()
 }
 
 /// Where postbox.db, backups and logs live: DATA_DIR, else %LOCALAPPDATA%\Postbox.
