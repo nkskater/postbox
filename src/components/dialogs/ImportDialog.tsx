@@ -172,8 +172,16 @@ export function createImportController(deps: ImportControllerDeps, initial: Part
       headers: r.headers,
       body: r.body,
       auth: r.auth,
-      settings: { ...DEFAULT_SETTINGS, verifySsl: !r.insecure },
+      settings: {
+        ...DEFAULT_SETTINGS,
+        verifySsl: !r.insecure,
+        ...(r.timeoutMs ? { timeoutMs: r.timeoutMs } : {}),
+      },
     });
+    if (r.warnings.length) {
+      emit({ warnings: [...state.warnings, ...r.warnings] });
+      return `cURL command opened in a new tab (${r.warnings.length} import warnings)`;
+    }
     return "cURL command opened in a new tab";
   };
 
@@ -219,7 +227,7 @@ export function createImportController(deps: ImportControllerDeps, initial: Part
           if (!content.trim()) {
             throw new Error("File is empty");
           }
-          if (/^\s*curl(?:\s|$)/i.test(content)) {
+          if (/^\s*curl(?:\.exe)?(?:\s|$)/i.test(content)) {
             const summary = importCurlContent(content);
             notify.success(summary);
             newEntries.push({
@@ -371,7 +379,7 @@ export function createImportController(deps: ImportControllerDeps, initial: Part
       inFlight = true;
       emit({ busy: true, textError: null, warnings: [] });
       try {
-        if (/^\s*curl(?:\s|$)/i.test(raw)) {
+        if (/^\s*curl(?:\.exe)?(?:\s|$)/i.test(raw)) {
           const summary = importCurlContent(raw);
           notify.success(summary);
         } else {

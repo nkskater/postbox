@@ -71,6 +71,24 @@ describe("ImportDialog multi-file recovery and concurrency", () => {
     );
   }
 
+  it("shows cURL import warnings and keeps the dialog open to read them", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const ctrl = setup(fetchMock);
+    ctrl.setText('curl.exe -d @body.json -H ^"Content-Type: application/json^" ^"https://a.test/^"');
+    expect(await ctrl.importText()).toBe(true);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(openDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "https://a.test/",
+        body: expect.objectContaining({ mode: "binary" }),
+      }),
+    );
+    expect(ctrl.getState().warnings).toEqual(["body comes from file body.json (attach it)"]);
+    expect(setDialogOpen).not.toHaveBeenCalledWith(false);
+    expect(toastSuccess).toHaveBeenCalledWith("cURL command opened in a new tab (1 import warnings)");
+  });
+
   it("keeps single-file imports working as before", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () => {
       persistedCollections.push("Single API");
@@ -311,7 +329,10 @@ describe("ImportDialog multi-file recovery and concurrency", () => {
         return jsonResponse({ error: "Unrecognized import format" }, 400);
       }
       if (body.url === "https://bad.example.com/spec.json") {
-        return jsonResponse({ error: "Fetching https://bad.example.com/spec.json failed with status 404" }, 400);
+        return jsonResponse(
+          { error: "Fetching https://bad.example.com/spec.json failed with status 404" },
+          400,
+        );
       }
       persistedCollections.push(body.content ? "From Text" : "From Link");
       return jsonResponse({
