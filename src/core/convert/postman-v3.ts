@@ -494,8 +494,17 @@ function itemToV3(item: Json, parents: string[], out: Collector): Json {
       },
     };
   });
-  if (item._postbox)
+  const extension = isObject(item._postbox) ? item._postbox : {};
+  if (extension.contract)
     out.note("lossy", path, "Postbox contract metadata has no v3 equivalent and was left out");
+  const behavior = isObject(item.protocolProfileBehavior) ? Object.keys(item.protocolProfileBehavior) : [];
+  const extraSettings = isObject(extension.settings) ? Object.keys(extension.settings) : [];
+  if (behavior.length || extraSettings.length)
+    out.note(
+      "lossy",
+      path,
+      `Request settings have no v3 equivalent and were left out (${[...behavior, ...extraSettings].join(", ")})`,
+    );
   return {
     $kind: "http-request",
     name,
