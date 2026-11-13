@@ -159,6 +159,38 @@ describe("jobs", () => {
     expect(runners.leaseJob(row)).toBeNull();
   });
 
+  it("hands the runner each request's TLS, timeout and redirect settings", async () => {
+    const { ws, folder, monitor, row } = setup();
+    repo.createRequest(ws.id, folder.id, {
+      name: "Self-signed",
+      url: "https://intranet.test/legacy",
+      settings: {
+        followRedirects: false,
+        maxRedirects: 2,
+        timeoutMs: 4321,
+        verifySsl: false,
+        useCookieJar: false,
+      },
+    });
+    await monitors.runMonitor(monitor.id);
+    const job = runners.leaseJob(row)!;
+    const { importPostmanCollection } = await import("@/core/convert/postman");
+    const collection = job.collection as import("@/core/convert/postman").PostmanCollection;
+    const requests = importPostmanCollection(collection).root
+      .children as import("@/core/types").RequestNode[];
+    expect(requests.find((r) => r.name === "Self-signed")?.settings).toEqual({
+      followRedirects: false,
+      maxRedirects: 2,
+      timeoutMs: 4321,
+      verifySsl: false,
+      useCookieJar: false,
+    });
+    expect(requests.find((r) => r.name === "Health")?.settings).toMatchObject({
+      verifySsl: true,
+      timeoutMs: 30000,
+    });
+  });
+
   it("keeps secret values off the wire unless the runner may hold them", () => {
     const blank = setup();
     runners.enqueueRunnerJob(blank.monitor.id, blank.runner.id);
