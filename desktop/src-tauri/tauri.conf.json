@@ -7,9 +7,7 @@
   "build": { "frontendDist": "../splash" },
   "app": {
     "withGlobalTauri": false,
-    "windows": [
-      { "label": "main", "title": "Postbox", "width": 1280, "height": 800, "minWidth": 900, "minHeight": 600 }
-    ],
+    "windows": [],
     "security": {
       "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'",
       "capabilities": ["default"]
