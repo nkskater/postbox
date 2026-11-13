@@ -35,6 +35,22 @@ const request = (p: Partial<RequestDef>): RequestDef => ({
 });
 
 describe("executor", () => {
+  it.each([false, true])("returns expansion errors with cookie jar enabled=%s", async (withJar) => {
+    const scopes = emptyScopes();
+    for (let i = 0; i < 10; i++) scopes.data[`v${i}`] = `{{v${i + 1}}}`.repeat(40);
+    scopes.data.v10 = "0123456789";
+    const before = server.requests.length;
+    const result = await execute({
+      request: request({ url: "{{v0}}" }),
+      ancestors: [],
+      scopes,
+      cookieJar: withJar ? new CookieJarStore() : undefined,
+    });
+    expect(result.error).toMatch(/Variable expansion exceeds.*bytes/);
+    expect(result.response).toBeUndefined();
+    expect(server.requests.length).toBe(before);
+  });
+
   it("runs scripts in collection → folder → request order and inherits auth and headers", async () => {
     const collection = folder({
       name: "Col",

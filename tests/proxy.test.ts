@@ -3,7 +3,7 @@ import { sendRequest } from "@/core/http/engine";
 import { prepareRequest } from "@/core/http/prepare";
 import { CookieJarStore } from "@/core/http/cookies";
 import { HostPolicy, HostPolicyError } from "@/core/http/policy";
-import { Resolver, emptyScopes } from "@/core/variables/resolver";
+import { MAX_RESOLVE_BYTES, Resolver, emptyScopes } from "@/core/variables/resolver";
 import { DEFAULT_SETTINGS, type RequestDef } from "@/core/types";
 import { startTestServer, type TestServer } from "./helpers/server";
 
@@ -39,6 +39,24 @@ async function send(
 }
 
 describe("proxy engine", () => {
+  it("shares one budget across headers, body and authentication", async () => {
+    const part = "x".repeat(MAX_RESOLVE_BYTES / 10);
+    const resolver = new Resolver({ ...emptyScopes(), local: { part } });
+    await expect(
+      prepareRequest(
+        req({
+          url: server.url,
+          method: "POST",
+          headers: [{ key: "X-Part", value: "{{part}}", enabled: true }],
+          body: { mode: "raw", raw: "{{part}}", language: "text" },
+          auth: { type: "basic", basic: { username: "{{part}}", password: "{{part}}{{part}}{{part}}" } },
+        }),
+        [],
+        resolver,
+      ),
+    ).rejects.toThrow(/Variable expansion exceeds/);
+  });
+
   it("sends a GET and returns status, headers, body, size and timings", async () => {
     const res = await send(req({ url: "{{base}}/echo?x=1" }));
     expect(res.status).toBe(200);

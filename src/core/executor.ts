@@ -537,7 +537,13 @@ async function executeInternal(
   };
 
   // 1. pre-request scripts
-  const jarCookies = jar ? await jar.forUrl(new Resolver(effectiveScopes()).resolve(request.url)) : [];
+  const resolver = new Resolver(effectiveScopes());
+  let jarCookies;
+  try {
+    jarCookies = jar ? await jar.forUrl(resolver.resolve(request.url)) : [];
+  } catch (err) {
+    return { ...base(), error: redactSecrets((err as Error).message, secrets) };
+  }
   const skipped = await runPhase("prerequest", undefined, jarCookies);
   if (skipped) return { ...base(), skipped: true };
 
@@ -545,7 +551,7 @@ async function executeInternal(
   if (opts.overrides?.timeoutMs)
     request.settings = { ...request.settings, timeoutMs: opts.overrides.timeoutMs };
   if (opts.overrides?.verifySsl === false) request.settings = { ...request.settings, verifySsl: false };
-  const resolver = new Resolver(effectiveScopes());
+  resolver.scopes = effectiveScopes();
   let prepared;
   let oauth2Token: OAuth2Token | undefined;
   try {
