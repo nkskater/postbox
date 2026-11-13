@@ -42,18 +42,30 @@ the window stops the app; nothing keeps running in the background.
 
 Your data is never stored in the program folder, so upgrading or uninstalling does not touch it.
 
+## Downloads and exports
+
+Files you download or export in the app (**Settings → History & data → Download backup**, saved responses, collection,
+environment, runner and dataset exports) are saved to your **Downloads** folder (`%USERPROFILE%\Downloads`, or
+wherever you moved it). Postbox never overwrites a file there: a second file with the same name is saved as
+`name (1).json`, then `name (2).json`, and so on. When a download finishes, a message names the file and offers to
+show it in its folder. To save downloads somewhere else, set `POSTBOX_DOWNLOAD_DIR` (see [Settings](#settings)).
+
+Pages the app opens in a new window, such as the OAuth 2.0 sign-in window or the consumer catalog, open in a Postbox
+window, so they keep your sign-in. Links to other websites open in your default browser.
+
 ## Settings
 
 The desktop app reads settings from **user environment variables**. Open the Start menu, search for **Edit
 environment variables for your account**, add or change a variable under _User variables_, then close and restart
 Postbox Desktop.
 
-| Variable           | Default                  | Meaning                                                                                    |
-| ------------------ | ------------------------ | ------------------------------------------------------------------------------------------ |
-| `DATA_DIR`         | `%LOCALAPPDATA%\Postbox` | Folder for the database, vault key file, backups and logs.                                 |
-| `PORT`             | `47392`                  | Preferred loopback port. If it is taken, Postbox picks another free port for that run.     |
-| `BACKUP_KEEP`      | `30`                     | Number of daily backups to keep; `0` turns daily backups off.                              |
-| `POSTBOX_PASSWORD` | _(none)_                 | Requires sign-in with this password. Recommended on a PC that other people also sign into. |
+| Variable               | Default                  | Meaning                                                                                    |
+| ---------------------- | ------------------------ | ------------------------------------------------------------------------------------------ |
+| `DATA_DIR`             | `%LOCALAPPDATA%\Postbox` | Folder for the database, vault key file, backups and logs.                                 |
+| `PORT`                 | `47392`                  | Preferred loopback port. If it is taken, Postbox picks another free port for that run.     |
+| `BACKUP_KEEP`          | `30`                     | Number of daily backups to keep; `0` turns daily backups off.                              |
+| `POSTBOX_PASSWORD`     | _(none)_                 | Requires sign-in with this password. Recommended on a PC that other people also sign into. |
+| `POSTBOX_DOWNLOAD_DIR` | Your Downloads folder    | Folder where downloads and exports are saved.                                              |
 
 The server is reachable only from your own PC, but any program running on it (or another user signed into the same
 PC) can connect to the loopback port. Set `POSTBOX_PASSWORD`, or create an account in the app, if that matters to
