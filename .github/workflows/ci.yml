@@ -258,6 +258,10 @@ jobs:
           $env:DATA_DIR = $data
           $env:PORT = '47411'
           $base = 'http://127.0.0.1:47411'
+          # Downloads go to a test folder; the DevTools port lets the smoke test click in the window.
+          $downloads = Join-Path $PWD 'desktop-smoke-downloads'
+          $env:POSTBOX_DOWNLOAD_DIR = $downloads
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=47412'
           $uninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall'
 
           function Find-UninstallEntry([string]$hive) {
@@ -341,6 +345,13 @@ jobs:
             $wsId = @(Invoke-RestMethod "$base/api/workspaces")[0].id
             if (-not $wsId) { throw 'Default workspace was not created' }
 
+            # 3b. Downloads from the window land in the download folder without overwriting, including
+            #     server URLs, blobs and window.open exports.
+            $envBody = @{ workspaceId = $wsId; name = 'Smoke'; variables = @() } | ConvertTo-Json
+            $envId = (Invoke-RestMethod "$base/api/environments" -Method Post -ContentType 'application/json' -Body $envBody).id
+            node scripts/desktop-download-smoke.mjs 47412 $base $downloads $envId
+            if ($LASTEXITCODE -ne 0) { throw 'Desktop download smoke test failed' }
+
             # 4. Second launch focuses the first window and exits 0.
             $second = Start-Process -FilePath $exe -PassThru
             if (-not $second.WaitForExit(20000)) { throw 'Second launch did not exit within 20 seconds' }
@@ -370,6 +381,10 @@ jobs:
             if (-not (Test-Path (Join-Path $data 'postbox.db'))) { throw 'Uninstall removed postbox.db' }
             Write-Host 'Windows desktop installer OK'
           } catch {
+            Write-Host '----- WebView2 processes and DevTools port'
+            Get-CimInstance Win32_Process -Filter "Name = 'msedgewebview2.exe'" -ErrorAction SilentlyContinue |
+              Select-Object -First 3 | ForEach-Object { Write-Host $_.CommandLine }
+            Get-NetTCPConnection -LocalPort 47412 -ErrorAction SilentlyContinue | Format-Table -AutoSize | Out-String | Write-Host
             foreach ($log in @((Join-Path $data 'logs\server.log'), (Join-Path $data 'logs\server.log.1'), (Join-Path $data 'startup-error.log'))) {
               if (Test-Path $log) { Write-Host "----- $log"; Get-Content $log -Tail 200 }
             }

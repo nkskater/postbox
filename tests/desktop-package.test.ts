@@ -49,6 +49,37 @@ describe("Windows desktop package", () => {
     expect(main.match(/\.navigate\(/g)).toHaveLength(1);
   });
 
+  it("saves downloads and opens app pop-ups inside the app (LAB-294)", () => {
+    const conf = readJson(path.join(TAURI, "tauri.conf.json"));
+    // The main window is built in code so it can carry the download and pop-up handlers.
+    expect(conf.app.windows).toEqual([]);
+    const main = fs.readFileSync(path.join(TAURI, "src", "main.rs"), "utf8");
+    const builder = main.slice(main.indexOf("fn build_main_window"), main.indexOf("fn data_dir"));
+    expect(builder).toContain('WebviewWindowBuilder::new(app, "main"');
+    expect(builder).toContain('.title("Postbox")');
+    expect(builder).toContain(".inner_size(1280.0, 800.0)");
+    expect(builder).toContain(".min_inner_size(900.0, 600.0)");
+    expect(builder).toContain(".on_download(handle_download)");
+    expect(builder).toContain(".on_new_window(new_window_handler(");
+    // Several downloads from the app need the "multiple downloads" permission, granted to app pages only.
+    expect(builder).toContain(".on_permission_request(handle_permission)");
+    expect(main).toContain("matches!(kind, PermissionKind::AutomaticDownloads) && app_page");
+    expect(main).toMatch(/fn open_popup[\s\S]*\.on_download\(handle_download\)/);
+    // Downloads go to the Downloads folder and never overwrite an existing file.
+    expect(main).toContain(".download_dir()");
+    expect(main).toContain('format!("{stem} ({n}){ext}")');
+    // App pop-ups stay in the app (session cookie, window.opener); nothing else is allowed in.
+    expect(main).toContain('url.as_str() == "about:blank" || is_app_url(&app, &url)');
+    expect(main).toContain("main.origin() == url.origin()");
+
+    // No plugin that would give pages file system, shell or dialog access.
+    const cargo = fs.readFileSync(path.join(TAURI, "Cargo.toml"), "utf8");
+    expect(cargo.match(/tauri-plugin-[\w-]+/g)?.sort()).toEqual([
+      "tauri-plugin-single-instance",
+      "tauri-plugin-window-state",
+    ]);
+  });
+
   it("keeps the installer hooks free of machine-wide changes", () => {
     const hooks = fs.readFileSync(path.join(TAURI, "windows", "hooks.nsh"), "utf8");
     for (const banned of ["HKLM", "RequestExecutionLevel", "sc.exe", "schtasks"]) {
