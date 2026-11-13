@@ -263,7 +263,7 @@ export function DataManagement({ isAdmin }: { isAdmin: boolean }) {
         title="Replace all workspace data?"
         description={
           restore
-            ? `Restoring ${restore.file} (${restore.summary}) deletes every current workspace, request, environment and variable, along with their history, cookies and run results, and replaces them with the backup. Accounts and API tokens are kept. This cannot be undone. Download a backup first if you may need the current data.`
+            ? `Restoring ${restore.file} (${restore.summary}) deletes every current workspace with all its data and replaces them with the backup. Run results, history, cookies, delivery and capture logs, reports, pending invitations and granted API access are not in a backup and are lost. Accounts and API tokens are kept. This cannot be undone. Download a backup first if you may need the current data.`
             : ""
         }
         confirmLabel="Replace everything"
