@@ -40,6 +40,15 @@ describe("Windows desktop package", () => {
     expect(main).not.toContain("invoke_handler");
   });
 
+  it("points the window at the server only once, so open tabs are never reloaded from storage", () => {
+    const main = fs.readFileSync(path.join(TAURI, "src", "main.rs"), "utf8");
+    const reader = main.slice(main.indexOf("strip_prefix(READY_PREFIX)"));
+    const guard = reader.indexOf("if navigated");
+    expect(guard).toBeGreaterThan(-1);
+    expect(guard).toBeLessThan(reader.indexOf(".navigate("));
+    expect(main.match(/\.navigate\(/g)).toHaveLength(1);
+  });
+
   it("keeps the installer hooks free of machine-wide changes", () => {
     const hooks = fs.readFileSync(path.join(TAURI, "windows", "hooks.nsh"), "utf8");
     for (const banned of ["HKLM", "RequestExecutionLevel", "sc.exe", "schtasks"]) {

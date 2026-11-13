@@ -9,14 +9,79 @@ export const base64ByteLength = (value: string) =>
 export const SENSITIVE_NAME =
   /authorization|cookie|token|password|passwd|secret|api[-_]?key|session|credential|^jwt$|^signature$|^sig$|^code$/i;
 
+const INVISIBLE = /[\u200b-\u200d\u2060\ufeff]/g;
+
+/**
+ * Stands in for a value that was deliberately not written to browser storage. A restored tab shows it
+ * where the value was, the editor explains it, and sending or saving refuses while it is present.
+ */
+export const WITHHELD = "\u27e6withheld\u27e7";
+
+/** Whether a request (examples aside) still holds a value withheld from browser storage. */
+export function containsWithheld(value: unknown): boolean {
+  if (typeof value === "string") return value.includes(WITHHELD);
+  if (Array.isArray(value)) return value.some(containsWithheld);
+  if (!value || typeof value !== "object") return false;
+  return Object.entries(value).some(([key, entry]) => key !== "examples" && containsWithheld(entry));
+}
+
+/**
+ * Put back values withheld from browser storage using the server copy of the same request. A withheld
+ * string is replaced only where the server value, sanitized the same way, gives exactly the stored text,
+ * so an edited field is never overwritten with an older value.
+ */
+export function restoreWithheldValues<T extends { auth: AuthConfig; body: BodyConfig }>(
+  current: T,
+  saved: T,
+): T {
+  const masked = sanitizeRequestDraftForBrowser(saved);
+  const walk = (value: unknown, maskedValue: unknown, savedValue: unknown): unknown => {
+    if (typeof value === "string")
+      return value.includes(WITHHELD) && value === maskedValue && typeof savedValue === "string"
+        ? savedValue
+        : value;
+    if (Array.isArray(value))
+      return Array.isArray(maskedValue) && Array.isArray(savedValue)
+        ? value.map((entry, index) => walk(entry, maskedValue[index], savedValue[index]))
+        : value;
+    if (!value || typeof value !== "object" || !maskedValue || typeof maskedValue !== "object") return value;
+    if (!savedValue || typeof savedValue !== "object") return value;
+    const m = maskedValue as Record<string, unknown>,
+      s = savedValue as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [
+        key,
+        key === "examples" ? entry : walk(entry, m[key], s[key]),
+      ]),
+    );
+  };
+  return walk(current, masked, saved) as T;
+}
+
+/** Earlier versions stored these placeholders in place of withheld values. */
+export function withLegacyPlaceholdersMarked<T>(value: T): T {
+  const walk = (input: unknown): unknown => {
+    if (typeof input === "string")
+      return input.replaceAll("[REDACTED]", WITHHELD).replaceAll("********", WITHHELD);
+    if (Array.isArray(input)) return input.map(walk);
+    if (!input || typeof input !== "object") return input;
+    return Object.fromEntries(
+      Object.entries(input).map(([key, entry]) => [key, key === "examples" ? entry : walk(entry)]),
+    );
+  };
+  return walk(value) as T;
+}
+
 /**
  * A value made only of {{variable}} / {{vault:name}} references (optionally after an auth scheme word) holds
  * no secret itself, so it is kept as written. Redacting it would turn a reference into the literal text
  * "[REDACTED]" that is later sent to the server.
  */
 export function isReferenceOnly(value: string): boolean {
-  const rest = value.replace(/\{\{\s*[^{}]+\s*\}\}/g, "");
-  if (rest === value) return false;
+  // Text pasted from documents or chat often carries zero-width characters around the reference.
+  const visible = value.replace(INVISIBLE, "");
+  const rest = visible.replace(/\{\{\s*[^{}]+\s*\}\}/g, "");
+  if (rest === visible) return false;
   return /^\s*(?:(?:bearer|basic|token|digest)\s+)?[\s,&;:=]*$/i.test(rest);
 }
 
@@ -350,20 +415,20 @@ export function restoreMissingUploadBytes(current: BodyConfig, saved: BodyConfig
   return current;
 }
 
-export function redactSensitiveFields<T>(value: T): T {
+export function redactSensitiveFields<T>(value: T, placeholder = "[REDACTED]"): T {
   if (typeof value === "string") {
     return value
       .replace(
         /([?&][^=&]*(?:authorization|cookie|token|password|passwd|secret|api[-_]?key|session|credential|jwt|signature|sig|code)[^=&]*=)([^&#]*)/gi,
-        (_all, head: string, val: string) => (isReferenceOnly(val) ? _all : `${head}[REDACTED]`),
+        (_all, head: string, val: string) => (isReferenceOnly(val) ? _all : `${head}${placeholder}`),
       )
       .replace(
         /(["'][^"']*(?:authorization|cookie|token|password|passwd|secret|api[-_]?key|session|credential|jwt|signature|sig|code)[^"']*["']\s*:\s*)("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^,}\]]+)/gi,
         (_all, head: string, val: string) =>
-          isReferenceOnly(val.replace(/^["']|["']$/g, "")) ? _all : `${head}"[REDACTED]"`,
+          isReferenceOnly(val.replace(/^["']|["']$/g, "")) ? _all : `${head}"${placeholder}"`,
       ) as T;
   }
-  if (Array.isArray(value)) return value.map(redactSensitiveFields) as T;
+  if (Array.isArray(value)) return value.map((entry) => redactSensitiveFields(entry, placeholder)) as T;
   if (!value || typeof value !== "object") return value;
   const record = value as Record<string, unknown>;
   if (
@@ -372,14 +437,14 @@ export function redactSensitiveFields<T>(value: T): T {
     typeof record.value === "string" &&
     !isReferenceOnly(record.value)
   ) {
-    return { ...record, value: "[REDACTED]" } as T;
+    return { ...record, value: placeholder } as T;
   }
   return Object.fromEntries(
     Object.entries(record).map(([key, entry]) => [
       key,
       SENSITIVE_NAME.test(key) && typeof entry === "string" && !isReferenceOnly(entry)
-        ? "[REDACTED]"
-        : redactSensitiveFields(entry),
+        ? placeholder
+        : redactSensitiveFields(entry, placeholder),
     ]),
   ) as T;
 }
@@ -412,36 +477,39 @@ export function sensitiveFieldValues(value: unknown): string[] {
   return values;
 }
 
+/**
+ * The copy of a request draft written to browser storage. Credentials and upload bytes are dropped, and
+ * other literal secrets become {@link WITHHELD}; variable references are kept exactly as written. Saved
+ * examples keep the export placeholders, since they are display data and never sent.
+ */
 export function sanitizeRequestDraftForBrowser<T extends { auth: AuthConfig; body: BodyConfig }>(
   draft: T,
 ): T {
   const examples = (draft as T & { examples?: ResponseExample[] }).examples;
-  const secrets = credentialRedactionValues([
-    ...authCredentialValues(draft.auth),
-    ...(examples ?? []).flatMap((example) => [
-      ...sensitiveFieldValues(example),
-      ...(example.originalRequest ? authCredentialValues(example.originalRequest.auth) : []),
-    ]),
+  const exampleSecrets = (examples ?? []).flatMap((example) => [
+    ...sensitiveFieldValues(example),
+    ...(example.originalRequest ? authCredentialValues(example.originalRequest.auth) : []),
   ]);
-  const safe = redactSensitiveFields({
-    ...draft,
-    ...(examples
-      ? {
-          examples: examples.map((example) => ({
-            ...example,
-            ...(example.originalRequest
-              ? { originalRequest: sanitizeRequestDraftForBrowser(example.originalRequest) }
-              : {}),
-          })),
-        }
-      : {}),
-    body: withoutUploadBytes(draft.body),
-  });
-  const result = redactStoredValue({ ...safe, auth: withoutAuthCredentials(draft.auth) }, secrets);
-  if (examples)
-    (result as T & { examples: ResponseExample[] }).examples = (
-      result as T & { examples: ResponseExample[] }
-    ).examples.map((example, index) => ({
+  const secrets = credentialRedactionValues([...authCredentialValues(draft.auth), ...exampleSecrets]);
+  const { examples: _examples, ...request } = draft as T & { examples?: ResponseExample[] };
+  const safeRequest = redactSensitiveFields({ ...request, body: withoutUploadBytes(draft.body) }, WITHHELD);
+  const result = redactStoredValue({ ...safeRequest, auth: withoutAuthCredentials(draft.auth) }, secrets, {
+    mask: WITHHELD,
+    keepReferences: true,
+  }) as unknown as T;
+  if (examples) {
+    const safeExamples = redactStoredValue(
+      redactSensitiveFields(
+        examples.map((example) => ({
+          ...example,
+          ...(example.originalRequest
+            ? { originalRequest: sanitizeExampleRequest(example.originalRequest) }
+            : {}),
+        })),
+      ),
+      secrets,
+    );
+    (result as T & { examples: ResponseExample[] }).examples = safeExamples.map((example, index) => ({
       ...example,
       ...(example.originalRequest
         ? {
@@ -452,5 +520,16 @@ export function sanitizeRequestDraftForBrowser<T extends { auth: AuthConfig; bod
           }
         : {}),
     }));
+  }
   return retainedRequestStructure(draft, result);
+}
+
+/** An example's request as stored with the example: export placeholders, no credentials or upload bytes. */
+function sanitizeExampleRequest<T extends { auth: AuthConfig; body: BodyConfig }>(request: T): T {
+  const secrets = credentialRedactionValues(authCredentialValues(request.auth));
+  const safe = redactSensitiveFields({ ...request, body: withoutUploadBytes(request.body) });
+  return retainedRequestStructure(
+    request,
+    redactStoredValue({ ...safe, auth: withoutAuthCredentials(request.auth) }, secrets),
+  );
 }

@@ -123,9 +123,17 @@ fn spawn_server(app: &AppHandle) -> Result<(), String> {
     let reader_app = app.clone();
     let reader_log = log_path.clone();
     thread::spawn(move || {
+        let mut navigated = false;
         for line in BufReader::new(stdout).lines() {
             let Ok(line) = line else { break };
             if let Some(payload) = line.strip_prefix(READY_PREFIX) {
+                // Only the first ready line points the window at the server. Navigating again
+                // would reload the page and rebuild open tabs from browser storage.
+                if navigated {
+                    let _ = writeln!(stdout_log, "{line}");
+                    continue;
+                }
+                navigated = true;
                 let ready: Value = serde_json::from_str(payload).unwrap_or(Value::Null);
                 let url = ready["url"].as_str().and_then(|u| Url::parse(u).ok());
                 if ready["role"] == "secondary" {

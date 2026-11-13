@@ -190,8 +190,17 @@ export function redactSecrets(text: string, secrets: Iterable<string>): string {
   return out;
 }
 
-/** Redact structured persistence payloads without serializing secrets into JSON first. */
-export function redactStoredValue<T>(value: T, secrets: Iterable<string>): T {
+/**
+ * Redact structured persistence payloads without serializing secrets into JSON first.
+ * With `keepReferences`, text inside {{variable}} references is left alone: a short secret that happens to
+ * occur in a variable name must not turn the reference into a different, unresolvable one.
+ */
+export function redactStoredValue<T>(
+  value: T,
+  secrets: Iterable<string>,
+  options: { mask?: string; keepReferences?: boolean } = {},
+): T {
+  const mask = options.mask ?? "********";
   const patterns = [
     ...new Set(
       [...secrets].filter(Boolean).flatMap((secret) => {
@@ -216,7 +225,12 @@ export function redactStoredValue<T>(value: T, secrets: Iterable<string>): T {
     : undefined;
   const scrub = (input: unknown): unknown => {
     if (typeof input === "string") {
-      return matcher ? input.replace(matcher, "********") : input;
+      if (!matcher) return input;
+      if (!options.keepReferences) return input.replace(matcher, mask);
+      return input
+        .split(/(\{\{[^{}]*\}\})/)
+        .map((part, index) => (index % 2 ? part : part.replace(matcher, mask)))
+        .join("");
     }
     if (Array.isArray(input)) return input.map(scrub);
     if (input && typeof input === "object")

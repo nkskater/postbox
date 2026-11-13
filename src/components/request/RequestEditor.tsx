@@ -41,7 +41,9 @@ import { cn } from "@/lib/utils";
 import {
   authCredentialValues,
   credentialRedactionValues,
+  containsWithheld,
   hasMissingUpload,
+  WITHHELD,
   sensitiveFieldValues,
 } from "@/core/retention";
 import { exampleFromResponse } from "@/core/examples";
@@ -181,6 +183,15 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {containsWithheld(d) && (
+        <div
+          role="alert"
+          className="border-b bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-700 dark:text-amber-400"
+        >
+          Some values in this request were not kept in browser storage and are shown as {WITHHELD}. Re-enter
+          them before sending or saving.
+        </div>
+      )}
       {(tab.credentialsOmitted || hasMissingUpload(d.body)) && (
         <div role="status" className="border-b bg-muted/40 px-3 py-1.5 text-[11px] text-muted-foreground">
           {tab.credentialsOmitted &&
