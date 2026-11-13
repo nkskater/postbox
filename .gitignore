@@ -8,6 +8,12 @@ node_modules/
 out/
 build/
 dist/
+
+# desktop shell build output
+desktop/node_modules/
+desktop/payload/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
 *.tsbuildinfo
 next-env.d.ts
 

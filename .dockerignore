@@ -12,3 +12,7 @@ AGENTS.md
 .env
 .env.*
 !.env.example
+desktop/node_modules/
+desktop/payload/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/

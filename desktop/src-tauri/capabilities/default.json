@@ -1,0 +1,6 @@
+{
+  "identifier": "default",
+  "description": "The main window gets no shell permissions; pages cannot call into the app.",
+  "windows": ["main"],
+  "permissions": []
+}

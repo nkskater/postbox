@@ -4,3 +4,7 @@ dist
 drizzle
 package-lock.json
 data
+desktop/node_modules/
+desktop/payload/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/

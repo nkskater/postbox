@@ -20,6 +20,7 @@
     "start:local": "node scripts/local-server.mjs",
     "build:vscode": "node scripts/build-vscode.mjs",
     "build:windows": "node scripts/build-windows.mjs",
+    "build:desktop": "node scripts/build-desktop.mjs",
     "lint": "eslint",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

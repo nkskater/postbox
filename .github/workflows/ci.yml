@@ -222,6 +222,178 @@ jobs:
             gh release create $tag dist/Postbox-windows-x64.zip --title $tag --generate-notes
           }
 
+  windows-desktop:
+    name: Build and smoke test Windows desktop installer
+    needs: validate
+    runs-on: windows-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: Swatinem/rust-cache@v2.9.3
+        with:
+          workspaces: desktop/src-tauri
+      - run: npm ci --ignore-scripts
+      - run: npm ci --prefix desktop
+      - name: Check Rust formatting
+        run: |
+          rustup component add rustfmt
+          cargo fmt --check --manifest-path desktop/src-tauri/Cargo.toml
+      - run: npm run build:desktop
+      - name: Smoke test install, start, single instance, stop, upgrade and uninstall
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = Join-Path $PWD 'dist\Postbox-Desktop-windows-x64-setup.exe'
+          $inst = Join-Path $env:LOCALAPPDATA 'Postbox Desktop'
+          $exe = Join-Path $inst 'postbox-desktop.exe'
+          $data = Join-Path $PWD 'desktop-smoke-data'
+          $env:DATA_DIR = $data
+          $env:PORT = '47411'
+          $base = 'http://127.0.0.1:47411'
+          $uninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall'
+
+          function Find-UninstallEntry([string]$hive) {
+            Get-ChildItem "${hive}:\$uninstallKey" -ErrorAction SilentlyContinue |
+              Where-Object { (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).DisplayName -eq 'Postbox Desktop' }
+          }
+
+          function Invoke-Installer {
+            $sw = [Diagnostics.Stopwatch]::StartNew()
+            $p = Start-Process -FilePath $setup -ArgumentList '/S' -Wait -PassThru
+            if ($p.ExitCode -ne 0) { throw "Installer exited with $($p.ExitCode)" }
+            Write-Host ("Install took {0:N1} s" -f $sw.Elapsed.TotalSeconds)
+          }
+
+          function Start-Desktop {
+            $p = Start-Process -FilePath $exe -PassThru
+            for ($i = 0; $i -lt 240; $i++) {
+              try {
+                $h = Invoke-RestMethod "$base/api/health" -TimeoutSec 2
+                if ($h.status -eq 'ok' -and $h.app -eq 'postbox') { return $p }
+              } catch { }
+              if ($p.HasExited) { throw "postbox-desktop.exe exited early with $($p.ExitCode)" }
+              Start-Sleep -Milliseconds 500
+            }
+            throw 'Desktop app server did not become healthy within 120 seconds'
+          }
+
+          function Stop-Desktop {
+            Stop-Process -Name 'postbox-desktop' -Force -ErrorAction SilentlyContinue
+            for ($i = 0; $i -lt 40; $i++) {
+              if (-not (Get-Process -Name 'postbox-node' -ErrorAction SilentlyContinue)) { break }
+              Start-Sleep -Milliseconds 500
+            }
+            if (Get-Process -Name 'postbox-node' -ErrorAction SilentlyContinue) {
+              throw 'postbox-node.exe did not stop within 20 seconds after the shell died'
+            }
+            if (Get-NetTCPConnection -LocalPort 47411 -State Listen -ErrorAction SilentlyContinue) {
+              throw 'Port 47411 is still listening'
+            }
+            $running = @(Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Postbox') -Filter 'running-*.json' -ErrorAction SilentlyContinue)
+            if ($running.Count -gt 0) { throw "Running file left behind: $($running.Name -join ', ')" }
+          }
+
+          try {
+            # 1. No elevation requested, size budget.
+            $size = (Get-Item $setup).Length
+            Write-Host ("Installer size: {0:N1} MB" -f ($size / 1MB))
+            if ($size -gt 70MB) { throw 'Installer is larger than 70 MB' }
+            $setupText = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($setup))
+            if (-not $setupText.Contains('level="asInvoker"')) { throw 'Installer manifest does not request asInvoker' }
+            if ($setupText.Contains('requireAdministrator')) { throw 'Installer requests administrator rights' }
+
+            # 2. Silent per-user install.
+            Invoke-Installer
+            foreach ($rel in @('postbox-desktop.exe', 'uninstall.exe', 'runtime\postbox-node.exe', 'app\server.js',
+                'app\local.mjs', 'app\.next\server', 'app\.next\static', 'app\.next\node_modules',
+                'app\drizzle\meta\_journal.json')) {
+              if (-not (Test-Path (Join-Path $inst $rel))) { throw "Missing from install: $rel" }
+            }
+            $exeText = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($exe))
+            if ($exeText.Contains('requireAdministrator')) { throw 'postbox-desktop.exe requests administrator rights' }
+            if (-not (Find-UninstallEntry 'HKCU')) { throw 'No HKCU uninstall entry' }
+            if (Find-UninstallEntry 'HKLM') { throw 'Unexpected HKLM uninstall entry' }
+            $wowKey = "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+            $wow = Get-ChildItem $wowKey -ErrorAction SilentlyContinue |
+              Where-Object { (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).DisplayName -eq 'Postbox Desktop' }
+            if ($wow) { throw 'Unexpected HKLM WOW6432Node uninstall entry' }
+            foreach ($pf in @($env:ProgramFiles, ${env:ProgramFiles(x86)})) {
+              if ($pf -and (Test-Path (Join-Path $pf 'Postbox Desktop'))) { throw "Installed under $pf" }
+            }
+            $lnk = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Postbox Desktop.lnk'
+            if (-not (Test-Path $lnk)) { throw 'Start Menu shortcut missing' }
+
+            # 3. Start: server on loopback only, data in DATA_DIR.
+            $null = Start-Desktop
+            if (-not (Test-Path (Join-Path $data 'postbox.db'))) { throw 'postbox.db not created in DATA_DIR' }
+            if (Test-Path (Join-Path $inst 'postbox.db')) { throw 'postbox.db created in the install folder' }
+            foreach ($row in @(Get-NetTCPConnection -LocalPort 47411 -State Listen)) {
+              if ($row.LocalAddress -ne '127.0.0.1') { throw "Listening on $($row.LocalAddress)" }
+            }
+            $wsId = @(Invoke-RestMethod "$base/api/workspaces")[0].id
+            if (-not $wsId) { throw 'Default workspace was not created' }
+
+            # 4. Second launch focuses the first window and exits 0.
+            $second = Start-Process -FilePath $exe -PassThru
+            if (-not $second.WaitForExit(20000)) { throw 'Second launch did not exit within 20 seconds' }
+            if ($second.ExitCode -ne 0) { throw "Second launch exited with $($second.ExitCode)" }
+            $nodes = @(Get-Process -Name 'postbox-node' -ErrorAction SilentlyContinue)
+            if ($nodes.Count -ne 1) { throw "Expected one postbox-node process, found $($nodes.Count)" }
+
+            # 5. Killing the shell stops the server.
+            Stop-Desktop
+
+            # 6. Upgrade in place keeps the data.
+            Invoke-Installer
+            $null = Start-Desktop
+            $ids = @(Invoke-RestMethod "$base/api/workspaces") | ForEach-Object { $_.id }
+            if ($ids -notcontains $wsId) { throw 'Workspace missing after upgrade' }
+            Stop-Desktop
+
+            # 7. Uninstall removes the program and keeps the data.
+            $u = Start-Process -FilePath (Join-Path $inst 'uninstall.exe') -ArgumentList '/S' -Wait -PassThru
+            if ($u.ExitCode -ne 0) { throw "Uninstaller exited with $($u.ExitCode)" }
+            for ($i = 0; $i -lt 120; $i++) {
+              if (-not (Test-Path $exe) -and -not (Find-UninstallEntry 'HKCU')) { break }
+              Start-Sleep -Milliseconds 500
+            }
+            if (Test-Path $exe) { throw 'postbox-desktop.exe still present after uninstall' }
+            if (Find-UninstallEntry 'HKCU') { throw 'HKCU uninstall entry still present' }
+            if (-not (Test-Path (Join-Path $data 'postbox.db'))) { throw 'Uninstall removed postbox.db' }
+            Write-Host 'Windows desktop installer OK'
+          } catch {
+            foreach ($log in @((Join-Path $data 'logs\server.log'), (Join-Path $data 'logs\server.log.1'), (Join-Path $data 'startup-error.log'))) {
+              if (Test-Path $log) { Write-Host "----- $log"; Get-Content $log -Tail 200 }
+            }
+            throw
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Postbox-Desktop-windows-x64-setup
+          path: dist/Postbox-Desktop-windows-x64-setup.exe
+          compression-level: 0
+      - name: Attach Windows desktop installer to GitHub release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag dist/Postbox-Desktop-windows-x64-setup.exe --clobber
+          } else {
+            gh release create $tag dist/Postbox-Desktop-windows-x64-setup.exe --title $tag --generate-notes
+          }
+
   docker:
     name: Build and smoke test container
     needs: validate

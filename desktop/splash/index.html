@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Postbox</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f7f7f8;
+        --fg: #1f2328;
+        --muted: #59636e;
+        --error: #b42318;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #16181d;
+          --fg: #e6e8eb;
+          --muted: #9aa4b1;
+          --error: #ff8a80;
+        }
+      }
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+      }
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--bg);
+        color: var(--fg);
+        font:
+          15px/1.5 "Segoe UI",
+          system-ui,
+          sans-serif;
+      }
+      main {
+        max-width: 560px;
+        padding: 24px;
+        text-align: center;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 20px;
+        font-weight: 600;
+      }
+      p {
+        margin: 0;
+        color: var(--muted);
+        overflow-wrap: anywhere;
+      }
+      .error h1 {
+        color: var(--error);
+      }
+      code {
+        font-family: Consolas, ui-monospace, monospace;
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <main id="status">
+      <h1>Starting Postbox…</h1>
+      <p>This takes a few seconds.</p>
+    </main>
+    <script>
+      window.__postboxError = function (info) {
+        var status = document.getElementById("status");
+        var heading = document.createElement("h1");
+        var message = document.createElement("p");
+        heading.textContent = "Postbox could not start";
+        message.textContent = (info && info.message) || "Unknown error.";
+        status.className = "error";
+        status.replaceChildren(heading, message);
+        if (info && info.log) {
+          var log = document.createElement("p");
+          var path = document.createElement("code");
+          path.textContent = info.log;
+          log.append("Details: ", path);
+          status.append(log);
+        }
+      };
+      if (window.__postboxPending) window.__postboxError(window.__postboxPending);
+    </script>
+  </body>
+</html>

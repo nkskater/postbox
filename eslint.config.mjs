@@ -20,6 +20,10 @@ const eslintConfig = defineConfig([
     "extensions/*/dist/**",
     "drizzle/**",
     "next-env.d.ts",
+    "desktop/node_modules/**",
+    "desktop/payload/**",
+    "desktop/src-tauri/target/**",
+    "desktop/src-tauri/gen/**",
   ]),
 ]);
 

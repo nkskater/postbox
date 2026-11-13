@@ -29,6 +29,9 @@
 //   POSTBOX_BROWSER    path to the Chromium-based browser used for app-window mode
 //                      (default: Microsoft Edge, then Google Chrome)
 //   BACKUP_KEEP        daily backups kept (default 30; 0 disables daily backups)
+//   POSTBOX_HOST_PIPE=1 host mode for the desktop shell: never opens a browser,
+//                      reports readiness or failure as one POSTBOX_READY /
+//                      POSTBOX_ERROR line on stdout, and stops when stdin closes
 import { spawn } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -384,6 +387,39 @@ export function isWindowMode(argv = process.argv, env = process.env) {
 }
 
 /**
+ * True when a native desktop shell hosts this server over stdin/stdout
+ * (POSTBOX_HOST_PIPE). See formatHostEvent for the protocol.
+ * @param {Record<string, string | undefined>} [env]
+ */
+export function isHostMode(env = process.env) {
+  const v = String(env.POSTBOX_HOST_PIPE || "")
+    .trim()
+    .toLowerCase();
+  return v !== "" && v !== "0" && v !== "false";
+}
+
+/**
+ * One protocol line for the desktop shell, e.g.
+ * `POSTBOX_READY {"port":47392,"url":"http://127.0.0.1:47392/","role":"leader","dataDir":"..."}`.
+ * @param {string} type
+ * @param {Record<string, unknown>} payload
+ */
+export function formatHostEvent(type, payload) {
+  return `POSTBOX_${String(type).toUpperCase()} ${JSON.stringify(payload)}\n`;
+}
+
+/** Writes a host event and resolves once it has been handed to the pipe. */
+function emitHostEvent(type, payload) {
+  return new Promise((resolve) => {
+    try {
+      process.stdout.write(formatHostEvent(type, payload), () => resolve());
+    } catch {
+      resolve();
+    }
+  });
+}
+
+/**
  * Finds a Chromium-based browser that can show Postbox as an app window
  * (`--app=URL`). POSTBOX_BROWSER wins; otherwise Microsoft Edge (installed on
  * every supported Windows) and then Google Chrome. Returns null if none exists.
@@ -499,7 +535,8 @@ async function main() {
   fs.mkdirSync(path.dirname(databasePath), { recursive: true });
   fs.mkdirSync(path.dirname(runningFile), { recursive: true });
 
-  const windowMode = isWindowMode();
+  const hostMode = isHostMode();
+  const windowMode = !hostMode && isWindowMode();
   const profileDir = path.join(dataDir, "Window");
   let appBrowser = null;
   if (windowMode && !process.env.NO_BROWSER) {
@@ -516,8 +553,25 @@ async function main() {
 
   let stopServer = null;
 
+  if (hostMode) {
+    // End-of-file on stdin is the stop signal. It also fires when the shell dies,
+    // so the server never outlives its window.
+    let stopping = false;
+    const onHostGone = () => {
+      if (stopping) return;
+      stopping = true;
+      if (typeof stopServer === "function") void stopServer();
+      else process.exit(0);
+    };
+    process.stdin.on("end", onHostGone);
+    process.stdin.on("close", onHostGone);
+    process.stdin.on("error", onHostGone);
+    process.stdin.resume();
+  }
+
   /** Shows the UI; returns the app-window process when there is one to wait on. */
   function showUi(url) {
+    if (hostMode) return null;
     if (appBrowser) {
       try {
         const child = openAppWindow(url, appBrowser, profileDir);
@@ -545,6 +599,10 @@ async function main() {
 
   if (coord.role === "secondary") {
     const url = `http://${HOST}:${coord.port}/`;
+    if (hostMode) {
+      await emitHostEvent("ready", { port: coord.port, url, role: "secondary", dataDir });
+      process.exit(0);
+    }
     console.log(`Postbox is already running — opening ${url}`);
     showUi(url);
     return;
@@ -719,7 +777,7 @@ async function main() {
   console.log(`  Data:  ${databasePath}`);
   console.log("");
   console.log("  Requests are sent directly from this PC (including active VPN connections).");
-  if (appBrowser) {
+  if (appBrowser || hostMode) {
     console.log("  Close the Postbox window to stop the app.");
   } else {
     console.log("  Keep this window open while you use Postbox.");
@@ -728,6 +786,10 @@ async function main() {
   console.log("");
 
   stopServer = () => shutdown("SIGTERM");
+  if (hostMode) {
+    await emitHostEvent("ready", { port, url, role: "leader", dataDir });
+    return;
+  }
   const ui = showUi(url);
   if (ui) {
     const openedAt = Date.now();
@@ -749,22 +811,30 @@ const isMain =
   path.resolve(process.argv[1]).toLowerCase() === path.resolve(fileURLToPath(import.meta.url)).toLowerCase();
 
 if (isMain) {
-  main().catch((err) => {
+  main().catch(async (err) => {
     console.error("");
     console.error("Postbox could not start:");
     console.error((err && err.stack) || err);
-    if (isWindowMode()) {
-      // No console is visible in app-window mode, so leave the reason on disk.
+    const hostMode = isHostMode();
+    let logPath = null;
+    if (hostMode || isWindowMode()) {
+      // No console is visible in app-window or host mode, so leave the reason on disk.
       try {
-        const dir = resolveLocalPaths({ appDir: resolveAppDir() }).dataDir;
+        let dir;
+        try {
+          dir = resolveLocalPaths({ appDir: resolveAppDir() }).dataDir;
+        } catch {
+          dir = path.resolve(process.env.DATA_DIR || defaultDataDir());
+        }
         fs.mkdirSync(dir, { recursive: true });
-        fs.writeFileSync(
-          path.join(dir, "startup-error.log"),
-          `${new Date().toISOString()}\n${(err && err.stack) || err}\n`,
-        );
+        logPath = path.join(dir, "startup-error.log");
+        fs.writeFileSync(logPath, `${new Date().toISOString()}\n${(err && err.stack) || err}\n`);
       } catch {
-        /* best effort */
+        logPath = null;
       }
+    }
+    if (hostMode) {
+      await emitHostEvent("error", { message: String((err && err.message) || err), log: logPath });
     }
     process.exit(1);
   });
