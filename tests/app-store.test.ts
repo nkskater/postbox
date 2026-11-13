@@ -96,7 +96,8 @@ describe("request builder concurrency", () => {
     };
     const persisted = sanitizeStoredState({
       workspaceId: "workspace",
-      tabs: [{ ...source, draft, saved: snapshot(draft) }],
+      // The name was edited in the browser after the last save.
+      tabs: [{ ...source, draft, saved: snapshot({ ...draft, name: "Server name" }) }],
     }).tabs[0];
     if (persisted.type !== "request") throw new Error("Expected a request tab");
     useApp.setState({ tabs: [persisted], workspaceId: "workspace" });
@@ -106,6 +107,7 @@ describe("request builder concurrency", () => {
     });
     vi.mocked(api.requests.get).mockResolvedValue({
       ...draft,
+      name: "Server name",
       auth: { type: "bearer", bearer: { token: "server-token" } },
       body: { mode: "binary", binary: { fileName: "payload.bin", data: "cGF5bG9hZA==" } },
       folderId: "folder",

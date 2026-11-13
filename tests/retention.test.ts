@@ -8,6 +8,7 @@ import {
   restoreMissingCredentials,
   restoreMissingUploadBytes,
   sanitizeRequestDraftForBrowser,
+  WITHHELD,
 } from "@/core/retention";
 import type { FolderNode, RequestNode } from "@/core/types";
 import { newDraft } from "@/stores/app";
@@ -54,7 +55,7 @@ describe("credential and upload retention", () => {
     expect(JSON.stringify(safe)).not.toContain("client-secret-value");
     expect(JSON.stringify(safe)).not.toContain("cached-access-token");
     expect(JSON.stringify(safe)).not.toContain("private-token");
-    expect(safe.url).toContain("token=[REDACTED]");
+    expect(safe.url).toContain(`token=${WITHHELD}`);
     expect(safe.auth).toMatchObject({
       type: "oauth2",
       oauth2: { clientId: "public-client-id", clientSecret: "", accessToken: "" },
@@ -236,7 +237,7 @@ describe("variable and vault references survive redaction (LAB-177)", () => {
       } as never,
     });
     const safe = sanitizeRequestDraftForBrowser(draft);
-    expect(safe.headers.map((h) => h.value)).toEqual(["Bearer {{vault:tok}}", "{{apiKey}}", "[REDACTED]"]);
+    expect(safe.headers.map((h) => h.value)).toEqual(["Bearer {{vault:tok}}", "{{apiKey}}", WITHHELD]);
     expect(safe.url).toContain("api_key={{vault:key}}");
     expect(JSON.stringify(safe.body)).toContain("{{vault:ma_pass}}");
     expect(JSON.stringify(safe.body)).not.toContain("REDACTED");

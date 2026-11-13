@@ -29,10 +29,13 @@ import {
 import { toast } from "sonner";
 import {
   authCredentialValues,
+  containsWithheld,
   hasMissingUpload,
   restoreMissingCredentials,
   restoreMissingUploadBytes,
+  restoreWithheldValues,
   sanitizeRequestDraftForBrowser,
+  withLegacyPlaceholdersMarked,
 } from "@/core/retention";
 
 export type RequestDraft = RequestDef & { folderId: string | null };
@@ -130,6 +133,9 @@ function abortTab(id: string) {
   abortControllers.delete(id);
 }
 
+export const WITHHELD_MESSAGE =
+  "Some values were not kept in browser storage. Re-enter the fields marked ⟦withheld⟧ first.";
+
 function sanitizeStoredTab(tab: Tab): Tab {
   if (tab.type !== "request") return tab;
   const { bodyDrafts: _bodyDrafts, ...storedTab } = tab;
@@ -152,6 +158,29 @@ function sanitizeStoredTab(tab: Tab): Tab {
     credentialsOmitted:
       tab.credentialsOmitted || authCredentialValues(tab.draft.auth).length > 0 || undefined,
   };
+}
+
+function withLegacyTabPlaceholders(value: unknown): unknown {
+  if (!value || typeof value !== "object") return value;
+  const state = value as { tabs?: unknown };
+  if (!Array.isArray(state.tabs)) return value;
+  return {
+    ...state,
+    tabs: state.tabs.map((tab: Tab) =>
+      tab?.type === "request"
+        ? {
+            ...tab,
+            draft: withLegacyPlaceholdersMarked(tab.draft),
+            saved: tab.saved === null ? null : withLegacyPlaceholdersMarked(tab.saved),
+          }
+        : tab,
+    ),
+  };
+}
+
+/** Upgrades browser state written by an earlier version of the store. */
+export function migrateStoredState(persistedState: unknown, version: number) {
+  return sanitizeStoredState(version < 3 ? withLegacyTabPlaceholders(persistedState) : persistedState);
 }
 
 export function sanitizeStoredState(value: unknown): {
@@ -282,11 +311,10 @@ export const useApp = create<AppState>()(
         set({ workspaces });
         if (ws) {
           await get().setWorkspace(ws.id);
+          // Tabs restored from browser storage hold a sanitized copy. Re-read every saved request so only
+          // unsaved edits can be missing, and put back credentials and withheld values where unchanged.
           const pending = get().tabs.filter(
-            (tab): tab is Extract<Tab, { type: "request" }> =>
-              tab.type === "request" &&
-              !!tab.requestId &&
-              (!!tab.credentialsOmitted || hasMissingUpload(tab.draft.body)),
+            (tab): tab is Extract<Tab, { type: "request" }> => tab.type === "request" && !!tab.requestId,
           );
           await Promise.all(
             pending.map(async (tab) => {
@@ -297,20 +325,27 @@ export const useApp = create<AppState>()(
                   tabs: state.tabs.map((current) => {
                     if (current.type !== "request" || current.id !== tab.id || current.requestId !== saved.id)
                       return current;
-                    return {
-                      ...current,
-                      draft: {
-                        ...current.draft,
-                        auth: current.credentialsOmitted
-                          ? restoreMissingCredentials(current.draft.auth, saved.auth)
-                          : current.draft.auth,
-                        body: hasMissingUpload(current.draft.body)
-                          ? restoreMissingUploadBytes(current.draft.body, saved.body)
-                          : current.draft.body,
-                      },
-                      saved: snapshot(savedDraft),
-                      credentialsOmitted: false,
-                    };
+                    // Unchanged since it was stored: take the server copy. Otherwise keep the edits and
+                    // fill in only what was withheld from storage.
+                    const unedited =
+                      current.draft === tab.draft &&
+                      current.saved !== null &&
+                      current.saved === snapshot(current.draft);
+                    const draft: RequestDraft = unedited
+                      ? savedDraft
+                      : restoreWithheldValues(
+                          {
+                            ...current.draft,
+                            auth: current.credentialsOmitted
+                              ? restoreMissingCredentials(current.draft.auth, saved.auth)
+                              : current.draft.auth,
+                            body: hasMissingUpload(current.draft.body)
+                              ? restoreMissingUploadBytes(current.draft.body, saved.body)
+                              : current.draft.body,
+                          },
+                          savedDraft,
+                        );
+                    return { ...current, draft, saved: snapshot(savedDraft), credentialsOmitted: false };
                   }),
                 }));
               } catch {
@@ -588,6 +623,10 @@ export const useApp = create<AppState>()(
           toast.error("Restore saved credentials and files, or re-enter them, before saving this request");
           return false;
         }
+        if (containsWithheld(tab.draft)) {
+          toast.error(WITHHELD_MESSAGE);
+          return false;
+        }
         const { workspaceId } = get();
         if (!workspaceId) return false;
         if (saving.has(tabId)) return false;
@@ -658,6 +697,10 @@ export const useApp = create<AppState>()(
         if (!tab || tab.type !== "request" || !workspaceId) return;
         if (!tab.draft.url.trim()) {
           toast.error("Enter a URL first");
+          return;
+        }
+        if (containsWithheld(tab.draft)) {
+          toast.error(WITHHELD_MESSAGE);
           return;
         }
         abortControllers.get(tabId)?.abort();
@@ -776,9 +819,10 @@ export const useApp = create<AppState>()(
     }),
     {
       name: "postbox-ui",
-      version: 2,
-      // Existing v1 browser state contains raw auth values and upload bytes.
-      migrate: (persistedState) => sanitizeStoredState(persistedState),
+      version: 3,
+      // v1 browser state contains raw auth values and upload bytes. v2 wrote literal placeholders where
+      // values were withheld; mark them so they are restored from the server or re-entered, never sent.
+      migrate: migrateStoredState,
       // Persist UI state and unsaved drafts, but not responses or server data.
       partialize: (s) => ({
         workspaceId: s.workspaceId,
