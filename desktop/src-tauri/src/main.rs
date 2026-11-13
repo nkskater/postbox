@@ -22,7 +22,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
-use tauri::webview::{DownloadEvent, NewWindowFeatures, NewWindowResponse};
+use tauri::webview::{
+    DownloadEvent, NewWindowFeatures, NewWindowResponse, PermissionKind, PermissionResponse,
+};
 use tauri::{
     AppHandle, Manager, RunEvent, Url, Webview, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
 };
@@ -258,6 +260,20 @@ fn is_app_url(app: &AppHandle, url: &Url) -> bool {
         .is_some_and(|main| main.scheme() == "http" && main.origin() == url.origin())
 }
 
+/// Lets pages of the local server save more than one file without the browser's
+/// "multiple downloads" prompt, which the window has no UI for. Everything else
+/// keeps the WebView2 default.
+fn handle_permission(webview: Webview, kind: PermissionKind) -> PermissionResponse {
+    let app_page = webview
+        .url()
+        .is_ok_and(|url| is_app_url(webview.app_handle(), &url));
+    if matches!(kind, PermissionKind::AutomaticDownloads) && app_page {
+        PermissionResponse::Allow
+    } else {
+        PermissionResponse::Default
+    }
+}
+
 /// Decides what happens to window.open and target="_blank" links.
 ///
 /// Pop-ups for the app itself (exports, the OAuth sign-in window, which starts at
@@ -288,6 +304,7 @@ fn open_popup(app: &AppHandle, features: NewWindowFeatures) -> tauri::Result<Web
         .title("Postbox")
         .window_features(features)
         .on_download(handle_download)
+        .on_permission_request(handle_permission)
         .on_new_window(new_window_handler(app.clone()))
         .on_document_title_changed(|window, title| {
             let _ = window.set_title(&title);
@@ -303,6 +320,7 @@ fn build_main_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .inner_size(1280.0, 800.0)
         .min_inner_size(900.0, 600.0)
         .on_download(handle_download)
+        .on_permission_request(handle_permission)
         .on_new_window(new_window_handler(app.clone()));
     // The shell always passes its own browser arguments, which hides the standard
     // WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS variable; add it to the defaults instead.

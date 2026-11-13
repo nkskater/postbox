@@ -61,6 +61,9 @@ describe("Windows desktop package", () => {
     expect(builder).toContain(".min_inner_size(900.0, 600.0)");
     expect(builder).toContain(".on_download(handle_download)");
     expect(builder).toContain(".on_new_window(new_window_handler(");
+    // Several downloads from the app need the "multiple downloads" permission, granted to app pages only.
+    expect(builder).toContain(".on_permission_request(handle_permission)");
+    expect(main).toContain("matches!(kind, PermissionKind::AutomaticDownloads) && app_page");
     expect(main).toMatch(/fn open_popup[\s\S]*\.on_download\(handle_download\)/);
     // Downloads go to the Downloads folder and never overwrite an existing file.
     expect(main).toContain(".download_dir()");
