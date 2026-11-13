@@ -1770,8 +1770,10 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
 
         const partial: Partial<RequestDef> = {};
         if (contract !== undefined) partial.contract = contract;
+        let curlWarnings: string[] = [];
         if (curl) {
           const parsed = parseCurl(curl);
+          curlWarnings = parsed.warnings;
           partial.method = parsed.method;
           partial.url = parsed.url;
           partial.headers = parsed.headers;
@@ -1781,6 +1783,7 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
             ...DEFAULT_SETTINGS,
             verifySsl: !parsed.insecure,
             followRedirects: parsed.followRedirects,
+            ...(parsed.timeoutMs ? { timeoutMs: parsed.timeoutMs } : {}),
           };
         }
         if (name !== undefined) partial.name = name;
@@ -1799,7 +1802,7 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
         if (description !== undefined) partial.description = description;
 
         const created = repo.createRequest(folder.workspaceId, folderId, partial);
-        return okJson(created);
+        return okJson(curlWarnings.length ? { ...created, curlWarnings } : created);
       } catch (err) {
         return errResult(err);
       }
@@ -1969,6 +1972,7 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
         let baseRequest: RequestDef;
         let wsId: string;
         let folderId: string | null = input.folderId ?? null;
+        let curlWarnings: string[] = [];
 
         if (input.requestId) {
           const saved = repo.getRequest(input.requestId);
@@ -1979,6 +1983,7 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
           folderId = input.folderId !== undefined ? input.folderId : savedFolderId;
         } else if (input.curl) {
           const parsed = parseCurl(input.curl);
+          curlWarnings = parsed.warnings;
           wsId = folderId
             ? (repo.getFolder(folderId)?.workspaceId ?? resolveWorkspaceId(input.workspaceId))
             : resolveWorkspaceId(input.workspaceId);
@@ -1993,6 +1998,7 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
               ...DEFAULT_SETTINGS,
               verifySsl: !parsed.insecure,
               followRedirects: parsed.followRedirects,
+              ...(parsed.timeoutMs ? { timeoutMs: parsed.timeoutMs } : {}),
             },
           });
         } else {
@@ -2046,6 +2052,7 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
           : undefined;
 
         return okJson({
+          ...(curlWarnings.length ? { curlWarnings } : {}),
           passed: !result.error && result.scriptErrors.length === 0 && result.tests.every((t) => t.passed),
           skipped: result.skipped,
           error: result.error,

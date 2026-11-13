@@ -107,7 +107,7 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
   // Pasting a cURL command into the URL bar imports it.
   const onPaste = (text: string) => {
     if (!getSetting<boolean>("requests.curlPaste")) return false;
-    if (!/^\s*curl\s/i.test(text)) return false;
+    if (!/^\s*curl(?:\.exe)?\s/i.test(text)) return false;
     try {
       const r = parseCurl(text);
       set({
@@ -117,8 +117,10 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
         headers: r.headers,
         body: r.body,
         auth: r.auth,
+        ...(r.timeoutMs ? { settings: { ...d.settings, timeoutMs: r.timeoutMs } } : {}),
       });
-      toast.success("Imported cURL command");
+      if (r.warnings.length) toast.warning(`Imported cURL command. Check: ${r.warnings.join("; ")}`);
+      else toast.success("Imported cURL command");
       return true;
     } catch (err) {
       toast.error(`Could not parse cURL: ${(err as Error).message}`);

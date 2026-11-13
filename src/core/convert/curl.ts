@@ -1,6 +1,7 @@
 /**
  * cURL command parser → request definition.
- * Supports the options commonly produced by browsers' "Copy as cURL" and API docs.
+ * Supports the options commonly produced by browsers' "Copy as cURL" (bash and Windows cmd)
+ * and API docs. Anything it cannot carry over is reported in `warnings` rather than dropped.
  */
 import type { AuthConfig, BodyConfig, FormDataField, KeyValue } from "../types";
 
@@ -12,6 +13,64 @@ export interface ParsedCurl {
   auth: AuthConfig;
   insecure: boolean;
   followRedirects: boolean;
+  /** From --max-time / -m, when given. */
+  timeoutMs?: number;
+  /** What could not be imported as written: file bodies, uploads, ignored options, extra URLs. */
+  warnings: string[];
+}
+
+/** True for commands copied from Windows cmd ("Copy as cURL (cmd)"), which escape with `^`. */
+export function isCmdStyle(cmd: string): boolean {
+  return /\^"|\^\r?\n|\^[ \t]*$/m.test(cmd);
+}
+
+/**
+ * Splits a cmd.exe command line: `^` escapes the next character (and `^` + newline continues
+ * the line), then arguments are split with the Windows C runtime rules (double quotes group,
+ * `""` inside quotes and backslash-escaped quotes are literal quotes).
+ */
+export function tokenizeCmd(cmd: string): string[] {
+  const s = cmd.replace(/\^\r?\n/g, " ").replace(/\^([\s\S])/g, "$1");
+  const out: string[] = [];
+  let cur = "";
+  let inToken = false;
+  let quoted = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === "\\") {
+      let n = 0;
+      while (s[i] === "\\") {
+        n++;
+        i++;
+      }
+      if (s[i] === '"') {
+        cur += "\\".repeat(Math.floor(n / 2));
+        if (n % 2) cur += '"';
+        else {
+          quoted = !quoted;
+        }
+      } else {
+        cur += "\\".repeat(n);
+        i--;
+      }
+      inToken = true;
+    } else if (c === '"') {
+      inToken = true;
+      if (quoted && s[i + 1] === '"') {
+        cur += '"';
+        i++;
+      } else quoted = !quoted;
+    } else if (!quoted && /\s/.test(c)) {
+      if (inToken) out.push(cur);
+      cur = "";
+      inToken = false;
+    } else {
+      inToken = true;
+      cur += c;
+    }
+  }
+  if (inToken) out.push(cur);
+  return out;
 }
 
 /** POSIX-shell-like tokenizer handling single/double quotes, $'..', escapes and line continuations. */
@@ -99,11 +158,195 @@ const WITH_VALUE = new Set([
   "--cookie-jar",
   "-T",
   "--upload-file",
+  "--url-query",
+  "--aws-sigv4",
+  "--data-urlencode",
+  "-r",
+  "--range",
+  "-z",
+  "--time-cond",
+  "-E",
+  "--cert",
+  "--cert-type",
+  "--key",
+  "--key-type",
+  "--pass",
+  "--cacert",
+  "--capath",
+  "--ciphers",
+  "--resolve",
+  "--connect-to",
+  "--interface",
+  "--local-port",
+  "--limit-rate",
+  "--max-filesize",
+  "--max-redirs",
+  "--retry",
+  "--retry-delay",
+  "--retry-max-time",
+  "--keepalive-time",
+  "--expect100-timeout",
+  "-K",
+  "--config",
+  "-D",
+  "--dump-header",
+  "--trace",
+  "--trace-ascii",
+  "--stderr",
+  "-U",
+  "--proxy-user",
+  "--proxy-header",
+  "--noproxy",
+  "--preproxy",
+  "--socks5",
+  "--socks5-hostname",
+  "--unix-socket",
+  "--abstract-unix-socket",
+  "--dns-servers",
+  "--doh-url",
+  "-Q",
+  "--quote",
+  "--mail-from",
+  "--mail-rcpt",
+  "--hostpubmd5",
+  "--pinnedpubkey",
+  "--request-target",
+  "--sasl-authzid",
+  "--service-name",
+  "--tls-max",
+  "--variable",
+  "--expand-data",
+  "--output-dir",
+  "-C",
+  "--continue-at",
+  "-Y",
+  "--speed-limit",
+  "-y",
+  "--speed-time",
+  "--happy-eyeballs-timeout-ms",
 ]);
 
+/** Options that take no value and do not change the imported request. */
+const NO_EFFECT_FLAGS = new Set([
+  "-s",
+  "--silent",
+  "-S",
+  "--show-error",
+  "-v",
+  "--verbose",
+  "-i",
+  "--include",
+  "-f",
+  "--fail",
+  "--fail-with-body",
+  "--compressed",
+  "--compressed-ssh",
+  "-N",
+  "--no-buffer",
+  "-g",
+  "--globoff",
+  "--path-as-is",
+  "--http1.0",
+  "--http1.1",
+  "--http2",
+  "--http2-prior-knowledge",
+  "--http3",
+  "-4",
+  "--ipv4",
+  "-6",
+  "--ipv6",
+  "-#",
+  "--progress-bar",
+  "--no-progress-meter",
+  "-O",
+  "--remote-name",
+  "-J",
+  "--remote-header-name",
+  "-n",
+  "--netrc",
+  "--raw",
+  "--tr-encoding",
+  "--no-keepalive",
+  "--tcp-nodelay",
+  "--tcp-fastopen",
+  "--location-trusted",
+  "--tlsv1",
+  "--tlsv1.0",
+  "--tlsv1.1",
+  "--tlsv1.2",
+  "--tlsv1.3",
+  "--ssl",
+  "--ssl-reqd",
+  "--basic",
+  "--anyauth",
+  "--no-alpn",
+  "--no-npn",
+  "--no-sessionid",
+  "--create-dirs",
+  "--styled-output",
+  "--no-styled-output",
+]);
+
+const looksLikeUrl = (s: string) =>
+  /^[a-z][a-z0-9+.-]*:\/\//i.test(s) || /^[\w.-]+\.[a-z]{2,}(?::\d+)?(?:[/?#]|$)/i.test(s);
+
+/** Expands `-sSL` into `-s -S -L` and `-XPOST` into `-X POST`. */
+function expandShortFlags(tokens: string[]): string[] {
+  const out: string[] = [];
+  for (const tok of tokens) {
+    if (!/^-[A-Za-z0-9#]{2,}/.test(tok) || tok.startsWith("--")) {
+      out.push(tok);
+      continue;
+    }
+    for (let j = 1; j < tok.length; j++) {
+      const opt = `-${tok[j]}`;
+      if (WITH_VALUE.has(opt)) {
+        out.push(opt);
+        if (j + 1 < tok.length) out.push(tok.slice(j + 1));
+        break;
+      }
+      out.push(opt);
+    }
+  }
+  return out;
+}
+
+/** `--aws-sigv4 provider1[:provider2[:region[:service]]]`, region and service falling back to the host. */
+function awsSigV4(provider: string, url: string, creds: { username: string; password: string } | null) {
+  const parts = provider.split(":");
+  let [region, service] = [parts[2] ?? "", parts[3] ?? ""];
+  const host = /^[a-z]+:\/\/([^/:?#]+)/i.exec(url)?.[1] ?? "";
+  const aws = /^(?:[^.]+\.)*?([a-z0-9-]+)\.([a-z]{2}(?:-[a-z]+)+-\d)\.amazonaws\.com$/i.exec(host);
+  if (aws) {
+    service ||= aws[1];
+    region ||= aws[2];
+  }
+  return {
+    type: "awsv4" as const,
+    awsv4: {
+      accessKey: creds?.username ?? "",
+      secretKey: creds?.password ?? "",
+      service,
+      ...(region ? { region } : {}),
+    },
+  };
+}
+
 export function parseCurl(command: string): ParsedCurl {
-  const tokens = tokenize(command.trim());
-  if (!tokens.length || tokens[0].toLowerCase() !== "curl") throw new Error("Command must start with 'curl'");
+  const trimmed = command.trim();
+  const tokens = expandShortFlags(isCmdStyle(trimmed) ? tokenizeCmd(trimmed) : tokenize(trimmed));
+  if (!tokens.length || !/^curl(?:\.exe)?$/i.test(tokens[0]))
+    throw new Error("Command must start with 'curl'");
+  const warnings: string[] = [];
+  const warn = (message: string) => {
+    if (!warnings.includes(message)) warnings.push(message);
+  };
+  const extraUrls: string[] = [];
+  const urlQuery: string[] = [];
+  let bodyFile: string | null = null;
+  let uploadFile: string | null = null;
+  let timeoutMs: number | undefined;
+  let awsProvider: string | null = null;
 
   let method: string | undefined;
   let url = "";
@@ -126,10 +369,6 @@ export function parseCurl(command: string): ParsedCurl {
       const eq = tok.indexOf("=");
       val = tok.slice(eq + 1);
       tok = tok.slice(0, eq);
-    } else if (/^-[A-Za-z]./.test(tok) && WITH_VALUE.has(tok.slice(0, 2))) {
-      // -XPOST / -H'..' short form with attached value
-      val = tok.slice(2);
-      tok = tok.slice(0, 2);
     }
     const next = () => (val !== undefined ? val : (tokens[++i] ?? ""));
 
@@ -148,17 +387,49 @@ export function parseCurl(command: string): ParsedCurl {
       }
       case "-d":
       case "--data":
-      case "--data-raw":
       case "--data-binary":
       case "--data-ascii":
+      case "--json": {
+        const d = next();
+        if (tok === "--json") jsonBody = true;
+        // curl reads the body from a file for @name (and from standard input for @-).
+        if (d.startsWith("@")) {
+          const file = d.slice(1);
+          if (file === "-") warn("the body is read from standard input and was not imported");
+          else {
+            bodyFile ??= file;
+            warn(`body comes from file ${file} (attach it)`);
+          }
+        } else data.push(d);
+        break;
+      }
+      case "--data-raw":
         data.push(next());
         break;
-      case "--json":
-        data.push(next());
-        jsonBody = true;
+      case "--data-urlencode": {
+        const d = next();
+        const at = /^([^=]*)@(.+)$/.exec(d);
+        if (at && !d.includes("="))
+          warn(`form value ${at[1] || "body"} comes from file ${at[2]} and was not imported`);
+        else urlencoded.push(d);
         break;
-      case "--data-urlencode":
-        urlencoded.push(next());
+      }
+      case "-T":
+      case "--upload-file":
+        uploadFile = next();
+        warn(`upload file ${uploadFile} was not imported (attach it)`);
+        break;
+      case "--url-query":
+        urlQuery.push(next());
+        break;
+      case "-m":
+      case "--max-time": {
+        const seconds = Number(next());
+        if (Number.isFinite(seconds) && seconds > 0) timeoutMs = Math.round(seconds * 1000);
+        break;
+      }
+      case "--aws-sigv4":
+        awsProvider = next();
         break;
       case "-F":
       case "--form":
@@ -221,17 +492,58 @@ export function parseCurl(command: string): ParsedCurl {
         follow = true;
         break;
       default:
-        if (WITH_VALUE.has(tok)) next();
-        else if (!tok.startsWith("-") && !url) url = tok;
+        if (WITH_VALUE.has(tok)) {
+          next();
+          if (
+            !["-o", "--output", "-w", "--write-out", "-c", "--cookie-jar", "--connect-timeout"].includes(tok)
+          )
+            warn(`ignored option ${tok}`);
+        } else if (NO_EFFECT_FLAGS.has(tok)) {
+          // Output and transport details that do not belong to the request.
+        } else if (tok.startsWith("-") && tok.length > 1) {
+          // An unknown option may take a value; never let that value become the URL.
+          const following = tokens[i + 1];
+          if (
+            val === undefined &&
+            following !== undefined &&
+            !following.startsWith("-") &&
+            !looksLikeUrl(following)
+          )
+            i++;
+          warn(`ignored option ${tok}`);
+        } else if (!url) url = tok;
+        else extraUrls.push(tok);
     }
   }
   if (!url) throw new Error("No URL found in cURL command");
+  if (extraUrls.length) warn(`only the first URL was imported (also given: ${extraUrls.join(", ")})`);
   if (digest && auth.type === "basic") auth = { type: "digest", digest: auth.basic };
+  if (awsProvider !== null) {
+    const creds = auth.type === "basic" ? auth.basic : null;
+    auth = awsSigV4(awsProvider, /^[a-z][a-z0-9+.-]*:\/\//i.test(url) ? url : `http://${url}`, creds);
+    if (!auth.awsv4.service) warn("set the AWS service name in the Auth tab (not in --aws-sigv4)");
+  }
+  if (urlQuery.length) {
+    const parts = urlQuery.map((q) => (q.startsWith("+") ? q.slice(1) : encodeUrlencodedArg(q)));
+    url += (url.includes("?") ? "&" : "?") + parts.join("&");
+  }
 
   const hasHeader = (n: string) => headers.some((h) => h.key.toLowerCase() === n);
   let body: BodyConfig = { mode: "none" };
 
-  if (forceGet && (data.length || urlencoded.length)) {
+  const contentType = headers.find((h) => h.key.toLowerCase() === "content-type")?.value;
+  if (uploadFile !== null || bodyFile !== null) {
+    if (data.length || urlencoded.length || form.length) warn("other body values were not imported");
+    body = {
+      mode: "binary",
+      binary: {
+        fileName: (uploadFile ?? bodyFile)!.split(/[\\/]/).pop() || (uploadFile ?? bodyFile)!,
+        ...(contentType ? { contentType } : {}),
+        data: "",
+        missing: true,
+      },
+    };
+  } else if (forceGet && (data.length || urlencoded.length)) {
     const qs = [...data, ...urlencoded.map(encodeUrlencodedArg)].join("&");
     url += (url.includes("?") ? "&" : "?") + qs;
   } else if (form.length) {
@@ -288,9 +600,20 @@ export function parseCurl(command: string): ParsedCurl {
     } else body = { mode: "raw", raw, language: "text" };
   }
 
-  const finalMethod = method ?? (forceGet ? "GET" : body.mode !== "none" ? "POST" : "GET");
+  const finalMethod =
+    method ?? (uploadFile !== null ? "PUT" : forceGet ? "GET" : body.mode !== "none" ? "POST" : "GET");
   if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) url = `http://${url}`;
-  return { method: finalMethod, url, headers, body, auth, insecure, followRedirects: follow };
+  return {
+    method: finalMethod,
+    url,
+    headers,
+    body,
+    auth,
+    insecure,
+    followRedirects: follow,
+    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+    warnings,
+  };
 }
 
 function encodeUrlencodedArg(p: string): string {
