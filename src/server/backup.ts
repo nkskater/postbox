@@ -11,17 +11,18 @@ import type { MockRoute } from "@/core/mocks/model";
 /**
  * Full backup and restore of workspace data, plus database maintenance.
  *
- * A backup holds workspaces, collections, requests, environments, variables, datasets,
- * schedules, workspace memberships, instance settings, the outbound proxy and TLS profiles as one
- * JSON document. It does not
- * hold accounts, sessions, API tokens, run results, history or cookies. Secret values are
+ * A backup holds every workspace's configuration (collections, requests, environments, variables,
+ * datasets, schedules, memberships, webhooks, listeners, comments, forks, releases, runners, ...),
+ * instance settings, the outbound proxy and TLS profiles as one JSON document. Records of what
+ * happened (runs, history, cookies, deliveries, captured traffic, reports) and anything tied to
+ * accounts are left out; `EXCLUDED_TABLES` lists them with the reason. Secret values are
  * stored in the database in plain text, so a backup that includes them must be handled like
  * a credentials file; `includeSecrets: false` produces a best-effort scrubbed copy.
  *
  * These functions take the database as an argument so they can be tested against a fresh one.
  */
 import fs from "node:fs";
-import { inArray, sql } from "drizzle-orm";
+import { getTableName, inArray, sql } from "drizzle-orm";
 import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import type Database from "better-sqlite3";
 import { z } from "zod";
@@ -29,6 +30,7 @@ import { monitorRulesSchema } from "@/core/monitoring/model";
 import { OutboundNetwork } from "@/core/http/outbound";
 import { withoutAuthCredentials } from "@/core/retention";
 import { sanitizeSettings } from "@/lib/settings/registry";
+import { SECRET_PREFIX } from "@/core/webhooks";
 import { schema, type DB } from "./db";
 
 export const BACKUP_FORMAT = 1;
@@ -66,6 +68,17 @@ const TABLES = {
   tlsProfiles: schema.tlsProfiles,
   vaultSecrets: schema.vaultSecrets,
   brokerApis: schema.brokerApis,
+  webhooks: schema.webhooks,
+  hookListeners: schema.hookListeners,
+  mcpCalls: schema.mcpCalls,
+  runners: schema.runners,
+  comments: schema.comments,
+  dependencyReleases: schema.dependencyReleases,
+  dependencyInstalls: schema.dependencyInstalls,
+  collectionForks: schema.collectionForks,
+  mergeRequests: schema.mergeRequests,
+  mergeRequestReviews: schema.mergeRequestReviews,
+  gatewayRoutes: schema.gatewayRoutes,
 } as const;
 type TableName = keyof typeof TABLES;
 /** Insert order: parents before children. */
@@ -102,7 +115,57 @@ const ORDER: TableName[] = [
   "tlsProfiles",
   "vaultSecrets",
   "brokerApis",
+  "webhooks",
+  "hookListeners",
+  "mcpCalls",
+  "runners",
+  "comments",
+  "dependencyReleases",
+  "dependencyInstalls",
+  "collectionForks",
+  "mergeRequests",
+  "mergeRequestReviews",
+  "gatewayRoutes",
 ];
+
+/**
+ * Workspace data a backup deliberately leaves out, by SQL table name. A restore deletes these
+ * along with the workspaces they belong to. Every table that is removed with a workspace must be
+ * either backed up or listed here (checked by a test).
+ */
+export const EXCLUDED_TABLES: Record<string, string> = {
+  runs: "run results",
+  run_results: "run results",
+  load_runs: "load test results",
+  history: "request history",
+  cookies: "cookies",
+  mock_logs: "mock server request logs",
+  webhook_deliveries: "webhook delivery log",
+  webhook_attempts: "webhook delivery log",
+  hook_events: "requests received by incoming hook listeners",
+  monitor_samples: "monitor results",
+  monitor_incidents: "monitor incidents",
+  monitor_emails: "monitor e-mail log",
+  runner_jobs: "queued and finished runner jobs",
+  telemetry_observations: "received telemetry",
+  capture_sessions: "captured traffic",
+  capture_entries: "captured traffic",
+  gateway_sessions: "gateway sessions",
+  gateway_traces: "gateway traces",
+  governance_reports: "governance reports (run the checks again)",
+  quality_reports: "scorecard reports (run the scorecards again)",
+  graph_sources: "the dependency graph index (rebuilt with Refresh)",
+  graph_nodes: "the dependency graph index (rebuilt with Refresh)",
+  graph_edges: "the dependency graph index (rebuilt with Refresh)",
+  comment_notifications: "comment notifications of individual accounts",
+  invites: "pending invitations (send them again)",
+  broker_grants: "access granted to brokered APIs (approve it again)",
+  scim_groups: "groups provisioned by the identity provider (provisioned again on its next sync)",
+  sso_role_grants: "roles granted through single sign-on (granted again at the next sign-in)",
+};
+
+/** SQL names of the tables a backup holds. */
+export const BACKED_UP_TABLES: string[] = ORDER.map((name) => getTableName(TABLES[name]));
 
 export interface Backup {
   postboxBackup: typeof BACKUP_FORMAT;
@@ -128,6 +191,10 @@ export class BackupError extends Error {
     this.name = "BackupError";
   }
 }
+
+const VAULT_REF = /^\s*\{\{\s*vault:[^}]+\}\}\s*$/;
+/** A token hash no token can match, for listeners and runners restored without their credentials. */
+const unusableHash = () => `restored-${randomBytes(16).toString("hex")}`;
 
 const SENSITIVE_NAME = /authorization|cookie|token|password|secret|api[-_]?key|credential/i;
 type Row = { key?: unknown; value?: unknown; [k: string]: unknown };
@@ -269,6 +336,54 @@ export function createBackup(db: DB, opts: { includeSecrets: boolean }): Backup 
     tables.appSettings = tables.appSettings.map((s) =>
       s.key === "execution.defaultHeaders" ? { ...s, value: maskHeaders(s.value) } : s,
     );
+    // Signing keys, shared secrets and token hashes are credentials. A restored webhook gets a new
+    // signing key and stays off; a listener or runner needs a new token before it works again.
+    tables.webhooks = tables.webhooks.map((w) => ({
+      ...w,
+      secret: "",
+      enabled: false,
+      headers: JSON.stringify(
+        (JSON.parse(String(w.headers ?? "[]")) as { name: string; value: string }[]).map((h) => ({
+          ...h,
+          value: VAULT_REF.test(h.value) ? h.value : "",
+        })),
+      ),
+    }));
+    tables.hookListeners = tables.hookListeners.map((l) => ({
+      ...l,
+      tokenHash: unusableHash(),
+      tokenHint: "",
+      secret: "",
+      status: l.status === "revoked" ? "revoked" : "paused",
+    }));
+    tables.runners = tables.runners.map((r) => ({
+      ...r,
+      tokenHash: unusableHash(),
+      revokedAt: r.revokedAt ?? Date.now(),
+    }));
+    tables.mcpCalls = tables.mcpCalls.map((c) => {
+      const config = redactStoredValue(c.config, mockSecrets) as { connection?: { headers?: unknown } };
+      return {
+        ...c,
+        config: {
+          ...config,
+          connection: { ...config.connection, headers: maskHeaders(config.connection?.headers) },
+        },
+      };
+    });
+    tables.dependencyReleases = tables.dependencyReleases.map((r) => ({
+      ...r,
+      snapshot: redactStoredValue(r.snapshot, mockSecrets),
+    }));
+    tables.dependencyInstalls = tables.dependencyInstalls.map((r) => ({
+      ...r,
+      baseSnapshot: redactStoredValue(r.baseSnapshot, mockSecrets),
+    }));
+    tables.collectionForks = tables.collectionForks.map((r) => ({
+      ...r,
+      baseSnapshot: redactStoredValue(r.baseSnapshot, mockSecrets),
+      baseFiles: redactStoredValue(r.baseFiles, mockSecrets),
+    }));
   }
   return {
     postboxBackup: BACKUP_FORMAT,
@@ -448,6 +563,26 @@ export function restoreBackup(db: DB, sqlite: Database.Database, input: unknown)
     tlsProfiles: tables.tlsProfiles
       .map((p) => (p.certPem && !p.keyPem ? { ...p, certPem: "", passphrase: "" } : p))
       .filter((p) => p.caPem || p.certPem),
+    // A webhook restored without its signing key gets a new one (shown by "Rotate secret") and stays off.
+    webhooks: withCreator(tables.webhooks).map((w) =>
+      !w.secret && !w.secretRef
+        ? { ...w, secret: SECRET_PREFIX + randomBytes(32).toString("base64url"), enabled: false }
+        : w,
+    ),
+    hookListeners: withCreator(tables.hookListeners),
+    runners: withCreator(tables.runners).map((r) => ({ ...r, lastSeenAt: null })),
+    comments: tables.comments.map((c) => (known(c.authorId) ? c : { ...c, authorId: null })),
+    dependencyReleases: withCreator(tables.dependencyReleases),
+    collectionForks: withCreator(tables.collectionForks),
+    mergeRequests: withCreator(tables.mergeRequests),
+    // Usage counters restart; the limits themselves are part of the route's policy.
+    gatewayRoutes: tables.gatewayRoutes.map((r) => ({
+      ...r,
+      minuteWindow: 0,
+      minuteUsed: 0,
+      dayWindow: 0,
+      dayUsed: 0,
+    })),
   };
 
   try {
