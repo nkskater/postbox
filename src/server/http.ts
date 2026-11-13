@@ -82,7 +82,8 @@ export const bodyLimitBytes = () => (Number(process.env.API_BODY_LIMIT_MB) || 25
 
 /** Read a request body as text, failing with 413 as soon as it exceeds `limit` bytes. */
 export async function readBodyText(req: Request, limit = bodyLimitBytes()): Promise<string> {
-  const tooLarge = () => new HttpError(413, `Request body exceeds ${Math.round(limit / 1048576)} MB`);
+  const size = limit >= 1048576 ? `${Math.round(limit / 1048576)} MB` : `${Math.round(limit / 1024)} KB`;
+  const tooLarge = () => new HttpError(413, `Request body exceeds ${size}`);
   if (Number(req.headers.get("content-length")) > limit) throw tooLarge();
   if (!req.body) return "";
   const reader = req.body.getReader();

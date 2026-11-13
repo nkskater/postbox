@@ -11,6 +11,9 @@ import { NextRequest } from "next/server";
 process.env.DATABASE_PATH = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "postbox-accounts-")), "a.db");
 
 const auth = await import("@/server/auth");
+const clientAddressModule = await import("@/server/client-address");
+// The server stamps the trusted client address on every request; these tests set it directly.
+clientAddressModule.installClientAddressHook();
 const users = await import("@/server/users");
 const { getDb, schema } = await import("@/server/db");
 const { proxy } = await import("@/proxy");
@@ -38,7 +41,7 @@ const req = (
     method: init.method ?? (init.body !== undefined ? "POST" : "GET"),
     headers: {
       "Content-Type": "application/json",
-      "x-forwarded-for": init.ip ?? `10.0.0.${++ip % 250}`,
+      [clientAddressModule.CLIENT_ADDRESS_HEADER]: init.ip ?? `10.0.0.${++ip % 250}`,
       ...(init.cookie ? { cookie: `${auth.SESSION_COOKIE}=${init.cookie}` } : {}),
       ...(init.bearer ? { authorization: `Bearer ${init.bearer}` } : {}),
     },
@@ -217,10 +220,18 @@ describe("accounts end to end", () => {
     await expect(users.createUser({ username: "BOB", password: "password1" })).rejects.toThrow(/taken/);
   });
 
-  it("rate limits failed logins per account across addresses", async () => {
+  it("rate limits failed logins per account and client without letting strangers lock an account", async () => {
     await users.createUser({ username: "carol", password: "carolpassword" });
+    // Ten failures from other addresses do not stop carol signing in from hers.
     for (let i = 0; i < 10; i++) expect((await login("carol", "wrong")).status).toBe(401);
-    expect((await login("carol", "carolpassword")).status).toBe(429);
+    expect((await login("carol", "carolpassword", "192.0.2.10")).status).toBe(200);
+    // One address guessing one account is stopped after ten failures.
+    for (let i = 0; i < 10; i++) expect((await login("carol", "wrong", "192.0.2.66")).status).toBe(401);
+    expect((await login("carol", "carolpassword", "192.0.2.66")).status).toBe(429);
+    // Many addresses guessing one account hit the account-wide ceiling.
+    const { max } = auth.LOGIN_LIMITS.account;
+    for (let i = 0; i < max; i++) await login("carol", "wrong");
+    expect((await login("carol", "carolpassword", "192.0.2.11")).status).toBe(429);
     // Other accounts are not affected.
     expect((await login("admin", "password2")).status).toBe(200);
   });

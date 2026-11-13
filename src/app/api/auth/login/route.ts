@@ -5,14 +5,18 @@
  */
 import { NextResponse } from "next/server";
 import {
+  LOGIN_BODY_LIMIT,
+  MAX_PASSWORD_LENGTH,
   SESSION_COOKIE,
   clearLoginFailures,
-  clientKey,
   createSession,
   loginAllowed,
+  loginKeys,
   recordLoginFailure,
   verifyLoginSecret,
 } from "@/server/auth";
+import { clientAddress } from "@/server/client-address";
+import { HttpError, readBodyText } from "@/server/http";
 import { getAuthState, setUserSessionCookie } from "@/server/caller";
 import { audit } from "@/server/audit";
 import { burnPasswordCheck, getUserByUsername, normalizeUsername, verifyPassword } from "@/server/users";
@@ -27,26 +31,35 @@ export async function POST(req: Request) {
   if (!state.enabled) return NextResponse.json({ ok: true, authDisabled: true });
   let body: { username?: unknown; password?: unknown } = {};
   try {
-    body = (await req.json()) as typeof body;
-  } catch {
-    /* treated as empty credentials */
+    // Unauthenticated: read a small body only, and never hash an oversized password.
+    body = JSON.parse(await readBodyText(req, LOGIN_BODY_LIMIT)) as typeof body;
+  } catch (error) {
+    if (error instanceof HttpError)
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    /* malformed JSON is treated as empty credentials */
   }
+  if (!body || typeof body !== "object") body = {};
   const password = String(body.password ?? "");
-  const ipKey = clientKey(req.headers);
+  if (password.length > MAX_PASSWORD_LENGTH)
+    return NextResponse.json({ error: "Invalid username or password" }, { status: 400 });
+  const address = clientAddress(req.headers);
+  const ipKey = loginKeys.client(address);
 
   if (state.hasUsers) {
-    const username = normalizeUsername(String(body.username ?? ""));
-    // Limit per client and per account, so one address cannot lock out others and
-    // many addresses cannot guess one account's password.
-    const userKey = `user:${username}`;
-    if (!loginAllowed(ipKey) || !loginAllowed(userKey)) return tooMany();
+    const username = normalizeUsername(String(body.username ?? "")).slice(0, 64);
+    // Per client, per (account, client) and a high account-wide ceiling: one address cannot
+    // lock out others, strangers cannot lock out an account, and many addresses cannot guess one.
+    const pairKey = loginKeys.pair(username, address);
+    const accountKey = loginKeys.account(username);
+    if (!loginAllowed(ipKey) || !loginAllowed(pairKey) || !loginAllowed(accountKey)) return tooMany();
     const user = username ? getUserByUsername(username) : undefined;
     let ok = false;
     if (user && !user.isService && password) ok = await verifyPassword(password, user.passwordHash);
     else await burnPasswordCheck(password); // also for service accounts, which have no password
     if (!ok || !user || user.disabled) {
       recordLoginFailure(ipKey);
-      recordLoginFailure(userKey);
+      recordLoginFailure(pairKey);
+      recordLoginFailure(accountKey);
       audit({
         action: "auth.login_failed",
         entityKind: "session",
@@ -57,7 +70,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid username or password" }, { status: 401 });
     }
     clearLoginFailures(ipKey);
-    clearLoginFailures(userKey);
+    clearLoginFailures(pairKey);
     audit({
       action: "auth.login",
       entityKind: "session",
@@ -69,9 +82,12 @@ export async function POST(req: Request) {
   }
 
   const cfg = state.cfg!;
-  if (!loginAllowed(ipKey)) return tooMany();
+  // Single-user mode has one secret, so failures also count against it from every address.
+  const secretKey = loginKeys.secret();
+  if (!loginAllowed(ipKey) || !loginAllowed(secretKey)) return tooMany();
   if (!password || !verifyLoginSecret(cfg, password)) {
     recordLoginFailure(ipKey);
+    recordLoginFailure(secretKey);
     return NextResponse.json({ error: "Invalid password" }, { status: 401 });
   }
   clearLoginFailures(ipKey);

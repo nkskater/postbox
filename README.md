@@ -407,6 +407,7 @@ Chromium binary (otherwise run `npx playwright-core install chromium` once).
 | `RESPONSE_MAX_BYTES` | `52428800` | Encoded response bytes are truncated at this limit; decompression exceeding the limit at any stage is rejected |
 | `API_BODY_LIMIT_MB` | `25` | Largest JSON body the REST API and `/api/mcp` accept (file uploads travel inline as base64); larger bodies get `413` |
 | `POSTBOX_ALLOWED_ORIGINS` | _(none)_ | Extra browser origins (comma list, e.g. `https://postbox.example.com`) allowed to send changes to the API. Browser requests that change data are otherwise accepted only from Postbox's own origin; set this when a reverse proxy rewrites the `Host` header without sending `X-Forwarded-Host` |
+| `POSTBOX_TRUSTED_PROXIES` | `0` | Number of reverse proxies in front of Postbox that append to `X-Forwarded-For` (usually `1`). Sign-in throttling then uses the address the nearest trusted proxy reported; with `0` forwarding headers are ignored and the connection's address is used |
 | `MCP_ALLOWED_ORIGINS` | _(none)_ | Extra browser origins allowed to call `/api/mcp` (cross-origin browser requests are rejected otherwise). Also under Settings → MCP & integrations; the variable pins the setting |
 | `MCP_ENABLED` | `true` | Serve `/api/mcp`; `false` makes it refuse every request. Also a setting |
 | `MCP_READ_ONLY` | `false` | Hide and block MCP tools that change data. Also a setting |
@@ -544,8 +545,15 @@ See [Users and sharing](#users-and-sharing) for user administration and invite l
 Put them in the git-ignored `.env` file (see `.env.example`), not in `docker-compose.yml`, which is tracked in git.
 Anyone with Docker access on the host can still read them with `docker inspect`. Changing either value signs out
 single-user sessions; account sessions are signed with `POSTBOX_SESSION_SECRET` or a key Postbox generates and keeps in
-its database. Failed logins are rate limited per client address and per account. Only run Postbox without auth on a
-trusted network.
+its database. Only run Postbox without auth on a trusted network.
+
+Failed sign-ins are throttled. Each client address gets 10 failures per 5 minutes, and each account gets 10 per
+5 minutes from any one address, so nobody else can lock you out, plus 100 per 15 minutes from all addresses together.
+In single-user mode, failed `POSTBOX_PASSWORD` logins and wrong `Authorization: Bearer` values against `POSTBOX_TOKEN`
+also share a budget of 100 per 15 minutes from all addresses, so switching addresses gains nothing. Login and invite
+bodies are limited to 8 KB. The client address is the connection's address; `X-Forwarded-For` is ignored unless
+`POSTBOX_TRUSTED_PROXIES` says how many reverse proxies sit in front of Postbox. Without that setting, every client
+behind a proxy shares one address.
 
 ### Users and sharing
 
