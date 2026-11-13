@@ -58,8 +58,9 @@ import {
 import { changeRequestExamples, listRequestExamples } from "./examples";
 import { exampleCommandSchema } from "@/core/schemas";
 import { currentCaller } from "./access-context";
+import { HttpError } from "./errors";
 import { describeCaller } from "./caller";
-import { workspaceRole } from "./authorize";
+import { authorize, workspaceRole, type WorkspaceAction } from "./authorize";
 import * as runs from "./runs";
 import * as load from "./load";
 import * as vault from "./vault";
@@ -109,6 +110,45 @@ function resolveWorkspaceId(workspaceId?: string | null): string {
   }
   const list = repo.ensureDefaultWorkspace();
   return list[0].id;
+}
+
+/**
+ * The workspace a call acts on once it has looked up the resource it names. Refuses an explicit
+ * workspaceId that disagrees and authorizes the caller there, so a handler never acts on a
+ * workspace other than the one the access check saw.
+ */
+function actOnWorkspace(
+  resourceWorkspaceId: string,
+  workspaceId: string | null | undefined,
+  action: WorkspaceAction,
+) {
+  if (workspaceId && workspaceId !== resourceWorkspaceId)
+    throw new HttpError(400, "The resource does not belong to workspaceId");
+  authorize(currentCaller(), resourceWorkspaceId, action);
+  return resourceWorkspaceId;
+}
+
+/** Where a variable scope lives: its workspace and owning collection or environment. */
+function variableOwner(
+  workspaceId: string | null | undefined,
+  scope: "global" | "collection" | "environment",
+  ownerId: string | null | undefined,
+  action: WorkspaceAction,
+): { wsId: string; owner: string | null } {
+  if (scope === "collection") {
+    if (!ownerId) throw new Error("ownerId (collection folderId) is required when scope is 'collection'");
+    const folder = repo.getFolder(ownerId);
+    if (!folder) throw new Error(`Collection folder not found: ${ownerId}`);
+    const owner = repo.getFolderChain(ownerId)[0]?.id ?? ownerId;
+    return { wsId: actOnWorkspace(folder.workspaceId, workspaceId, action), owner };
+  }
+  if (scope === "environment") {
+    if (!ownerId) throw new Error("ownerId (environmentId) is required when scope is 'environment'");
+    const env = repo.getEnvironment(ownerId);
+    if (!env) throw new Error(`Environment not found: ${ownerId}`);
+    return { wsId: actOnWorkspace(env.workspaceId, workspaceId, action), owner: env.id };
+  }
+  return { wsId: resolveWorkspaceId(workspaceId), owner: null };
 }
 
 function maskVariables(vars: Variable[], includeSecrets = false): Variable[] {
@@ -1546,7 +1586,7 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
         if (parentId) {
           const parent = repo.getFolder(parentId);
           if (!parent) throw new Error(`Parent folder not found: ${parentId}`);
-          wsId = parent.workspaceId;
+          wsId = actOnWorkspace(parent.workspaceId, workspaceId, "write");
         } else {
           wsId = resolveWorkspaceId(workspaceId);
         }
@@ -2855,25 +2895,7 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
     },
     async ({ workspaceId, scope, ownerId, includeSecrets }) => {
       try {
-        let wsId: string;
-        let resolvedOwner: string | null = null;
-        if (scope === "collection") {
-          if (!ownerId)
-            throw new Error("ownerId (collection folderId) is required when scope is 'collection'");
-          const folder = repo.getFolder(ownerId);
-          if (!folder) throw new Error(`Collection folder not found: ${ownerId}`);
-          const chain = repo.getFolderChain(ownerId);
-          resolvedOwner = chain[0]?.id ?? ownerId;
-          wsId = folder.workspaceId;
-        } else if (scope === "environment") {
-          if (!ownerId) throw new Error("ownerId (environmentId) is required when scope is 'environment'");
-          const env = repo.getEnvironment(ownerId);
-          if (!env) throw new Error(`Environment not found: ${ownerId}`);
-          resolvedOwner = env.id;
-          wsId = env.workspaceId;
-        } else {
-          wsId = resolveWorkspaceId(workspaceId);
-        }
+        const { wsId, owner: resolvedOwner } = variableOwner(workspaceId, scope, ownerId, "read");
         const vars = repo.listVariables(wsId, scope, resolvedOwner);
         return okJson({
           workspaceId: wsId,
@@ -2912,25 +2934,7 @@ export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): Mc
     },
     async ({ workspaceId, scope, ownerId, mode, variables }) => {
       try {
-        let wsId: string;
-        let resolvedOwner: string | null = null;
-        if (scope === "collection") {
-          if (!ownerId)
-            throw new Error("ownerId (collection folderId) is required when scope is 'collection'");
-          const folder = repo.getFolder(ownerId);
-          if (!folder) throw new Error(`Collection folder not found: ${ownerId}`);
-          const chain = repo.getFolderChain(ownerId);
-          resolvedOwner = chain[0]?.id ?? ownerId;
-          wsId = folder.workspaceId;
-        } else if (scope === "environment") {
-          if (!ownerId) throw new Error("ownerId (environmentId) is required when scope is 'environment'");
-          const env = repo.getEnvironment(ownerId);
-          if (!env) throw new Error(`Environment not found: ${ownerId}`);
-          resolvedOwner = env.id;
-          wsId = env.workspaceId;
-        } else {
-          wsId = resolveWorkspaceId(workspaceId);
-        }
+        const { wsId, owner: resolvedOwner } = variableOwner(workspaceId, scope, ownerId, "write");
 
         let nextList: Variable[];
         if (mode === "replace") {

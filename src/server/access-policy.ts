@@ -705,39 +705,112 @@ export function isReadOnlyTool(name: string): boolean {
   return action === "read" || action === "run" || action === "list" || action === "identity";
 }
 
+/** Tool arguments that name a resource, with the kind whose workspace authorizes the call. */
+export const MCP_ID_FIELDS = {
+  monitorId: "monitor",
+  specificationId: "specification",
+  ruleSetId: "governanceRuleSet",
+  scorecardId: "qualityScorecard",
+  sourceId: "telemetrySource",
+  datasetId: "dataset",
+  mockId: "mock",
+  packageId: "scriptPackage",
+  folderId: "folder",
+  requestId: "request",
+  environmentId: "environment",
+  runId: "run",
+  loadRunId: "loadRun",
+  secretId: "vaultSecret",
+  brokerApiId: "brokerApi",
+  grantId: "brokerGrant",
+  captureSessionId: "captureSession",
+  historyId: "history",
+  cookieId: "cookie",
+  commentId: "comment",
+  runnerId: "runner",
+} as const satisfies Record<string, ResourceKind>;
+
+/**
+ * Arguments whose resource kind depends on another argument (`ownerId` by `scope`, `targetId` by
+ * `targetKind`) or on the tool (`parentId`, `id`). authorizeTool resolves each of them.
+ */
+export const MCP_CONTEXTUAL_ID_FIELDS: Record<string, readonly string[]> = {
+  list_variables: ["ownerId"],
+  set_variables: ["ownerId"],
+  list_comments: ["targetId"],
+  add_comment: ["targetId"],
+  create_folder: ["parentId"],
+  move_tree_item: ["id", "parentId"],
+};
+
+/**
+ * Arguments that name something inside a resource authorizeTool already resolved from a sibling
+ * argument (or a workspace-independent catalog/publication). The handler looks them up through
+ * that parent, so a foreign ID is "not found" there.
+ */
+export const MCP_SCOPED_ID_FIELDS: Record<string, readonly string[]> = {
+  add_comment: ["parentId"], // reply target, checked against targetKind/targetId
+  get_telemetry_endpoint: ["endpointId"], // within workspaceId
+  plan_telemetry_repro: ["observationId"], // within workspaceId
+  remove_scorecard_service: ["bindingId"], // within scorecardId
+  get_scorecard_report: ["reportId"], // within scorecardId
+  get_governance_report: ["reportId"], // within specificationId
+  test_mock_handler: ["handlerId"], // within mockId
+  list_capture_entries: ["entryId"], // within captureSessionId
+  capture_to_requests: ["entryIds"], // within captureSessionId
+  run_collection: ["selectedRequestIds"], // within folderId
+  start_load_test: ["selectedRequestIds"], // within folderId
+  import_catalog_entry: ["entryId"], // shared catalog, imported into workspaceId
+  import_documentation_collection: ["publicationId"], // visible publication, imported into workspaceId
+};
+
+const COMMENT_TARGET_KINDS: Record<string, ResourceKind> = {
+  request: "request",
+  folder: "folder",
+  specification: "specification",
+  mergeRequest: "mergeRequest",
+};
+
+/** An argument name that refers to a resource by ID. */
+export const isIdArgument = (key: string) => key !== "workspaceId" && /(^id|Id|Ids)$/.test(key);
+
+/** The workspaces a tool call touches, from every argument that names a resource. */
+function toolWorkspaces(name: string, input: Record<string, unknown>): Set<string> {
+  const ids = new Set<string>();
+  if (input.workspaceId) ids.add(stringId(input.workspaceId));
+  for (const [field, kind] of Object.entries(MCP_ID_FIELDS)) {
+    if (input[field]) ids.add(resourceWorkspace(kind, stringId(input[field])));
+  }
+  const contextual = MCP_CONTEXTUAL_ID_FIELDS[name] ?? [];
+  const resolve = (field: string, kind: ResourceKind | undefined) => {
+    if (!contextual.includes(field) || !input[field]) return;
+    if (!kind) throw new HttpError(400, `Cannot tell what ${field} refers to`);
+    ids.add(resourceWorkspace(kind, stringId(input[field])));
+  };
+  resolve(
+    "ownerId",
+    input.scope === "collection" ? "folder" : input.scope === "environment" ? "environment" : undefined,
+  );
+  resolve("targetId", COMMENT_TARGET_KINDS[String(input.targetKind)]);
+  resolve("parentId", "folder");
+  resolve("id", input.kind === "folder" ? "folder" : "request");
+  return ids;
+}
+
 export function authorizeTool(caller: Caller, name: string, input: Record<string, unknown>) {
   const action = MCP_POLICIES[name];
   if (!action) throw new HttpError(403, "Tool has no access policy");
   if (action === "create") requireScope(caller, "write");
   if (action === "list" || action === "create" || action === "identity") return;
-  const ids = new Set<string>();
-  if (input.workspaceId) ids.add(stringId(input.workspaceId));
-  for (const [field, kind] of [
-    ["monitorId", "monitor"],
-    ["specificationId", "specification"],
-    ["ruleSetId", "governanceRuleSet"],
-    ["scorecardId", "qualityScorecard"],
-    ["sourceId", "telemetrySource"],
-    ["datasetId", "dataset"],
-    ["mockId", "mock"],
-    ["packageId", "scriptPackage"],
-    ["folderId", "folder"],
-    ["requestId", "request"],
-    ["environmentId", "environment"],
-    ["runId", "run"],
-    ["loadRunId", "loadRun"],
-    ["secretId", "vaultSecret"],
-    ["brokerApiId", "brokerApi"],
-    ["grantId", "brokerGrant"],
-    ["captureSessionId", "captureSession"],
-    ["historyId", "history"],
-    ["cookieId", "cookie"],
-  ] as const) {
-    if (input[field]) ids.add(resourceWorkspace(kind, stringId(input[field])));
-  }
-  if (name === "move_tree_item")
-    ids.add(resourceWorkspace(input.kind === "folder" ? "folder" : "request", stringId(input.id)));
+  const ids = toolWorkspaces(name, input);
   if (!ids.size) {
+    // Falling back to a default workspace is only safe when the call names no resource at all;
+    // otherwise the handler would act on that resource's workspace, which was never checked.
+    const named = Object.keys(input).find(
+      // A global-scope variable call ignores ownerId.
+      (key) => isIdArgument(key) && input[key] && !(key === "ownerId" && input.scope === "global"),
+    );
+    if (named) throw new HttpError(400, `Cannot determine the workspace for ${named}; pass workspaceId`);
     const rows = getSqlite().prepare("SELECT id FROM workspaces ORDER BY created_at").all() as {
       id: string;
     }[];
