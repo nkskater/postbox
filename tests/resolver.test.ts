@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  MAX_RESOLVE_BYTES,
+  VariableExpansionError,
   emptyScopes,
   extractVariableNames,
   lookupVariable,
@@ -55,6 +57,39 @@ describe("variable resolver", () => {
     const scopes = { ...emptyScopes(), environment: { a: "{{b}}", b: "{{a}}" } };
     const r = resolveTemplate("{{a}}", scopes);
     expect(r.value).toMatch(/\{\{[ab]\}\}/);
+  });
+
+  it("bounds the 40-way, ten-level expansion before allocating a large result", () => {
+    const scopes = emptyScopes();
+    for (let i = 0; i < 10; i++) scopes.local[`v${i}`] = `{{v${i + 1}}}`.repeat(40);
+    scopes.local.v10 = "0123456789";
+    const start = performance.now();
+    expect(() => resolveTemplate("{{v0}}", scopes)).toThrow(VariableExpansionError);
+    expect(performance.now() - start).toBeLessThan(1000);
+  });
+
+  it("also bounds recursive fan-out whose leaf is empty", () => {
+    const scopes = emptyScopes();
+    for (let i = 0; i < 10; i++) scopes.local[`v${i}`] = `{{v${i + 1}}}`.repeat(40);
+    scopes.local.v10 = "";
+    expect(() => resolveTemplate("{{v0}}", scopes)).toThrow(VariableExpansionError);
+  });
+
+  it("preserves ten levels of ordinary nested variables", () => {
+    const scopes = emptyScopes();
+    for (let i = 0; i < 10; i++) scopes.local[`v${i}`] = `{{v${i + 1}}}`;
+    scopes.local.v10 = "done";
+    expect(resolveTemplate("{{v0}}", scopes).value).toBe("done");
+  });
+
+  it("shares the budget across templates and counts UTF-8 bytes", () => {
+    const resolver = new Resolver(emptyScopes());
+    const part = "é".repeat(MAX_RESOLVE_BYTES / 4);
+    expect(resolver.resolve(part)).toBe(part);
+    expect(resolver.resolve(part)).toBe(part);
+    expect(() => resolver.resolve("x")).toThrow(/Variable expansion exceeds/);
+    // Standalone calls have independent budgets.
+    expect(resolveTemplate(part, emptyScopes()).value).toBe(part);
   });
 
   it("generates dynamic variables", () => {

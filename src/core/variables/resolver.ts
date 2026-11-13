@@ -33,6 +33,28 @@ export interface VariableScopes {
 export const VAULT_PREFIX = "vault:";
 
 export const MAX_RESOLVE_DEPTH = 10;
+/** UTF-8 bytes processed and produced, including intermediate expansions. */
+export const MAX_RESOLVE_BYTES = 16 * 1024 * 1024;
+
+export class VariableExpansionError extends Error {
+  constructor() {
+    super(
+      `Variable expansion exceeds ${MAX_RESOLVE_BYTES} bytes; check for variables that reference each other repeatedly`,
+    );
+    this.name = "VariableExpansionError";
+  }
+}
+
+class ExpansionBudget {
+  private remaining = MAX_RESOLVE_BYTES;
+
+  consume(value: string): void {
+    // Check code units first so even an oversized input needs no full UTF-8 scan.
+    if (value.length > this.remaining) throw new VariableExpansionError();
+    this.remaining -= Buffer.byteLength(value, "utf8");
+    if (this.remaining < 0) throw new VariableExpansionError();
+  }
+}
 
 /** Matches {{name}}; names may not contain braces. */
 export const VARIABLE_PATTERN = /\{\{\s*([^{}]+?)\s*\}\}/g;
@@ -81,25 +103,51 @@ export interface ResolveResult {
  * are left untouched and reported in `unresolved`.
  */
 export function resolveTemplate(input: string, scopes: VariableScopes): ResolveResult {
+  return resolveWithBudget(input, scopes, new ExpansionBudget());
+}
+
+function resolveWithBudget(input: string, scopes: VariableScopes, budget: ExpansionBudget): ResolveResult {
   const unresolved = new Set<string>();
-  const value = resolveInner(input ?? "", scopes, unresolved, 0);
+  const value = resolveInner(input ?? "", scopes, unresolved, 0, budget);
   return { value, unresolved: [...unresolved] };
 }
 
-function resolveInner(input: string, scopes: VariableScopes, unresolved: Set<string>, depth: number): string {
+function resolveInner(
+  input: string,
+  scopes: VariableScopes,
+  unresolved: Set<string>,
+  depth: number,
+  budget: ExpansionBudget,
+): string {
+  budget.consume(input);
   if (!input.includes("{{")) return input;
-  return input.replace(VARIABLE_PATTERN, (match, rawName: string) => {
-    const name = rawName.trim();
+  const parts: string[] = [];
+  let end = 0;
+  // Each recursion needs its own matcher; a shared lastIndex would skip references.
+  for (const match of input.matchAll(VARIABLE_PATTERN)) {
+    parts.push(input.slice(end, match.index));
+    const name = match[1].trim();
     const found = lookupVariable(scopes, name);
+    let replacement: string;
     if (found) {
       // A vault value is data, not a template: braces inside a secret must survive untouched.
-      if (found.scope === "vault" || depth >= MAX_RESOLVE_DEPTH) return found.value;
-      return resolveInner(found.value, scopes, unresolved, depth + 1);
+      replacement =
+        found.scope === "vault" || depth >= MAX_RESOLVE_DEPTH
+          ? found.value
+          : resolveInner(found.value, scopes, unresolved, depth + 1, budget);
+    } else if (isDynamicVariable(name)) {
+      replacement = generateDynamic(name)!;
+    } else {
+      unresolved.add(name);
+      replacement = match[0];
     }
-    if (isDynamicVariable(name)) return generateDynamic(name)!;
-    unresolved.add(name);
-    return match;
-  });
+    // Charge before joining: String.replace would allocate an unbounded result first.
+    budget.consume(replacement);
+    parts.push(replacement);
+    end = match.index + match[0].length;
+  }
+  parts.push(input.slice(end));
+  return parts.join("");
 }
 
 /** Convenience wrapper returning only the substituted string. */
@@ -110,11 +158,12 @@ export function replaceVariables(input: string, scopes: VariableScopes): string 
 /** Collects unresolved names across many templates. */
 export class Resolver {
   readonly unresolved = new Set<string>();
+  private readonly budget = new ExpansionBudget();
   constructor(public scopes: VariableScopes) {}
 
   resolve(input: string | undefined): string {
     if (!input) return input ?? "";
-    const r = resolveTemplate(input, this.scopes);
+    const r = resolveWithBudget(input, this.scopes, this.budget);
     r.unresolved.forEach((n) => this.unresolved.add(n));
     return r.value;
   }
