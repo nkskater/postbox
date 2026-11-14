@@ -138,6 +138,7 @@ export function isPublicPath(pathname: string): boolean {
     pathname === "/login" ||
     pathname === "/invite" ||
     pathname === "/api/health" ||
+    pathname === "/api/openapi.json" ||
     pathname.startsWith("/api/auth/") ||
     pathname.startsWith("/_next/") ||
     pathname === "/favicon.ico"
