@@ -33,9 +33,20 @@ off the commands carry no token.
   ingest stay reachable from anywhere; `/api/mcp` uses its own allow-list above.
 - **Framing.** Pages and API responses send `X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff` and
   `Referrer-Policy: same-origin`, so other sites cannot embed Postbox.
+- **Content-Security-Policy.** App pages send an enforced policy with a fresh nonce per page: scripts only from
+  Postbox itself or with that nonce (no `eval`), connections and frames only to Postbox (plus `data:`/`blob:`
+  previews), `frame-ancestors 'self'`, `base-uri 'self'` and `form-action 'self'`. Requests you send never come
+  from the page; the server sends them, so the policy does not limit which APIs you can call. API routes, the
+  published documentation and catalog pages, and the mock, webhook and capture receivers keep their own headers.
+- **HTTPS.** Responses to requests that reached Postbox over HTTPS (directly or with `X-Forwarded-Proto: https`
+  from a reverse proxy) send `Strict-Transport-Security: max-age=31536000`.
 
 ## Sign-in and sessions
 
+- **Sign out** ends the session on the server, not only in the browser: the cookie stops working everywhere,
+  including any copy of it. Your other browsers stay signed in.
+- **Profile → Sign out of all sessions** ends every browser session of your own account, this one included.
+  Personal API tokens keep working.
 - **New sessions last** sets how long a new sign-in stays valid (1–365 days, `POSTBOX_SESSION_DAYS` pins it).
   Existing sessions keep the length they were created with.
 - **Sign out all sessions** (`POST /api/admin/sessions/revoke`) ends every browser session, yours

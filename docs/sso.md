@@ -26,7 +26,7 @@ Choose a display-name claim and groups claim. Each workspace mapping contains `w
 
 Changing provider configuration revokes linked account browser sessions, removes that provider's managed roles, and invalidates pending login attempts. It does not revoke personal API keys; their workspace access follows current memberships. Changing issuer or client/entity identity requires a new provider to prevent old subject mappings crossing trust boundaries. Certificate and client-secret rotation is supported on the existing provider. Disable a provider to withdraw login and its managed roles; delete a disabled provider to remove its mappings. Local accounts and private workspaces remain.
 
-Sessions expire at the earliest of the configured provider lifetime (60–86,400 seconds), verified IdP token/assertion expiry and instance session limit. There is no silent refresh. **Sign out** clears the local session cookie; it does not log out of the IdP or implement IdP single logout. A subsequent sign-in may reuse an existing IdP session.
+Sessions expire at the earliest of the configured provider lifetime (60–86,400 seconds), verified IdP token/assertion expiry and instance session limit. There is no silent refresh. **Sign out** ends the Postbox session (the cookie stops working on the server too); it does not log out of the IdP or implement IdP single logout. A subsequent sign-in may reuse an existing IdP session.
 
 ## Automation and recovery
 
