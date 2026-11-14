@@ -59,13 +59,14 @@ The desktop app reads settings from **user environment variables**. Open the Sta
 environment variables for your account**, add or change a variable under _User variables_, then close and restart
 Postbox Desktop.
 
-| Variable               | Default                  | Meaning                                                                                    |
-| ---------------------- | ------------------------ | ------------------------------------------------------------------------------------------ |
-| `DATA_DIR`             | `%LOCALAPPDATA%\Postbox` | Folder for the database, vault key file, backups and logs.                                 |
-| `PORT`                 | `47392`                  | Preferred loopback port. If it is taken, Postbox picks another free port for that run.     |
-| `BACKUP_KEEP`          | `30`                     | Number of daily backups to keep; `0` turns daily backups off.                              |
-| `POSTBOX_PASSWORD`     | _(none)_                 | Requires sign-in with this password. Recommended on a PC that other people also sign into. |
-| `POSTBOX_DOWNLOAD_DIR` | Your Downloads folder    | Folder where downloads and exports are saved.                                              |
+| Variable                  | Default                  | Meaning                                                                                    |
+| ------------------------- | ------------------------ | ------------------------------------------------------------------------------------------ |
+| `DATA_DIR`                | `%LOCALAPPDATA%\Postbox` | Folder for the database, vault key file, backups and logs.                                 |
+| `PORT`                    | `47392`                  | Preferred loopback port. If it is taken, Postbox picks another free port for that run.     |
+| `BACKUP_KEEP`             | `30`                     | Number of daily backups to keep; `0` turns daily backups off.                              |
+| `POSTBOX_PASSWORD`        | _(none)_                 | Requires sign-in with this password. Recommended on a PC that other people also sign into. |
+| `POSTBOX_DOWNLOAD_DIR`    | Your Downloads folder    | Folder where downloads and exports are saved.                                              |
+| `POSTBOX_NO_UPDATE_CHECK` | _(none)_                 | `1` turns off the daily check for a newer version.                                         |
 
 The server is reachable only from your own PC, but any program running on it (or another user signed into the same
 PC) can connect to the loopback port. Set `POSTBOX_PASSWORD`, or create an account in the app, if that matters to
@@ -75,10 +76,20 @@ When the preferred port is taken and Postbox moves to another port, the window o
 preferences and your sign-in from earlier sessions are not available for that session. Set `PORT` to a free port to
 avoid this.
 
-## Upgrade
+## Updates
 
-Download the newer installer and run it. If Postbox Desktop is running, the installer asks to close it first. Your
-data is kept.
+Postbox Desktop looks for a newer release by itself: about 30 seconds after it starts, and at most once a day, it reads
+`latest.json` from the [latest GitHub release](https://github.com/nkskater/postbox/releases/latest). When a newer
+version exists, it asks whether to install it and links to the release notes. If you choose **Yes**, it downloads the
+installer, checks its update signature, closes, installs the update for your user only (no administrator rights, no
+UAC prompt) and starts again. Your data is kept. If you choose **No**, it asks again the next day.
+
+An update whose signature does not match the Postbox release key is never installed. Problems with the check (for
+example no internet connection) are written to `logs\server.log` and are not shown.
+
+To turn the check off, set the user environment variable `POSTBOX_NO_UPDATE_CHECK` to `1` (see [Settings](#settings)).
+You can always update by hand: download the newer installer and run it. If Postbox Desktop is running, the installer
+asks to close it first. Your data is kept.
 
 ## Uninstall
 
