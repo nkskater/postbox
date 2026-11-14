@@ -267,7 +267,9 @@ jobs:
               ConvertTo-Json -Depth 5 | Set-Content (Join-Path $dir 'build.json')
             @{ version = '0.0.1'; bundle = @{ createUpdaterArtifacts = $true }; plugins = @{ updater = $updater } } |
               ConvertTo-Json -Depth 5 | Set-Content (Join-Path $dir 'old.json')
-            "TEST_UPDATE_KEY=$((Get-Content (Join-Path $dir 'test.key') -Raw).Trim())" >> $env:GITHUB_ENV
+            $testKey = (Get-Content (Join-Path $dir 'test.key') -Raw).Trim()
+            Write-Host "::add-mask::$testKey"
+            "TEST_UPDATE_KEY=$testKey" >> $env:GITHUB_ENV
             'UPDATE_SMOKE=1' >> $env:GITHUB_ENV
           }
       - name: Build the installer
@@ -477,7 +479,14 @@ jobs:
                 if (-not $healthy) { Start-Sleep -Milliseconds 500 }
               }
               if (-not $healthy) { throw 'The app did not start again after the update' }
-              $ids = @(Invoke-RestMethod "$base/api/workspaces") | ForEach-Object { $_.id }
+              # The restarted app may still be finishing its start-up; ask until it answers.
+              $ids = $null
+              for ($i = 0; $i -lt 60 -and $null -eq $ids; $i++) {
+                try { $ids = @(Invoke-RestMethod "$base/api/workspaces" -TimeoutSec 5) | ForEach-Object { $_.id } }
+                catch { Write-Host "Waiting for the updated app: $($_.Exception.Message)"; Start-Sleep -Seconds 1 }
+              }
+              Get-Process -Name 'postbox-*' -ErrorAction SilentlyContinue | Format-Table Id, Name, StartTime -AutoSize | Out-String | Write-Host
+              if ($null -eq $ids) { throw 'The updated app did not answer /api/workspaces' }
               if ($ids -notcontains $wsId) { throw 'Workspace missing after the in-app update' }
               if (Find-UninstallEntry 'HKLM') { throw 'The update wrote an HKLM uninstall entry' }
               foreach ($pf in @($env:ProgramFiles, ${env:ProgramFiles(x86)})) {
@@ -492,6 +501,9 @@ jobs:
             }
             Write-Host 'Windows desktop installer OK'
           } catch {
+            Write-Host '----- Postbox processes'
+            Get-CimInstance Win32_Process -Filter "Name LIKE 'postbox%' OR Name LIKE 'Postbox%'" -ErrorAction SilentlyContinue |
+              ForEach-Object { Write-Host "$($_.ProcessId) $($_.CreationDate) $($_.CommandLine)" }
             Write-Host '----- WebView2 processes and DevTools port'
             Get-CimInstance Win32_Process -Filter "Name = 'msedgewebview2.exe'" -ErrorAction SilentlyContinue |
               Select-Object -First 3 | ForEach-Object { Write-Host $_.CommandLine }
