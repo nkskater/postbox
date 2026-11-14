@@ -39,10 +39,11 @@ export const POST = route(async (req: Request) => {
   requireAdmin();
   const input = await parseBody(req, restoreSchema);
   try {
-    const [scheduler, runs, mail] = await Promise.all([
+    const [scheduler, runs, mail, workflows] = await Promise.all([
       import("@/server/scheduler"),
       import("@/server/runs"),
       import("@/server/monitor-email"),
+      import("@/server/workflows/scheduler"),
     ]);
     const queue = runs.runQueue.stats();
     if (queue.active || queue.queued || scheduler.hasActiveSchedules() || mail.monitorEmailIsBusy())
@@ -50,12 +51,14 @@ export const POST = route(async (req: Request) => {
         409,
         "Wait for active runs and monitor email deliveries to finish before restoring a backup",
       );
+    workflows.stopWorkflowScheduler();
     scheduler.stopScheduler();
     mail.stopMonitorEmailWorker();
     let restored: ReturnType<typeof restoreBackup>;
     try {
       restored = restoreBackup(getDb(), getSqlite(), input.backup);
     } finally {
+      workflows.startWorkflowScheduler();
       scheduler.startScheduler();
       mail.startMonitorEmailWorker();
     }

@@ -441,3 +441,44 @@ it("backs up workflow configuration, disables restored triggers and omits snapsh
     target.sqlite.close();
   }
 });
+
+it("rebuilds scheduled workflow jobs after restoring disabled deployments", async () => {
+  const { createBackup } = await import("@/server/backup");
+  const restore = await import("@/app/api/backup/route");
+  const saved = make();
+  as(owner, () => flow.publishVersion(saved.id, 1));
+  const deployment = as(owner, () =>
+    flow.createDeployment(saved.id, {
+      name: "Restored schedule",
+      version: 1,
+      enabled: true,
+      cron: "* * * * *",
+    }),
+  );
+  const backup = createBackup(getDb(), { includeSecrets: true });
+  const token = users.createToken(admin.id, "Restore").token;
+  vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+  vi.setSystemTime(new Date("2030-01-01T00:00:00Z"));
+  try {
+    schedules.startWorkflowScheduler();
+    const response = await restore.POST(
+      new Request("http://localhost/api/backup", {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({ backup, confirm: "restore" }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    await vi.advanceTimersByTimeAsync(60001);
+    expect(flow.deploymentRow(deployment.id)).toMatchObject({
+      enabled: false,
+      lastError: null,
+      lastRunId: null,
+    });
+  } finally {
+    schedules.stopWorkflowScheduler();
+    (await import("@/server/scheduler")).stopScheduler();
+    (await import("@/server/monitor-email")).stopMonitorEmailWorker();
+    vi.useRealTimers();
+  }
+});
