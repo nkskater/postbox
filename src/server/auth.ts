@@ -101,6 +101,14 @@ export function parseUserSession(
   return { userId, sessionVersion: Number(version) };
 }
 
+/** Expiry (ms) written into a v1 or v2 session cookie; NaN for anything else. Not a signature check. */
+export function sessionExpiry(value: string): number {
+  const parts = value.split(".");
+  if (parts[0] === "v1" && parts.length === 3) return Number(parts[1]);
+  if (parts[0] === "v2" && parts.length === 5) return Number(parts[3]);
+  return NaN;
+}
+
 /** Bearer value from an Authorization header. */
 export function bearerToken(header: string | null): string | null {
   const m = header ? /^Bearer\s+(.+)$/i.exec(header.trim()) : null;

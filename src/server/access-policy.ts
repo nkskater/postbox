@@ -243,6 +243,7 @@ export const REST_POLICIES: Record<string, Policy> = {
   "DELETE /api/invites/[id]": p("account"),
   "GET /api/me": p("account"),
   "POST /api/me/password": p("account"),
+  "POST /api/me/sessions/revoke": p("account"),
   "GET /api/me/tokens": p("account"),
   "POST /api/me/tokens": p("account"),
   "DELETE /api/me/tokens/[id]": p("account"),

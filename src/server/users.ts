@@ -282,6 +282,19 @@ export function revokeUserAccess(id: string) {
   });
 }
 
+/** End every browser session of the user ("Sign out of all sessions"); API tokens keep working. */
+export function signOutAllSessions(userId: string): UserRow {
+  getDb()
+    .update(users)
+    .set({ sessionVersion: sql`${users.sessionVersion} + 1`, updatedAt: Date.now() })
+    .where(eq(users.id, userId))
+    .run();
+  const user = getUser(userId);
+  if (!user) throw new HttpError(404, "User not found");
+  audit({ action: "user.sign_out_all", entityKind: "user", entityId: userId, entityName: user.username });
+  return user;
+}
+
 /** Change the password and end every existing session of the user. */
 export async function setPassword(userId: string, password: string) {
   if (getUser(userId)?.isService) throw new HttpError(400, "Service accounts do not use passwords");

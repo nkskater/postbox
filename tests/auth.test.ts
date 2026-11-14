@@ -88,7 +88,7 @@ describe("auth primitives", () => {
 
 describe("proxy gate", () => {
   it("clears the session cookie before the client returns to login", async () => {
-    const response = logout();
+    const response = logout(new Request("http://localhost/api/auth/logout", { method: "POST" }));
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true });
     const cookie = response.headers.get("set-cookie") ?? "";

@@ -12,13 +12,14 @@ import {
   getAuthConfig,
   parseUserSession,
   safeEqual,
+  sessionExpiry,
   verifySession,
   type AuthConfig,
 } from "./auth";
 import type { UserRow } from "./db/schema";
 import { callerScope } from "./access-context";
 import { HttpError } from "./errors";
-import { sessionEpoch, sessionTtl } from "./session-settings";
+import { isSessionRevoked, revokeSession, sessionEpoch, sessionTtl } from "./session-settings";
 import { countUsers, getUser, resolveTokenInfo, storedSecret, toPublicUser, type PublicUser } from "./users";
 
 export type Caller =
@@ -79,11 +80,38 @@ export function getCaller(
   if (session) {
     const user = getUser(session.userId);
     if (!user || user.disabled || user.sessionVersion !== session.sessionVersion) return null;
+    if (isSessionRevoked(cookie)) return null;
     return { kind: "user", user, via: "session" };
   }
   // Single-user cookies stay valid only until the first account is created.
-  if (!state.hasUsers && state.cfg && verifySession(state.cfg, cookie)) return { kind: "env" };
+  if (!state.hasUsers && state.cfg && verifySession(state.cfg, cookie) && !isSessionRevoked(cookie))
+    return { kind: "env" };
   return null;
+}
+
+/** The session cookie sent with a route handler request, if any. */
+function sessionCookieOf(req: Request): string | undefined {
+  const cookie = req.headers
+    .get("cookie")
+    ?.split(";")
+    .map((c) => c.trim())
+    .find((c) => c.startsWith(`${SESSION_COOKIE}=`))
+    ?.slice(SESSION_COOKIE.length + 1);
+  return cookie ? decodeCookie(cookie) : undefined;
+}
+
+/**
+ * Sign-out: end the request's browser session on the server, so a copy of the cookie stops
+ * working too. Only a correctly signed, unexpired cookie is recorded. Other sessions of the
+ * same user are not affected; "Sign out of all sessions" ends those.
+ */
+export function endBrowserSession(req: Request, now = Date.now()) {
+  const cookie = sessionCookieOf(req);
+  if (!cookie) return;
+  const cfg = getAuthState().cfg;
+  const valid =
+    !!parseUserSession(sessionSecret(), cookie, now) || (!!cfg && verifySession(cfg, cookie, now));
+  if (valid) revokeSession(cookie, sessionExpiry(cookie), now);
 }
 
 /** Percent-decoded cookie value; a malformed one counts as no cookie rather than an error. */
@@ -97,13 +125,7 @@ function decodeCookie(value: string): string | undefined {
 
 /** Caller of a route handler request. */
 export function callerOf(req: Request): Caller | null {
-  const cookie = req.headers
-    .get("cookie")
-    ?.split(";")
-    .map((c) => c.trim())
-    .find((c) => c.startsWith(`${SESSION_COOKIE}=`))
-    ?.slice(SESSION_COOKIE.length + 1);
-  return getCaller(req.headers, cookie ? decodeCookie(cookie) : undefined);
+  return getCaller(req.headers, sessionCookieOf(req));
 }
 
 /** The signed-in account, or 401 / 400 for env and open callers that have no account. */
@@ -129,7 +151,8 @@ export function describeCaller(c: Caller | null): {
   };
 }
 
-const isSecure = (req: Request) =>
+/** Whether the request reached Postbox over HTTPS (directly or behind a TLS proxy). */
+export const isSecure = (req: Pick<Request, "url" | "headers">) =>
   new URL(req.url).protocol === "https:" || req.headers.get("x-forwarded-proto") === "https";
 
 /** Attach a fresh account session cookie to a response. */

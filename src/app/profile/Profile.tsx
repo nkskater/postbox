@@ -13,6 +13,7 @@ import type { KeyScope } from "@/core/scopes";
 import { useApp } from "@/stores/app";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ArrowLeft, KeyRound, Loader2, Mailbox, RefreshCw, Trash2, UserRound } from "lucide-react";
 import { Toaster, toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -155,6 +156,35 @@ function PasswordForm() {
           Change password
         </Button>
       </form>
+    </Section>
+  );
+}
+
+/** Ends every browser session of this account, including this one; API tokens keep working. */
+function SignOutEverywhere() {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const signOut = async () => {
+    if (!window.confirm("Sign out of Postbox in every browser, including this one?")) return;
+    setBusy(true);
+    try {
+      await call("/api/me/sessions/revoke", { method: "POST" });
+      router.replace("/login");
+      router.refresh();
+    } catch (err) {
+      toast.error((err as Error).message);
+      setBusy(false);
+    }
+  };
+  return (
+    <Section title="Sessions">
+      <p className="text-sm text-muted-foreground">
+        Signing out ends the session in this browser only. If you signed in somewhere you no longer trust,
+        sign out of every browser at once. API tokens keep working.
+      </p>
+      <Button variant="outline" disabled={busy} onClick={signOut}>
+        Sign out of all sessions
+      </Button>
     </Section>
   );
 }
@@ -340,6 +370,7 @@ export function Profile() {
               </div>
             </Section>
             <PasswordForm />
+            <SignOutEverywhere />
             <Tokens />
           </>
         )}

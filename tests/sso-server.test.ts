@@ -243,7 +243,11 @@ it("completes a real signed OIDC callback, clamps session expiry, rejects reuse,
     (await route(handlers.callbackSso)(new NextRequest(callback, { headers: { cookie } }), context)).status,
   ).toBe(400);
   const logout = await import("@/app/api/auth/logout/route");
-  expect(logout.POST().headers.get("set-cookie")).toContain("Max-Age=0");
+  expect(
+    logout
+      .POST(new Request("http://localhost/api/auth/logout", { method: "POST" }))
+      .headers.get("set-cookie"),
+  ).toContain("Max-Age=0");
 });
 
 it("refuses insecure backchannel endpoints before sending credentials", async () => {
