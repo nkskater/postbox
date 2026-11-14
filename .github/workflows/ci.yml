@@ -246,8 +246,42 @@ jobs:
         run: |
           rustup component add rustfmt
           cargo fmt --check --manifest-path desktop/src-tauri/Cargo.toml
-      - run: npm run build:desktop
-      - name: Smoke test install, start, single instance, stop, upgrade and uninstall
+      - name: Prepare the update signing key
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'update'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+            # Releases sign the update with the project key (repository secrets, used by the build step).
+            '{"bundle":{"createUpdaterArtifacts":true}}' | Set-Content (Join-Path $dir 'build.json')
+            'UPDATE_SMOKE=0' >> $env:GITHUB_ENV
+          } else {
+            # Pull requests and main use a throwaway key that only these test builds trust.
+            Push-Location desktop
+            npm run tauri -- signer generate --ci -w (Join-Path $dir 'test.key')
+            if ($LASTEXITCODE -ne 0) { throw 'Could not generate the test update key' }
+            Pop-Location
+            $pub = (Get-Content (Join-Path $dir 'test.key.pub') -Raw).Trim()
+            $updater = @{ pubkey = $pub; dangerousInsecureTransportProtocol = $true }
+            @{ bundle = @{ createUpdaterArtifacts = $true }; plugins = @{ updater = $updater } } |
+              ConvertTo-Json -Depth 5 | Set-Content (Join-Path $dir 'build.json')
+            @{ version = '0.0.1'; bundle = @{ createUpdaterArtifacts = $true }; plugins = @{ updater = $updater } } |
+              ConvertTo-Json -Depth 5 | Set-Content (Join-Path $dir 'old.json')
+            "TEST_UPDATE_KEY=$((Get-Content (Join-Path $dir 'test.key') -Raw).Trim())" >> $env:GITHUB_ENV
+            'UPDATE_SMOKE=1' >> $env:GITHUB_ENV
+          }
+      - name: Build the installer
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.TAURI_SIGNING_PRIVATE_KEY || env.TEST_UPDATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+        run: npm run build:desktop -- --tauri-config ${{ runner.temp }}/update/build.json ${{ env.UPDATE_SMOKE == '1' && '--features update-test' || '' }}
+      - name: Build an older test version for the update smoke test (not on tags)
+        if: env.UPDATE_SMOKE == '1'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ env.TEST_UPDATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+        run: npm run build:desktop -- --reuse-payload --tauri-config ${{ runner.temp }}/update/old.json --features update-test --out Postbox-Desktop-old-setup.exe
+      - name: Smoke test install, start, single instance, stop, upgrade, in-app update and uninstall
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -379,6 +413,83 @@ jobs:
             if (Test-Path $exe) { throw 'postbox-desktop.exe still present after uninstall' }
             if (Find-UninstallEntry 'HKCU') { throw 'HKCU uninstall entry still present' }
             if (-not (Test-Path (Join-Path $data 'postbox.db'))) { throw 'Uninstall removed postbox.db' }
+
+            # 8. In-app update (test builds only): version 0.0.1 finds the current build through a
+            #    local latest.json, skips the check when turned off, rejects a bad signature, and
+            #    updates in place without administrator rights, keeping the data.
+            if ($env:UPDATE_SMOKE -eq '1') {
+              $newVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+              $oldSetup = Join-Path $PWD 'dist\Postbox-Desktop-old-setup.exe'
+              $upd = Join-Path $PWD 'desktop-update-smoke'
+              $updUrl = 'http://127.0.0.1:47413'
+              $serverLog = Join-Path $data 'logs\server.log'
+              New-Item -ItemType Directory -Force $upd | Out-Null
+              Copy-Item $setup (Join-Path $upd 'Postbox-Desktop-new-setup.exe')
+              node scripts/write-update-manifest.mjs --version $newVersion --url "$updUrl/Postbox-Desktop-new-setup.exe" --signature-file "$setup.sig" --out (Join-Path $upd 'latest.json')
+              if ($LASTEXITCODE -ne 0) { throw 'Could not write latest.json' }
+              # The same installer announced with the signature of a different file.
+              node scripts/write-update-manifest.mjs --version $newVersion --url "$updUrl/Postbox-Desktop-new-setup.exe" --signature-file "$oldSetup.sig" --out (Join-Path $upd 'bad-signature.json')
+              if ($LASTEXITCODE -ne 0) { throw 'Could not write bad-signature.json' }
+              $updServer = Start-Process -FilePath node -ArgumentList 'scripts/desktop-update-server.mjs', $upd, '47413' -PassThru -NoNewWindow
+              $requests = Join-Path $upd 'requests.log'
+              function Get-Requests { if (Test-Path $requests) { @(Get-Content $requests) } else { @() } }
+              function Get-InstalledVersion { try { (Get-Item $exe -ErrorAction Stop).VersionInfo.ProductVersion } catch { '' } }
+
+              $p = Start-Process -FilePath $oldSetup -ArgumentList '/S' -Wait -PassThru
+              if ($p.ExitCode -ne 0) { throw "Old test build installer exited with $($p.ExitCode)" }
+              if ((Get-InstalledVersion) -notlike '0.0.1*') { throw "Old test build reports version $(Get-InstalledVersion)" }
+              $env:POSTBOX_UPDATE_DELAY_SECS = '5'
+              $env:POSTBOX_UPDATE_AUTO = '1'
+
+              # 8a. Turned off: no request reaches the endpoint.
+              $env:POSTBOX_NO_UPDATE_CHECK = '1'
+              $env:POSTBOX_UPDATE_ENDPOINT = "$updUrl/latest.json"
+              $null = Start-Desktop
+              Start-Sleep -Seconds 20
+              if ((Get-Requests).Count -ne 0) { throw "Update check ran although POSTBOX_NO_UPDATE_CHECK=1: $(Get-Requests)" }
+              Stop-Desktop
+              Remove-Item Env:POSTBOX_NO_UPDATE_CHECK
+
+              # 8b. Wrong signature: downloaded, rejected and logged; nothing installed.
+              $env:POSTBOX_UPDATE_ENDPOINT = "$updUrl/bad-signature.json"
+              $null = Start-Desktop
+              for ($i = 0; $i -lt 120; $i++) {
+                if (Select-String -Path $serverLog -Pattern 'update check failed' -Quiet) { break }
+                Start-Sleep -Milliseconds 500
+              }
+              if (-not (Select-String -Path $serverLog -Pattern 'update check failed' -Quiet)) { throw "A bad signature was not reported; requests: $(Get-Requests)" }
+              if ((Get-Requests) -notcontains 'Postbox-Desktop-new-setup.exe') { throw "The update was not downloaded: $(Get-Requests)" }
+              if ((Get-InstalledVersion) -notlike '0.0.1*') { throw 'An update with a wrong signature was installed' }
+              if (-not (Get-Process -Name 'postbox-desktop' -ErrorAction SilentlyContinue)) { throw 'The app exited after a rejected update' }
+              Stop-Desktop
+
+              # 8c. Valid update: installed in place, the app restarts, the data is kept.
+              $env:POSTBOX_UPDATE_ENDPOINT = "$updUrl/latest.json"
+              $null = Start-Desktop
+              for ($i = 0; $i -lt 360; $i++) {
+                if ((Get-InstalledVersion) -like "$newVersion*") { break }
+                Start-Sleep -Milliseconds 500
+              }
+              if ((Get-InstalledVersion) -notlike "$newVersion*") { throw "The update was not installed (version $(Get-InstalledVersion))" }
+              $healthy = $false
+              for ($i = 0; $i -lt 240 -and -not $healthy; $i++) {
+                try { $healthy = (Invoke-RestMethod "$base/api/health" -TimeoutSec 2).status -eq 'ok' } catch { }
+                if (-not $healthy) { Start-Sleep -Milliseconds 500 }
+              }
+              if (-not $healthy) { throw 'The app did not start again after the update' }
+              $ids = @(Invoke-RestMethod "$base/api/workspaces") | ForEach-Object { $_.id }
+              if ($ids -notcontains $wsId) { throw 'Workspace missing after the in-app update' }
+              if (Find-UninstallEntry 'HKLM') { throw 'The update wrote an HKLM uninstall entry' }
+              foreach ($pf in @($env:ProgramFiles, ${env:ProgramFiles(x86)})) {
+                if ($pf -and (Test-Path (Join-Path $pf 'Postbox Desktop'))) { throw "The update installed under $pf" }
+              }
+              Stop-Desktop
+              foreach ($name in 'POSTBOX_UPDATE_ENDPOINT', 'POSTBOX_UPDATE_AUTO', 'POSTBOX_UPDATE_DELAY_SECS') { Remove-Item "Env:$name" }
+              Stop-Process -Id $updServer.Id -ErrorAction SilentlyContinue
+              $u = Start-Process -FilePath (Join-Path $inst 'uninstall.exe') -ArgumentList '/S' -Wait -PassThru
+              if ($u.ExitCode -ne 0) { throw "Uninstaller exited with $($u.ExitCode) after the update test" }
+              Write-Host "In-app update OK: 0.0.1 -> $newVersion"
+            }
             Write-Host 'Windows desktop installer OK'
           } catch {
             Write-Host '----- WebView2 processes and DevTools port'
@@ -402,11 +513,17 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $tag = $env:GITHUB_REF_NAME
+          $setup = 'dist/Postbox-Desktop-windows-x64-setup.exe'
+          if (-not (Test-Path "$setup.sig")) { throw 'The release build has no update signature' }
+          # latest.json is what installed apps read; its version must equal the tag.
+          node scripts/write-update-manifest.mjs --version $tag --expect-version-of package.json --url "https://github.com/nkskater/postbox/releases/download/$tag/Postbox-Desktop-windows-x64-setup.exe" --signature-file "$setup.sig" --out dist/latest.json
+          if ($LASTEXITCODE -ne 0) { throw 'Could not write latest.json' }
+          $assets = @($setup, "$setup.sig", 'dist/latest.json')
           gh release view $tag 2>$null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag dist/Postbox-Desktop-windows-x64-setup.exe --clobber
+            gh release upload $tag @assets --clobber
           } else {
-            gh release create $tag dist/Postbox-Desktop-windows-x64-setup.exe --title $tag --generate-notes
+            gh release create $tag @assets --title $tag --generate-notes
           }
 
   docker:

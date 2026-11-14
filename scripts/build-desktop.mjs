@@ -7,6 +7,15 @@
 //   npm run build:desktop               build the app, stage, then build the installer
 //   npm run build:desktop -- --skip-build   reuse an existing `npm run build`
 //   npm run build:desktop -- --stage-only   stop after staging desktop/payload/
+//   npm run build:desktop -- --reuse-payload  build only the installer from the staged payload
+//
+// Installer options (passed on to `tauri build`):
+//   --tauri-config <file>   extra Tauri config, e.g. the update key or a test version
+//   --features <list>       Cargo features of the shell (CI uses `update-test`)
+//   --out <file name>       name of the installer in dist/ (default below)
+//
+// With `bundle.createUpdaterArtifacts` on and TAURI_SIGNING_PRIVATE_KEY set, the
+// update signature is copied next to the installer as <installer>.sig.
 //
 // Output: dist/Postbox-Desktop-windows-x64-setup.exe
 //
@@ -40,13 +49,24 @@ export async function stagePayload() {
   fs.copyFileSync(path.join(ROOT, "windows", "app.ico"), path.join(PAYLOAD_APP, "app.ico"));
 }
 
+/** Value after `--name` on the command line, if any. */
+function option(name) {
+  const i = process.argv.indexOf(name);
+  return i >= 0 ? process.argv[i + 1] : undefined;
+}
+
 function buildInstaller() {
   if (!fs.existsSync(path.join(DESKTOP, "node_modules", "@tauri-apps", "cli"))) {
     throw new Error("Run `npm ci --prefix desktop` first (installs the Tauri CLI)");
   }
   log("Building the native shell and NSIS installer");
   fs.rmSync(NSIS_BUNDLE_DIR, { recursive: true, force: true });
-  const r = spawnSync("npm", ["run", "tauri", "--", "build", "--bundles", "nsis"], {
+  const args = ["run", "tauri", "--", "build", "--bundles", "nsis"];
+  const config = option("--tauri-config");
+  if (config) args.push("--config", path.resolve(config));
+  const features = option("--features");
+  if (features) args.push("--features", features);
+  const r = spawnSync("npm", args, {
     cwd: DESKTOP,
     stdio: "inherit",
     shell: process.platform === "win32",
@@ -60,14 +80,25 @@ function buildInstaller() {
     throw new Error(`Expected one *-setup.exe in ${NSIS_BUNDLE_DIR}, found ${setups.length}`);
   }
   fs.mkdirSync(DIST, { recursive: true });
-  fs.copyFileSync(path.join(NSIS_BUNDLE_DIR, setups[0]), SETUP_PATH);
-  const mb = (fs.statSync(SETUP_PATH).size / 1048576).toFixed(1);
-  log(`Done: ${path.relative(ROOT, SETUP_PATH)} (${mb} MB)`);
+  const out = option("--out") ? path.join(DIST, path.basename(option("--out"))) : SETUP_PATH;
+  fs.copyFileSync(path.join(NSIS_BUNDLE_DIR, setups[0]), out);
+  const signature = path.join(NSIS_BUNDLE_DIR, `${setups[0]}.sig`);
+  fs.rmSync(`${out}.sig`, { force: true });
+  if (fs.existsSync(signature)) fs.copyFileSync(signature, `${out}.sig`);
+  const mb = (fs.statSync(out).size / 1048576).toFixed(1);
+  log(
+    `Done: ${path.relative(ROOT, out)} (${mb} MB)${fs.existsSync(`${out}.sig`) ? " with update signature" : ""}`,
+  );
 }
 
 async function main() {
   const skipBuild = process.argv.includes("--skip-build");
   const stageOnly = process.argv.includes("--stage-only");
+  if (process.argv.includes("--reuse-payload")) {
+    if (!fs.existsSync(path.join(PAYLOAD_APP, "local.mjs"))) throw new Error("No staged payload to reuse");
+    buildInstaller();
+    return;
+  }
   log(`Building the Postbox desktop installer with Node.js v${process.versions.node}`);
   if (!fs.existsSync(path.join(ROOT, "node_modules", "better-sqlite3"))) {
     throw new Error("Run `npm ci` first (the build reads the installed better-sqlite3 package)");
