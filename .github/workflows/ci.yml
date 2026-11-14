@@ -467,26 +467,27 @@ jobs:
 
               # 8c. Valid update: installed in place, the app restarts, the data is kept.
               $env:POSTBOX_UPDATE_ENDPOINT = "$updUrl/latest.json"
+              $before = @(Get-Process -Name 'postbox-desktop' -ErrorAction SilentlyContinue | ForEach-Object { $_.Id })
               $null = Start-Desktop
+              $first = @(Get-Process -Name 'postbox-desktop' -ErrorAction SilentlyContinue | ForEach-Object { $_.Id })
               for ($i = 0; $i -lt 360; $i++) {
                 if ((Get-InstalledVersion) -like "$newVersion*") { break }
                 Start-Sleep -Milliseconds 500
               }
               if ((Get-InstalledVersion) -notlike "$newVersion*") { throw "The update was not installed (version $(Get-InstalledVersion))" }
-              $healthy = $false
-              for ($i = 0; $i -lt 240 -and -not $healthy; $i++) {
-                try { $healthy = (Invoke-RestMethod "$base/api/health" -TimeoutSec 2).status -eq 'ok' } catch { }
-                if (-not $healthy) { Start-Sleep -Milliseconds 500 }
+              # The installer restarts Postbox as the signed-in user (through Explorer), so the new
+              # process does not inherit this script's PORT and DATA_DIR. Check that it started,
+              # then start the updated app with the test settings to check the data.
+              $restarted = $null
+              for ($i = 0; $i -lt 240 -and -not $restarted; $i++) {
+                $restarted = Get-Process -Name 'postbox-desktop' -ErrorAction SilentlyContinue |
+                  Where-Object { ($before + $first) -notcontains $_.Id }
+                if (-not $restarted) { Start-Sleep -Milliseconds 500 }
               }
-              if (-not $healthy) { throw 'The app did not start again after the update' }
-              # The restarted app may still be finishing its start-up; ask until it answers.
-              $ids = $null
-              for ($i = 0; $i -lt 60 -and $null -eq $ids; $i++) {
-                try { $ids = @(Invoke-RestMethod "$base/api/workspaces" -TimeoutSec 5) | ForEach-Object { $_.id } }
-                catch { Write-Host "Waiting for the updated app: $($_.Exception.Message)"; Start-Sleep -Seconds 1 }
-              }
-              Get-Process -Name 'postbox-*' -ErrorAction SilentlyContinue | Format-Table Id, Name, StartTime -AutoSize | Out-String | Write-Host
-              if ($null -eq $ids) { throw 'The updated app did not answer /api/workspaces' }
+              if (-not $restarted) { throw 'The app did not start again after the update' }
+              Stop-Desktop
+              $null = Start-Desktop
+              $ids = @(Invoke-RestMethod "$base/api/workspaces") | ForEach-Object { $_.id }
               if ($ids -notcontains $wsId) { throw 'Workspace missing after the in-app update' }
               if (Find-UninstallEntry 'HKLM') { throw 'The update wrote an HKLM uninstall entry' }
               foreach ($pf in @($env:ProgramFiles, ${env:ProgramFiles(x86)})) {
