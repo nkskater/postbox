@@ -13,7 +13,8 @@ import {
 } from "@/server/auth";
 import { clientAddress } from "@/server/client-address";
 import { FixedWindowLimiter } from "@/core/ratelimit";
-import { getAuthState, getCaller } from "@/server/caller";
+import { getAuthState, getCaller, isSecure } from "@/server/caller";
+import { HSTS, appCsp, appliesCsp, newNonce } from "@/server/csp";
 import { isCrossOriginWrite } from "@/server/request-origin";
 
 let warned = false;
@@ -33,6 +34,27 @@ function guardsOrigin(pathname: string): boolean {
 }
 
 export function proxy(req: NextRequest) {
+  const res = gate(req);
+  // Headers for every response the gate lets through or answers itself.
+  if (isSecure(req)) res.headers.set("Strict-Transport-Security", HSTS);
+  return res;
+}
+
+/** NextResponse.next(), carrying a per-request CSP nonce for app pages. */
+function pass(req: NextRequest): NextResponse {
+  if (!appliesCsp(req.nextUrl.pathname)) return NextResponse.next();
+  const nonce = newNonce();
+  const policy = appCsp(nonce);
+  // Next.js reads the nonce from the request's CSP header and adds it to its scripts.
+  const headers = new Headers(req.headers);
+  headers.set("x-nonce", nonce);
+  headers.set("Content-Security-Policy", policy);
+  const res = NextResponse.next({ request: { headers } });
+  res.headers.set("Content-Security-Policy", policy);
+  return res;
+}
+
+function gate(req: NextRequest): NextResponse {
   if (guardsOrigin(req.nextUrl.pathname) && isCrossOriginWrite(req.method, req.headers, req.url))
     return NextResponse.json({ error: "Cross-origin request rejected" }, { status: 403 });
   const state = getAuthState();
@@ -43,10 +65,10 @@ export function proxy(req: NextRequest) {
         "[postbox] Authentication is disabled. Create an account under Profile, or set POSTBOX_PASSWORD and/or POSTBOX_TOKEN.",
       );
     }
-    return NextResponse.next();
+    return pass(req);
   }
   const { pathname, search } = req.nextUrl;
-  if (isPublicPath(pathname)) return NextResponse.next();
+  if (isPublicPath(pathname)) return pass(req);
   // A configured POSTBOX_TOKEN is a guessable secret: throttle failed bearer attempts like logins.
   const guarded = Boolean(state.cfg?.token && bearerToken(req.headers.get("authorization")));
   const clientKey = loginKeys.client(clientAddress(req.headers));
@@ -64,7 +86,7 @@ export function proxy(req: NextRequest) {
   if (caller) {
     const key = caller.kind === "user" ? caller.token : undefined;
     const limit = key?.rateLimitPerMinute;
-    if (!key || !limit) return NextResponse.next();
+    if (!key || !limit) return pass(req);
     const d = keyLimiter.hit(key.id, limit, 60_000, Date.now());
     const headers = {
       "X-RateLimit-Limit": String(d.limit),
@@ -72,7 +94,7 @@ export function proxy(req: NextRequest) {
       "X-RateLimit-Reset": String(d.resetSeconds),
     };
     if (d.allowed) {
-      const res = NextResponse.next();
+      const res = pass(req);
       for (const [k, v] of Object.entries(headers)) res.headers.set(k, v);
       return res;
     }

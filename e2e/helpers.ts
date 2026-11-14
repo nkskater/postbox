@@ -24,6 +24,12 @@ export const launch = (): Promise<Browser> => chromium.launch({ executablePath: 
 /** A page that records every uncaught exception and console error so a test can assert there were none. */
 export async function openApp(browser: Browser, baseUrl: string) {
   const context: BrowserContext = await browser.newContext({ viewport: { width: 1400, height: 900 } });
+  // Any Content-Security-Policy violation fails the test through the console error check.
+  await context.addInitScript(() =>
+    document.addEventListener("securitypolicyviolation", (e) =>
+      console.error(`CSP violation: ${e.violatedDirective} blocked ${e.blockedURI || "inline code"}`),
+    ),
+  );
   const page: Page = await context.newPage();
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
