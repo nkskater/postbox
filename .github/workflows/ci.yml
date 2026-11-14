@@ -35,6 +35,10 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+      - name: Measure isolated sandbox startup
+        env:
+          POSTBOX_SANDBOX_BENCHMARK_MS: '20'
+        run: npx vitest run tests/sandbox-lazy-libraries.test.ts --maxWorkers=1 --reporter=verbose -t 'keeps warmed core-only startup'
       - run: npm run build
       - name: Build the VS Code extension
         run: npm run build:vscode

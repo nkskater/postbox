@@ -132,6 +132,6 @@ describe("lazy sandbox libraries", () => {
     const mean = samples.reduce((total, ms) => total + ms, 0) / samples.length;
     console.info(`Core-only sandbox startup: ${mean.toFixed(2)} ms mean (15 fresh runtimes)`);
     // Allow shared CI scheduling variance while rejecting the former ~190 ms startup.
-    expect(mean).toBeLessThan(60);
+    expect(mean).toBeLessThan(Number(process.env.POSTBOX_SANDBOX_BENCHMARK_MS) || 60);
   });
 });
