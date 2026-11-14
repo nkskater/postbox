@@ -113,6 +113,16 @@ beforeAll(async () => {
       createdAt: 1,
     })
     .run();
+  const flows = await import("@/server/workflows");
+  await withCaller(caller(owner), async () => {
+    const workflow = flows.createWorkflow({ workspaceId, name: "Access workflow" });
+    ids.workflow = workflow.id;
+    flows.publishVersion(workflow.id, 1);
+    ids.workflowDeployment = flows.createDeployment(workflow.id, { name: "Access deployment", version: 1 }).id;
+    const run = flows.startFlowRun({ workflowId: workflow.id, input: {}, source: "fixture" });
+    ids.workflowRun = run.runId;
+    await flows.waitForFlowRun(run.runId);
+  });
   ids.workspace = workspaceId;
   ids.folder = repo.createFolder(workspaceId, null).id;
   ids.request = repo.createRequest(workspaceId, ids.folder, { url: "http://127.0.0.1:1/" }).id;

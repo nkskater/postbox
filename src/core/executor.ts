@@ -55,6 +55,8 @@ export type SavedRequestResolver = (requestId: string) => SavedRequest | Promise
 
 export interface ExecuteOptions {
   scriptModules?: ModuleSnapshot;
+  /** Optional stricter transport cap for bounded hosts such as visual workflows. */
+  maxResponseBytes?: number;
   request: RequestDef;
   resolveRequest?: SavedRequestResolver;
   /** Ancestor folders, collection first. */
@@ -296,6 +298,7 @@ async function executeInternal(
     policy: opts.policy,
     signal: opts.signal,
     oauth2CacheScope: opts.oauth2CacheScope,
+    maxBodyBytes: opts.maxResponseBytes,
     guard: opts.scopes.vaultDomains
       ? (message) => checkVaultDomains(guardedSecrets(scopes), message)
       : undefined,
@@ -311,14 +314,20 @@ async function executeInternal(
 
   // Scopes that come back from a script lack the vault; host calls made on its behalf need it again.
   const withVault = (current?: VariableScopes): VariableScopes | undefined =>
-    current && opts.scopes.vault
+    current
       ? {
           ...current,
-          vault: opts.scopes.vault,
-          vaultScripts: opts.scopes.vaultScripts,
-          vaultDomains: opts.scopes.vaultDomains,
+          ...(opts.scopes.vault
+            ? {
+                vault: opts.scopes.vault,
+                vaultScripts: opts.scopes.vaultScripts,
+                vaultDomains: opts.scopes.vaultDomains,
+              }
+            : {}),
+          ...(opts.scopes.literalLocalKeys ? { literalLocalKeys: opts.scopes.literalLocalKeys } : {}),
+          ...(opts.scopes.literalTemplates ? { literalTemplates: opts.scopes.literalTemplates } : {}),
         }
-      : current;
+      : undefined;
 
   // pm.sendRequest implementation: resolve variables, send through the same engine/policy.
   const host = {

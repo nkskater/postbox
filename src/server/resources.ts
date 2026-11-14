@@ -2,6 +2,9 @@ import { getSqlite } from "./db";
 import { HttpError } from "./errors";
 
 export type ResourceKind =
+  | "workflow"
+  | "workflowRun"
+  | "workflowDeployment"
   | "gatewayRoute"
   | "workspace"
   | "folder"
@@ -35,6 +38,9 @@ export type ResourceKind =
   | "telemetrySource"
   | "runner";
 export const RESOURCE_TABLES: Record<ResourceKind, string> = {
+  workflow: "workflows",
+  workflowRun: "workflow_runs",
+  workflowDeployment: "workflow_deployments",
   gatewayRoute: "gateway_routes",
   workspace: "workspaces",
   folder: "folders",

@@ -1,3 +1,4 @@
+import { parseGraph } from "@/core/workflows/model";
 import { telemetryConfig } from "@/core/telemetry/model";
 import { scorecardConfig } from "@/core/scorecards/model";
 import { governanceConfig, governanceOverrides, governanceExclusion } from "@/core/governance/model";
@@ -79,6 +80,9 @@ const TABLES = {
   mergeRequests: schema.mergeRequests,
   mergeRequestReviews: schema.mergeRequestReviews,
   gatewayRoutes: schema.gatewayRoutes,
+  workflows: schema.workflows,
+  workflowVersions: schema.workflowVersions,
+  workflowDeployments: schema.workflowDeployments,
 } as const;
 type TableName = keyof typeof TABLES;
 /** Insert order: parents before children. */
@@ -126,6 +130,9 @@ const ORDER: TableName[] = [
   "mergeRequests",
   "mergeRequestReviews",
   "gatewayRoutes",
+  "workflows",
+  "workflowVersions",
+  "workflowDeployments",
 ];
 
 /**
@@ -134,6 +141,7 @@ const ORDER: TableName[] = [
  * either backed up or listed here (checked by a test).
  */
 export const EXCLUDED_TABLES: Record<string, string> = {
+  workflow_runs: "workflow run results and webhook deduplication records",
   runs: "run results",
   run_results: "run results",
   load_runs: "load test results",
@@ -269,6 +277,13 @@ export function createBackup(db: DB, opts: { includeSecrets: boolean }): Backup 
         approvedBy: null,
       };
     });
+    tables.workflows = tables.workflows.map((row) => ({
+      ...row,
+      graph: redactStoredValue(redactSensitiveFields(row.graph), mockSecrets),
+    }));
+    // Immutable artifacts contain encrypted request credentials: omit them entirely from scrubbed exports.
+    tables.workflowVersions = [];
+    tables.workflowDeployments = [];
     tables.variables = tables.variables.map((v) => (v.type === "secret" ? { ...v, value: "" } : v));
     const scrub = (r: Record<string, unknown>) => ({
       ...r,
@@ -452,6 +467,36 @@ export function restoreBackup(db: DB, sqlite: Database.Database, input: unknown)
     ...tables,
     catalogEntries: tables.catalogEntries.map((entry) => ({ ...entry, enabled: false })),
     documentationPublications: tables.documentationPublications.map((row) => ({ ...row, enabled: false })),
+    workflows: withCreator(tables.workflows).map((row) => ({ ...row, graph: parseGraph(row.graph) })),
+    workflowVersions: withCreator(tables.workflowVersions).map((row) => {
+      const parent = tables.workflows.find((flow) => flow.id === row.workflowId);
+      if (!parent || parent.workspaceId !== row.workspaceId)
+        throw new BackupError("Invalid workflow version in backup");
+      return { ...row, graph: parseGraph(row.graph) };
+    }),
+    // Restored automation always requires an explicit owner adoption and fresh webhook token.
+    workflowDeployments: tables.workflowDeployments.map((row) => {
+      const version = tables.workflowVersions.find(
+        (v) => v.workflowId === row.workflowId && v.version === row.version,
+      );
+      const environment = row.environmentId
+        ? tables.environments.find((env) => env.id === row.environmentId)
+        : null;
+      if (
+        !version ||
+        version.workspaceId !== row.workspaceId ||
+        (environment && environment.workspaceId !== row.workspaceId)
+      )
+        throw new BackupError("Invalid workflow deployment in backup");
+      return {
+        ...row,
+        enabled: false,
+        webhookHash: null,
+        lastRunId: null,
+        lastError: null,
+        lastTriggeredAt: null,
+      };
+    }),
     grpcDefinitions: withCreator(tables.grpcDefinitions),
     datasets: withCreator(tables.datasets),
     datasetVersions: withCreator(tables.datasetVersions),

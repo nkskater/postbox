@@ -249,6 +249,12 @@ export interface RunSingleInput {
   folderId: string | null;
   requestId?: string | null;
   saveHistory?: boolean;
+  /** Trusted workflow host inputs; public request schemas do not expose these fields. */
+  flowBindings?: Record<string, string>;
+  frozenAncestors?: FolderDef[];
+  maxResponseBytes?: number;
+  persistVariables?: boolean;
+  collectSecrets?: (secrets: string[]) => void;
   signal?: AbortSignal;
   /** A retry with the same key counts as one API call in the usage ledger. */
   idempotencyKey?: string;
@@ -282,9 +288,45 @@ export async function runSingleRequest(input: RunSingleInput): Promise<RunSingle
   // Inherited auth, headers and scripts must come from the caller's workspace.
   if (input.folderId) repo.requireFolderIn(input.workspaceId, input.folderId);
   if (input.requestId) repo.requireRequestIn(input.workspaceId, input.requestId);
-  const chain: FolderDef[] = input.folderId ? repo.getFolderChain(input.folderId) : [];
+  const chain: FolderDef[] =
+    input.frozenAncestors ?? (input.folderId ? repo.getFolderChain(input.folderId) : []);
+  if (input.frozenAncestors) {
+    for (const folder of chain) repo.requireFolderIn(input.workspaceId, folder.id);
+    if ((chain.at(-1)?.id ?? null) !== input.folderId) throw new Error("Invalid workflow folder snapshot");
+  }
   const collectionId = chain[0]?.id ?? null;
   const ctx = loadScopes(input.workspaceId, input.environmentId, collectionId);
+  if (input.flowBindings) {
+    const keys = Object.keys(input.flowBindings);
+    if (
+      keys.length > 32 ||
+      keys.some((key) => !/^[a-zA-Z][a-zA-Z0-9_.-]{0,63}$/.test(key)) ||
+      Buffer.byteLength(JSON.stringify(input.flowBindings)) > 65536
+    )
+      throw new Error("Invalid workflow bindings");
+    ctx.scopes.local = Object.fromEntries(
+      Object.entries(input.flowBindings).map(([key, value]) => [`flow.${key}`, value]),
+    );
+    ctx.scopes.literalLocalKeys = keys.map((key) => `flow.${key}`);
+    ctx.scopes.literalTemplates = [
+      ...new Set(Object.values(input.flowBindings).flatMap((value) => value.match(/\{\{[^{}]+\}\}/g) ?? [])),
+    ];
+    if (ctx.scopes.literalTemplates.length > 128) throw new Error("Too many literal workflow templates");
+    const configuredTemplates = JSON.stringify([
+      input.request,
+      chain,
+      ctx.scopes.globals,
+      ctx.scopes.collection,
+      ctx.scopes.environment,
+    ]);
+    if (
+      ctx.scopes.literalTemplates.some(
+        (template) => !/^\{\{\s*flow\./.test(template) && configuredTemplates.includes(template),
+      )
+    )
+      throw new Error("Workflow input collides with a reserved request template");
+  }
+  input.collectSecrets?.(ctx.secrets);
   const jar =
     input.request.settings?.useCookieJar === false
       ? undefined
@@ -293,13 +335,19 @@ export async function runSingleRequest(input: RunSingleInput): Promise<RunSingle
   const result = await execute({
     scriptModules: moduleSnapshot(input.workspaceId),
     request: input.request,
-    resolveRequest: savedRequestResolver(input.workspaceId, input.environmentId, ctx.secrets),
+    resolveRequest: savedRequestResolver(
+      input.workspaceId,
+      input.environmentId,
+      ctx.secrets,
+      input.persistVariables !== false,
+    ),
     ancestors: chain,
     scopes: ctx.scopes,
     cookieJar: jar,
     policy: getPolicy(),
     secrets: ctx.secrets,
     signal: input.signal,
+    maxResponseBytes: input.maxResponseBytes,
     oauth2CacheScope: input.workspaceId,
     ...executionSettings(),
   });
@@ -336,7 +384,8 @@ export async function runSingleRequest(input: RunSingleInput): Promise<RunSingle
     result.visualization = redactStoredValue(redactSensitiveFields(result.visualization), secrets);
     result.visualizationResult = await renderVisualization(result.visualization, secrets, input.signal);
   }
-  const warnings = persistScopes(ctx, result.scopes);
+  input.collectSecrets?.(secrets);
+  const warnings = input.persistVariables === false ? [] : persistScopes(ctx, result.scopes);
   if (jar) repo.saveCookies(input.workspaceId, jar.getChanges());
 
   let historyId: string | undefined;

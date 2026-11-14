@@ -161,7 +161,8 @@ export async function runScript(
 ): Promise<ScriptResult> {
   const limits = { ...DEFAULT_LIMITS, ...opts.limits };
   // Vault values never enter the guest as a scope: scripts get only the names marked for script access.
-  const { vault, vaultScripts, vaultDomains, ...guestScopes } = ctx.scopes;
+  const { vault, vaultScripts, vaultDomains, literalLocalKeys, literalTemplates, ...guestScopes } =
+    ctx.scopes;
   const scriptVault: Record<string, string> = {};
   for (const name of vaultScripts ?? [])
     if (vault && Object.hasOwn(vault, name)) scriptVault[name] = vault[name];
@@ -170,6 +171,8 @@ export async function runScript(
     ...(vault ? { vault: { ...vault, ...changed } } : {}),
     ...(vaultScripts ? { vaultScripts } : {}),
     ...(vaultDomains ? { vaultDomains } : {}),
+    ...(literalLocalKeys ? { literalLocalKeys } : {}),
+    ...(literalTemplates ? { literalTemplates } : {}),
   });
   const source = opts.source ?? ctx.info.eventName;
   const logs: ConsoleEntry[] = [];

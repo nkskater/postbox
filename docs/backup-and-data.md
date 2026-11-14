@@ -80,3 +80,5 @@ as they are, so review the file before sharing it.
   deletes history, cookies or run results for the current workspace or all of them.
 
 All of these routes require an administrator.
+
+Workflow backups include drafts, encrypted versions and deployment settings. Keep the external vault keyring separately. Restored deployments are disabled and have no webhook token; save to adopt a current owner before enabling them. Exports without secrets omit versions and deployments and retain scrubbed drafts. Excluded: workflow run results and webhook deduplication records.

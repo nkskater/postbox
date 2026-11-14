@@ -5,6 +5,9 @@
  * per-entity allowlist keep their before and after values, and URLs lose credentials and query values.
  */
 export type AuditEntityKind =
+  | "workflow"
+  | "workflowRun"
+  | "workflowDeployment"
   | "workspace"
   | "folder"
   | "request"
@@ -45,6 +48,9 @@ export interface AuditChange {
 
 /** Columns whose values may be shown in the audit log, per entity kind (database column names). */
 export const SAFE_FIELDS: Partial<Record<AuditEntityKind, readonly string[]>> = {
+  workflow: ["name", "revision", "published_version"],
+  workflowRun: ["status", "source", "version"],
+  workflowDeployment: ["name", "version", "enabled", "cron", "webhook_enabled", "revision"],
   workspace: ["name"],
   folder: ["name", "parent_id", "description", "sort"],
   request: ["name", "method", "url", "folder_id", "description", "sort"],
@@ -135,6 +141,9 @@ export function describeChange(
 }
 
 const SINGULAR: Record<string, string> = {
+  workflows: "workflow",
+  "workflow-runs": "workflowRun",
+  "workflow-deployments": "workflowDeployment",
   workspaces: "workspace",
   folders: "folder",
   requests: "request",
@@ -157,6 +166,9 @@ const SINGULAR: Record<string, string> = {
 };
 
 const KIND_BY_SEGMENT: Record<string, AuditEntityKind> = {
+  workflows: "workflow",
+  "workflow-runs": "workflowRun",
+  "workflow-deployments": "workflowDeployment",
   workspaces: "workspace",
   folders: "folder",
   requests: "request",

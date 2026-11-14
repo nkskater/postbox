@@ -18,6 +18,10 @@ export interface VariableScopes {
   environment: Record<string, string>;
   data: Record<string, string>;
   local: Record<string, string>;
+  /** Host-owned local inputs treated as literal data, including braces received from webhooks. */
+  literalLocalKeys?: string[];
+  /** Template-shaped fragments received as untrusted data remain literal after script copies too. */
+  literalTemplates?: string[];
   /**
    * Secrets vault values this execution may reference as {{vault:name}} (the server decrypts only what the
    * collection is scoped for). Never sent to scripts as a variable scope and never persisted.
@@ -51,9 +55,28 @@ class ExpansionBudget {
   consume(value: string): void {
     // Check code units first so even an oversized input needs no full UTF-8 scan.
     if (value.length > this.remaining) throw new VariableExpansionError();
-    this.remaining -= Buffer.byteLength(value, "utf8");
-    if (this.remaining < 0) throw new VariableExpansionError();
+    this.consumeBytes(Buffer.byteLength(value, "utf8"));
   }
+
+  consumeBytes(bytes: number): void {
+    if (bytes > this.remaining) throw new VariableExpansionError();
+    this.remaining -= bytes;
+  }
+}
+
+/** Charge the expanded result before allocating it, including literal placeholders. */
+function replaceLiteral(input: string, search: string, replacement: string, budget: ExpansionBudget): string {
+  let count = 0,
+    offset = 0;
+  while ((offset = input.indexOf(search, offset)) !== -1) {
+    count++;
+    offset += search.length;
+  }
+  if (!count) return input;
+  const bytes =
+    Buffer.byteLength(input) + count * (Buffer.byteLength(replacement) - Buffer.byteLength(search));
+  budget.consumeBytes(bytes);
+  return input.split(search).join(replacement);
 }
 
 /** Matches {{name}}; names may not contain braces. */
@@ -107,8 +130,33 @@ export function resolveTemplate(input: string, scopes: VariableScopes): ResolveR
 }
 
 function resolveWithBudget(input: string, scopes: VariableScopes, budget: ExpansionBudget): ResolveResult {
-  const unresolved = new Set<string>();
-  const value = resolveInner(input ?? "", scopes, unresolved, 0, budget);
+  const unresolved = new Set<string>(),
+    protectedValues = new Map<string, string>();
+  const source = input ?? "";
+  let prefix = "\0postbox-literal:";
+  const values = [
+    source,
+    ...SCOPE_PRECEDENCE.flatMap((scope) => Object.values(scopes[scope])),
+    ...Object.values(scopes.vault ?? {}),
+    ...(scopes.literalTemplates ?? []),
+  ];
+  while (values.some((value) => value.includes(prefix))) prefix += "_";
+  const mask = (text: string) => {
+    for (const literal of scopes.literalTemplates ?? []) {
+      if (!literal || !text.includes(literal)) continue;
+      budget.consume(text);
+      const marker = `${prefix}${protectedValues.size}\0`;
+      protectedValues.set(marker, literal);
+      text = replaceLiteral(text, literal, marker, budget);
+    }
+    return text;
+  };
+  let value = resolveInner(mask(source), scopes, unresolved, 0, budget, mask);
+  for (const [marker, literal] of protectedValues) {
+    budget.consume(value);
+    value = replaceLiteral(value, marker, literal, budget);
+    budget.consume(value);
+  }
   return { value, unresolved: [...unresolved] };
 }
 
@@ -118,30 +166,30 @@ function resolveInner(
   unresolved: Set<string>,
   depth: number,
   budget: ExpansionBudget,
+  mask: (value: string) => string,
 ): string {
   budget.consume(input);
   if (!input.includes("{{")) return input;
   const parts: string[] = [];
   let end = 0;
-  // Each recursion needs its own matcher; a shared lastIndex would skip references.
   for (const match of input.matchAll(VARIABLE_PATTERN)) {
     parts.push(input.slice(end, match.index));
     const name = match[1].trim();
     const found = lookupVariable(scopes, name);
     let replacement: string;
     if (found) {
-      // A vault value is data, not a template: braces inside a secret must survive untouched.
       replacement =
-        found.scope === "vault" || depth >= MAX_RESOLVE_DEPTH
+        found.scope === "vault" ||
+        (found.scope === "local" && scopes.literalLocalKeys?.includes(name)) ||
+        depth >= MAX_RESOLVE_DEPTH
           ? found.value
-          : resolveInner(found.value, scopes, unresolved, depth + 1, budget);
+          : resolveInner(mask(found.value), scopes, unresolved, depth + 1, budget, mask);
     } else if (isDynamicVariable(name)) {
       replacement = generateDynamic(name)!;
     } else {
       unresolved.add(name);
       replacement = match[0];
     }
-    // Charge before joining: String.replace would allocate an unbounded result first.
     budget.consume(replacement);
     parts.push(replacement);
     end = match.index + match[0].length;
