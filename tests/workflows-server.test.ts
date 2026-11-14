@@ -410,6 +410,7 @@ it("backs up workflow configuration, disables restored triggers and omits snapsh
   const deployed = as(owner, () =>
     flow.createDeployment(saved.id, {
       name: "Backed up automation",
+      input: null,
       version: 1,
       enabled: true,
       webhookEnabled: true,
@@ -431,7 +432,7 @@ it("backs up workflow configuration, disables restored triggers and omits snapsh
         .from(schema.workflowDeployments)
         .where(eq(schema.workflowDeployments.id, deployed.id))
         .get(),
-    ).toMatchObject({ enabled: false, webhookHash: null, lastRunId: null });
+    ).toMatchObject({ enabled: false, webhookHash: null, lastRunId: null, input: null });
     expect(
       target.db.select().from(schema.workflows).where(eq(schema.workflows.id, saved.id)).get(),
     ).toMatchObject({ name: saved.name, graph: saved.graph, createdBy: null });

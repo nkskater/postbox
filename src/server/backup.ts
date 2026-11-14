@@ -424,7 +424,13 @@ export type RestoreSummary = Record<TableName, number> & { skippedSettings: stri
 function insertAll(db: DB, name: TableName, rows: Record<string, unknown>[]) {
   for (let i = 0; i < rows.length; i += 25) {
     db.insert(TABLES[name])
-      .values(rows.slice(i, i + 25) as never)
+      .values(
+        rows
+          .slice(i, i + 25)
+          .map((row) =>
+            name === "workflowDeployments" && row.input === null ? { ...row, input: sql`${"null"}` } : row,
+          ) as never,
+      )
       .run();
   }
 }

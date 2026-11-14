@@ -144,7 +144,7 @@ it("previews request fixtures and executes pinned HTTP requests from the editor"
     await page.getByText("Published immutable version 1", { exact: true }).waitFor();
     expect(
       (
-        await context.request.put(`${base}/api/requests/${request.id}`, {
+        await context.request.patch(`${base}/api/requests/${request.id}`, {
           data: { url: `${inject("targetUrl")}/workflow-changed` },
         })
       ).ok(),
