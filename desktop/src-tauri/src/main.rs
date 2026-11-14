@@ -6,6 +6,8 @@
 // so the server also stops when this process dies. No commands are exposed to
 // pages: everything the window shows is the regular web UI.
 //
+// Updates are checked in update.rs.
+//
 // The shell saves downloads to the Downloads folder (never overwriting a file)
 // and confirms each one, and opens pop-ups from the app (exports, the OAuth
 // sign-in window) as windows of its own so they keep the session and opener.
@@ -20,6 +22,8 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
+
+mod update;
 
 use serde_json::{json, Value};
 use tauri::webview::{
@@ -444,6 +448,10 @@ fn spawn_server(app: &AppHandle) -> Result<(), String> {
                     Some(url) => {
                         reader_settled.store(true, Ordering::SeqCst);
                         let _ = reader_window.navigate(url);
+                        // A secondary window shares another window's server; that one updates.
+                        if ready["role"] != "secondary" {
+                            update::schedule(reader_app.clone(), reader_log.clone());
+                        }
                     }
                     None => {
                         reader_settled.store(true, Ordering::SeqCst);
@@ -522,6 +530,7 @@ fn main() {
                 .with_filter(|label| label == "main")
                 .build(),
         )
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Server::default())
         .manage(Downloads::default())
         .setup(|app| {

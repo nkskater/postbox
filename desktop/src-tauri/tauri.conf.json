@@ -32,5 +32,13 @@
         "installerHooks": "./windows/hooks.nsh"
       }
     }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERERDNBOEU1NEU2ODFEM0UKUldRK0hXaE81YWpUM2M5VzB2M2N0Y3l3ZFE4bzQ5RE1mRnE2NmwzMW5IclowbHFtR3U2a3BGZTAK",
+      "endpoints": ["https://github.com/nkskater/postbox/releases/latest/download/latest.json"],
+      "requireSignedVersion": true,
+      "windows": { "installMode": "passive" }
+    }
   }
 }
