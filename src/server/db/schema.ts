@@ -1876,3 +1876,111 @@ export const ssoRoleGrants = sqliteTable(
   },
   (t) => [primaryKey({ columns: [t.userId, t.workspaceId] })],
 );
+
+export const workflows = sqliteTable(
+  "workflows",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    graph: text("graph", { mode: "json" }).$type<import("@/core/workflows/model").FlowGraph>().notNull(),
+    revision: integer("revision").notNull().default(1),
+    publishedVersion: integer("published_version").notNull().default(0),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [index("workflows_workspace_idx").on(t.workspaceId, t.updatedAt)],
+);
+export const workflowVersions = sqliteTable(
+  "workflow_versions",
+  {
+    workflowId: text("workflow_id")
+      .notNull()
+      .references(() => workflows.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    version: integer("version").notNull(),
+    name: text("name").notNull(),
+    graph: text("graph", { mode: "json" }).$type<import("@/core/workflows/model").FlowGraph>().notNull(),
+    /** Execution snapshots may contain request credentials, so they use the external vault keyring. */
+    artifact: text("artifact").notNull(),
+    contentHash: text("content_hash").notNull(),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.workflowId, t.version] }),
+    index("workflow_versions_workspace_idx").on(t.workspaceId),
+  ],
+);
+export const workflowDeployments = sqliteTable(
+  "workflow_deployments",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    workflowId: text("workflow_id")
+      .notNull()
+      .references(() => workflows.id, { onDelete: "cascade" }),
+    version: integer("version").notNull(),
+    name: text("name").notNull(),
+    revision: integer("revision").notNull().default(1),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
+    /** Preserve deleted references so a deployment fails closed instead of silently dropping its environment. */
+    environmentId: text("environment_id"),
+    cron: text("cron"),
+    webhookEnabled: integer("webhook_enabled", { mode: "boolean" }).notNull().default(false),
+    webhookHash: text("webhook_hash"),
+    actor: text("actor", { mode: "json" }).$type<import("@/core/workflows/model").FlowActor>().notNull(),
+    input: text("input", { mode: "json" }).$type<import("@/core/workflows/model").Json>().notNull(),
+    lastRunId: text("last_run_id"),
+    lastError: text("last_error"),
+    lastTriggeredAt: integer("last_triggered_at"),
+    ...timestamps,
+  },
+  (t) => [
+    index("workflow_deployments_workspace_idx").on(t.workspaceId),
+    index("workflow_deployments_workflow_idx").on(t.workflowId),
+  ],
+);
+export const workflowRuns = sqliteTable(
+  "workflow_runs",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    workflowId: text("workflow_id")
+      .notNull()
+      .references(() => workflows.id, { onDelete: "cascade" }),
+    version: integer("version"),
+    sourceRevision: integer("source_revision"),
+    contentHash: text("content_hash").notNull(),
+    deploymentId: text("deployment_id").references(() => workflowDeployments.id, { onDelete: "set null" }),
+    actor: text("actor", { mode: "json" }).$type<import("@/core/workflows/model").FlowActor>().notNull(),
+    source: text("source").$type<"fixture" | "manual" | "schedule" | "webhook">().notNull(),
+    status: text("status").$type<import("@/core/workflows/model").FlowRunStatus>().notNull(),
+    input: text("input", { mode: "json" }).$type<import("@/core/workflows/model").Json>().notNull(),
+    output: text("output", { mode: "json" }).$type<import("@/core/workflows/model").Json>(),
+    trace: text("trace", { mode: "json" }).$type<import("@/core/workflows/engine").FlowTrace[]>().notNull(),
+    error: text("error"),
+    steps: integer("steps").notNull().default(0),
+    traceOmitted: integer("trace_omitted").notNull().default(0),
+    durationMs: integer("duration_ms").notNull().default(0),
+    idempotencyHash: text("idempotency_hash"),
+    inputHash: text("input_hash").notNull(),
+    createdAt: integer("created_at").notNull(),
+    startedAt: integer("started_at"),
+    finishedAt: integer("finished_at"),
+  },
+  (t) => [
+    index("workflow_runs_workspace_created_idx").on(t.workspaceId, t.createdAt),
+    index("workflow_runs_workflow_idx").on(t.workflowId),
+    uniqueIndex("workflow_runs_idempotency_idx").on(t.deploymentId, t.idempotencyHash),
+  ],
+);

@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { Database, History, Layers, Library, Server } from "lucide-react";
+import { Database, GitBranch, History, Layers, Library, Server } from "lucide-react";
 import { useApp } from "@/stores/app";
 import { useSetting } from "@/stores/settings";
 import { cn } from "@/lib/utils";
@@ -82,6 +82,16 @@ export function Sidebar() {
             {labels && v.label}
           </button>
         ))}
+        <Link
+          href="/flows"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="API workflows"
+          className="flex flex-col items-center gap-1 rounded p-2 text-[10px] text-muted-foreground hover:bg-accent/50"
+        >
+          <GitBranch className="size-4" />
+          {labels && "Workflows"}
+        </Link>
         <Link
           href="/gateway"
           target="_blank"

@@ -258,6 +258,10 @@ export function assertHeadroom(workspaceId: string, metric: UsageMetric, userId?
 // ----------------------------------------------------------------------------------------------- storage
 
 const STORAGE_SQL = [
+  `SELECT COALESCE(SUM(LENGTH(CAST(graph AS BLOB)) + 300),0) AS n FROM workflows WHERE workspace_id = ?`,
+  `SELECT COALESCE(SUM(LENGTH(CAST(graph AS BLOB)) + LENGTH(CAST(artifact AS BLOB)) + 300),0) AS n FROM workflow_versions WHERE workspace_id = ?`,
+  `SELECT COALESCE(SUM(LENGTH(CAST(input AS BLOB)) + 400),0) AS n FROM workflow_deployments WHERE workspace_id = ?`,
+  `SELECT COALESCE(SUM(LENGTH(CAST(input AS BLOB)) + LENGTH(CAST(COALESCE(output,'') AS BLOB)) + LENGTH(CAST(trace AS BLOB)) + 400),0) AS n FROM workflow_runs WHERE workspace_id = ?`,
   `SELECT COALESCE(SUM(LENGTH(CAST(v.config AS BLOB))), 0) AS n FROM governance_rule_versions v JOIN governance_rule_sets s ON s.id=v.rule_set_id WHERE s.workspace_id = ?`,
   `SELECT COALESCE(SUM(LENGTH(CAST(report AS BLOB))), 0) AS n FROM governance_reports WHERE workspace_id = ?`,
   `SELECT COALESCE(SUM(LENGTH(CAST(v.config AS BLOB))), 0) AS n FROM quality_scorecard_versions v JOIN quality_scorecards s ON s.id=v.scorecard_id WHERE s.workspace_id = ?`,

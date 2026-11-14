@@ -1,0 +1,336 @@
+.page {
+  min-height: 100vh;
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 13px;
+}
+.page button,
+.page input,
+.page select,
+.page textarea {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 9px;
+  background: var(--background);
+  color: inherit;
+  font: inherit;
+}
+.page button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.page button:hover {
+  background: var(--muted);
+}
+.page button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.page button:focus-visible,
+.page input:focus-visible,
+.page select:focus-visible,
+.page textarea:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.page label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 10px 0;
+}
+.page label:has(input[type="checkbox"]) {
+  flex-direction: row;
+  align-items: center;
+}
+.page input:not([type="checkbox"]),
+.page select,
+.page textarea {
+  width: 100%;
+  min-width: 0;
+}
+.page textarea,
+.page pre,
+.page code {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 11px;
+}
+.page pre {
+  max-height: 310px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.page h1 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 19px;
+  font-weight: 650;
+}
+.page h2 {
+  font-size: 14px;
+  font-weight: 650;
+  margin: 5px 0 12px;
+}
+.page h3 {
+  font-weight: 600;
+  margin: 18px 0 8px;
+}
+.page p {
+  color: var(--muted-foreground);
+  line-height: 1.6;
+  margin: 9px 0;
+}
+.page fieldset {
+  border: 1px solid var(--border);
+  padding: 10px;
+  border-radius: 8px;
+  margin: 12px 0;
+}
+.page summary {
+  cursor: pointer;
+  margin: 10px 0;
+}
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border);
+}
+.header a {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.header label {
+  width: 220px;
+  margin: 0;
+}
+.layout {
+  display: grid;
+  grid-template-columns: 185px minmax(0, 1fr);
+}
+.library {
+  padding: 18px 12px;
+  border-right: 1px solid var(--border);
+}
+.library button {
+  width: 100%;
+  margin-bottom: 8px;
+  justify-content: space-between;
+  text-transform: capitalize;
+}
+.library button[aria-current="true"] {
+  background: var(--accent);
+}
+.library h2:not(:first-child) {
+  margin-top: 24px;
+}
+.library small {
+  font-size: 10px;
+  color: var(--muted-foreground);
+}
+.workspace {
+  min-width: 0;
+}
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.toolbar input {
+  max-width: 260px;
+  font-weight: 600;
+}
+.toolbar span {
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+.editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 270px;
+  min-height: 480px;
+}
+.canvasScroll {
+  overflow: auto;
+  max-height: 570px;
+  background: radial-gradient(var(--border) 1px, transparent 1px) 0 0 / 20px 20px;
+}
+.canvas {
+  position: relative;
+}
+.wires {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+  color: var(--muted-foreground);
+}
+.wires > path {
+  stroke: currentColor;
+  stroke-width: 2;
+  fill: none;
+}
+.wires > path.errorWire {
+  stroke-dasharray: 5 4;
+}
+.node {
+  position: absolute;
+  width: 220px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--background);
+  box-shadow: 0 3px 10px #0001;
+}
+.node.selected {
+  outline: 2px solid var(--primary);
+}
+.nodeTitle {
+  padding: 12px;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+.nodeTitle small {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 10px;
+  text-transform: uppercase;
+  margin-top: 4px;
+}
+.node button.inputPort {
+  position: absolute;
+  left: -12px;
+  top: 29px;
+  padding: 1px 4px;
+  border-radius: 50%;
+}
+.node button.port {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  font-size: 10px;
+  padding: 4px 9px;
+  border-width: 1px 0 0;
+  border-radius: 0;
+}
+.port[aria-pressed="true"] {
+  background: var(--accent);
+  outline: 2px solid var(--primary);
+}
+.inspector {
+  border-left: 1px solid var(--border);
+  padding: 14px;
+  max-height: 570px;
+  overflow: auto;
+}
+.sections {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.15fr;
+  border-top: 1px solid var(--border);
+}
+.sections > section {
+  padding: 18px;
+  min-width: 0;
+  border-right: 1px solid var(--border);
+}
+.actions,
+.version {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 10px 0;
+  align-items: center;
+}
+.trace {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 190px;
+  overflow: auto;
+}
+.trace button {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  text-align: left;
+}
+.trace small {
+  width: 100%;
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+.error {
+  padding: 10px 20px;
+  border: 1px solid var(--destructive);
+  color: var(--destructive);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.notice {
+  padding: 8px 20px;
+  background: var(--accent);
+}
+.validation,
+.graphJson {
+  padding: 6px 18px;
+  border-top: 1px solid var(--border);
+}
+.token {
+  padding: 12px;
+  background: var(--accent);
+  border-radius: 8px;
+  margin-top: 15px;
+  overflow-wrap: anywhere;
+}
+.empty {
+  min-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 15px;
+  max-width: 650px;
+  margin: auto;
+  padding: 30px;
+}
+@media (max-width: 1100px) {
+  .sections {
+    grid-template-columns: 1fr;
+  }
+  .sections > section {
+    border-bottom: 1px solid var(--border);
+  }
+}
+@media (max-width: 750px) {
+  .layout {
+    grid-template-columns: 145px minmax(0, 1fr);
+  }
+  .editor {
+    grid-template-columns: 1fr;
+  }
+  .inspector {
+    border-left: 0;
+    border-top: 1px solid var(--border);
+    max-height: 360px;
+  }
+  .header {
+    flex-wrap: wrap;
+  }
+  .header label {
+    width: 160px;
+  }
+}

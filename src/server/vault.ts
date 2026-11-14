@@ -464,6 +464,26 @@ export function rotateKeys(opts: { newKey?: boolean; prune?: boolean } = {}) {
         unreadable.push(`sso-login/${row.id}`);
       }
     }
+    for (const row of tx.select().from(schema.workflowVersions).all()) {
+      if (keyIdOfCiphertext(row.artifact) === keys.ring.current.id) continue;
+      const name = `workflow-${row.workflowId}-${row.version}`;
+      try {
+        const value = decryptSecret(keys.ring, row.workspaceId, name, row.artifact);
+        const next = encryptSecret(keys.ring, row.workspaceId, name, value);
+        tx.update(schema.workflowVersions)
+          .set({ artifact: next.ciphertext })
+          .where(
+            and(
+              eq(schema.workflowVersions.workflowId, row.workflowId),
+              eq(schema.workflowVersions.version, row.version),
+            ),
+          )
+          .run();
+        reencrypted++;
+      } catch {
+        unreadable.push(`workflow/${row.workflowId}/${row.version}`);
+      }
+    }
   });
   let removedKeys: string[] = [];
   if (opts.prune && !unreadable.length) {
@@ -480,6 +500,10 @@ export function rotateKeys(opts: { newKey?: boolean; prune?: boolean } = {}) {
     }
     for (const row of db.select().from(schema.ssoStates).all()) {
       const keyId = keyIdOfCiphertext(row.payload);
+      if (keyId) inUse.add(keyId);
+    }
+    for (const row of db.select().from(schema.workflowVersions).all()) {
+      const keyId = keyIdOfCiphertext(row.artifact);
       if (keyId) inUse.add(keyId);
     }
     removedKeys = pruneFileKeys(inUse);

@@ -110,3 +110,8 @@ either documented or classified as outside v1.
 Datasets, mocks, script packages, request examples, documentation, catalogs, audit and usage queries, members and
 invites, imports and exports. They are exposed by the app and the CLI today and will be added to the contract
 (and the file regenerated, as a minor version) as each is stabilised.
+
+Visual workflow drafts, versions, runs, deployments and bearer triggers use the native
+`/api/workflows`, `/api/workflow-runs`, `/api/workflow-deployments` and
+`/api/workflow-triggers` routes outside `/api/v1`. See [API workflows](workflows.md)
+for their request contracts, workspace scopes and asynchronous trigger lifecycle.
