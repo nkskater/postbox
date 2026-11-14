@@ -493,6 +493,15 @@ export const serverSecrets = sqliteTable("server_secrets", {
   createdAt: integer("created_at").notNull(),
 });
 
+/**
+ * Browser sessions ended by sign-out before they expire. `id` is a hash of the signed cookie
+ * value, never the cookie itself; rows are pruned once `expiresAt` has passed.
+ */
+export const revokedSessions = sqliteTable("revoked_sessions", {
+  id: text("id").primaryKey(),
+  expiresAt: integer("expires_at").notNull(),
+});
+
 export type UserRow = typeof users.$inferSelect;
 export type ApiTokenRow = typeof apiTokens.$inferSelect;
 export type WorkspaceRow = typeof workspaces.$inferSelect;

@@ -330,6 +330,13 @@
       "when": 1794254160707,
       "tag": "0046_fluffy_winter_soldier",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "6",
+      "when": 1794618598017,
+      "tag": "0047_spooky_gorgon",
+      "breakpoints": true
     }
   ]
 }

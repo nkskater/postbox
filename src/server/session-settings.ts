@@ -2,8 +2,8 @@
  * Sign-in session length and "sign out everyone". Reads the database directly (not
  * settings.ts) because caller.ts, which settings.ts depends on, needs it on every request.
  */
-import { eq, sql } from "drizzle-orm";
-import { randomBytes } from "node:crypto";
+import { eq, lte, sql } from "drizzle-orm";
+import { createHash, randomBytes } from "node:crypto";
 import { SETTINGS_BY_KEY, resolveSettings } from "@/lib/settings/registry";
 import { getDb, schema } from "./db";
 
@@ -51,5 +51,34 @@ export function signOutEveryone(): { users: number } {
       .run().changes;
     tx.delete(schema.serverSecrets).where(eq(schema.serverSecrets.key, EPOCH_KEY)).run();
     return { users };
+  });
+}
+
+/** Revocation key of a session cookie: a hash, so the table never holds a usable cookie. */
+const revokedId = (cookie: string) =>
+  createHash("sha256").update(`postbox-revoked-session\0${cookie}`).digest("base64url");
+
+/** Whether this exact session cookie was ended by sign-out. */
+export function isSessionRevoked(cookie: string): boolean {
+  return !!getDb()
+    .select({ id: schema.revokedSessions.id })
+    .from(schema.revokedSessions)
+    .where(eq(schema.revokedSessions.id, revokedId(cookie)))
+    .get();
+}
+
+/**
+ * End one browser session on the server: the cookie stops working everywhere, even where it
+ * was copied. Kept until the cookie would have expired anyway; expired rows are pruned here.
+ */
+export function revokeSession(cookie: string, expiresAt: number, now = Date.now()) {
+  const db = getDb();
+  db.transaction((tx) => {
+    tx.delete(schema.revokedSessions).where(lte(schema.revokedSessions.expiresAt, now)).run();
+    if (expiresAt > now)
+      tx.insert(schema.revokedSessions)
+        .values({ id: revokedId(cookie), expiresAt })
+        .onConflictDoNothing()
+        .run();
   });
 }
