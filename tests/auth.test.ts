@@ -119,6 +119,15 @@ describe("proxy gate", () => {
     expect(passes(proxy(req("/login")))).toBe(true);
   });
 
+  it("lets anonymous clients reach the public OpenAPI contract when authentication is enabled", () => {
+    Object.assign(process.env, env);
+    const response = proxy(req("/api/openapi.json"));
+    expect(response.status).toBe(200);
+    expect(passes(response)).toBe(true);
+    for (const path of ["/api/openapi.json/private", "/api/openapi.json-extra", "/api/workspaces"])
+      expect(proxy(req(path)).status).toBe(401);
+  });
+
   it("accepts a valid session cookie or bearer token", () => {
     Object.assign(process.env, env);
     // Sessions are signed with the server's configuration (which includes the sign-out epoch),

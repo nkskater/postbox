@@ -1,10 +1,10 @@
 # Postbox Architecture
 
-Postbox is a self-hosted, lightweight API client. It is a single Next.js
-application (UI + API routes) backed by a single SQLite file. Everything that
-touches the network or runs user scripts happens **server-side**, so the
-browser never needs CORS permission from the target API and secrets never
-need to leave the server except in the requests they are meant for.
+Postbox is a self-hosted API client: a Next.js application with a React UI,
+Node server and SQLite persistence. Outbound API requests and user scripts run
+server-side, so target APIs do not need to grant the browser CORS access.
+The web app, REST API, MCP server, CLI and local Windows application share the
+same core request engine; server services add identity, persistence and workers.
 
 ```
 ┌──────────────┐  JSON over HTTP   ┌──────────────────────────────────────────┐
@@ -20,26 +20,30 @@ need to leave the server except in the requests they are meant for.
                                    └──────────────────────────────────────────┘
 ```
 
-## 1. Layers
+## 1. Layers and entry points
 
-| Layer | Location | Depends on | Notes |
-|-------|----------|------------|-------|
-| Core engine | `src/core/` | Node stdlib, small libs | Pure TypeScript, **no Next.js or DB imports**. Shared by the web app, the runner and the CLI. |
-| Persistence | `src/server/db/` | Drizzle, better-sqlite3 | Schema, migrations, repositories that map rows to core types. |
-| API routes | `src/app/api/**` | core + persistence | Thin HTTP handlers: validate input, call core, persist results. |
-| MCP server | `src/server/mcp.ts`, `src/app/api/mcp/route.ts` | `@modelcontextprotocol/sdk` + core + persistence | Streamable HTTP MCP tools and resources for workspaces, collections, requests, environments, execution, runner, and import/export. |
-| UI | `src/app/`, `src/components/`, `src/stores/` | React, Tailwind, shadcn/ui | Talks to the API only. Never reaches targets directly. |
-| CLI | `src/cli/` | core | Newman-style headless runner, bundled to `dist/cli.mjs`. |
+| Layer                      | Location                                                                                              | Responsibilities and dependencies                                                                                                                                                                   |
+| -------------------------- | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Core engine                | `src/core/`                                                                                           | TypeScript domain models, validation, protocols and bounded execution. **No Next.js or database imports.** Shared by server services and CLI.                                                       |
+| Persistence                | `src/server/db/`, `src/server/repo.ts`                                                                | SQLite connection, Drizzle schema/migrations and workspace content repositories. Feature services own their domain queries.                                                                         |
+| Server services            | `src/server/`                                                                                         | Execution context, runs/workflows, vault, integrations, publishing, collaboration and governance. Combine core logic with persistence and authorization.                                            |
+| Identity and authorization | `src/proxy.ts`, `src/server/auth.ts`, `caller.ts`, `authorize.ts`, `access-policy.ts`, `resources.ts` | Request gate, credential verification, caller context, API-key scopes, workspace roles and explicit REST/MCP policy inventories (§7).                                                               |
+| REST handlers              | `src/app/api/**`, `src/server/http.ts`                                                                | Thin handlers behind `route()`: authorize, validate, call a service and return an HTTP response. The management API is a documented subset of these native routes, not a separate `/api/v1` prefix. |
+| MCP server/client          | `src/server/mcp.ts`, `src/app/api/mcp/route.ts`, `src/server/mcp-client.ts`                           | Streamable HTTP tools/resources share server services and explicit tool authorization. Outbound MCP connections use the client service.                                                             |
+| Public receivers           | `src/app/mock/`, `hook/`, `capture/`, selected `src/app/api/**` routes                                | Mock responses, incoming hooks, traffic capture, telemetry, runner agents and workflow triggers. Each receiver validates its own configured token/signature/capability (§7).                        |
+| UI                         | `src/app/`, `src/components/`, `src/stores/`                                                          | React, Tailwind, shadcn/ui and CodeMirror. Calls Postbox APIs; server services reach target systems. Standalone pages include workflows and the gateway.                                            |
+| CLI and editor extension   | `src/cli/`, `extensions/vscode/`                                                                      | Headless collection runner plus management commands; CLI bundle at `dist/cli.mjs`. The VS Code extension connects to a Postbox instance.                                                            |
+| Local Windows application  | `desktop/`, `scripts/build-windows.mjs`, `scripts/build-desktop.mjs`                                  | Portable server distribution and Tauri desktop wrapper. The wrapper manages a local server and WebView; details in [Windows desktop](docs/windows-desktop.md).                                      |
 
-### Core engine modules
+### Core modules
 
-- `core/types.ts` – domain model (requests, folders, auth, body, variables, results).
-- `core/variables/` – scope chain, `{{var}}` substitution, dynamic variables.
-- `core/http/` – HTTP engine (`node:http`/`node:https`), body encoding, auth, cookie jar, host policy, timing.
-- `core/scripts/` – QuickJS sandbox and the in-sandbox `pm.*` bootstrap.
-- `core/executor.ts` – the full single-request pipeline (see §2).
-- `core/runner/` – collection runner, iteration data parsing, reporters (JSON, JUnit, HTML).
-- `core/convert/` – Postman v2.1 / environment / cURL / OpenAPI import, Postman export, code snippet generators.
+- `types.ts`, `schemas.ts`, `scopes.ts`: shared request models, input validation and scope vocabulary.
+- `variables/`, `http/`, `executor.ts`: variable resolution, HTTP/auth/cookies/host policy and the single-request pipeline (§2).
+- `scripts/`, `packages/`, `visualizer/`: QuickJS sandbox, versioned script modules and isolated response visualizations.
+- `runner/`, `load/`, `workflows/`: collection runs, load generation and validated bounded workflow graphs. Server orchestrators own queues, identity and retained results.
+- `ws/`, `socketio/`, `mqtt/`, `grpc/`, `graphql/`: protocol-specific logic, separate from server session persistence and transport endpoints.
+- `convert/`, `repository/`, `project/`, `git/`, `sdk/`, `management-api/`: import/export, repository formats, CLI projects, Git operations, generated clients and the management operation/contract registry.
+- Feature directories such as `vault/`, `mocks/`, `monitoring/`, `specifications/`, `governance/`, `graph/`, `scorecards/`, `telemetry/`, `gateway/`, `sso/` and `scim/` hold domain validation/logic. Their `src/server/` counterparts provide database and account integration.
 
 ## 2. Data flow: sending a request
 
@@ -73,69 +77,51 @@ need to leave the server except in the requests they are meant for.
    response).
 6. The response, test results, console logs and timing are returned to the UI.
 
-The runner (§6) and the CLI call exactly the same `execute()` function with
-an in-memory context, so behaviour is identical everywhere.
+The runner (§6) and CLI reuse `execute()`. Server orchestrators additionally
+apply current account/workspace authority, persistence, admission and usage limits.
 
-## 3. SQLite schema
+## 3. Persistence areas
 
-All ids are text (nanoid). Timestamps are integer milliseconds. Structured
-request parts are stored as JSON text columns because they are always read
-and written as a unit.
+`src/server/db/schema.ts` is the authoritative schema; `src/server/resources.ts`
+maps authorized resource kinds to their tables. The table groups below describe
+all current feature areas without duplicating column definitions. Most entity IDs
+are opaque text IDs and timestamps are integer milliseconds; composite keys and
+JSON text columns are defined in the schema. Foreign keys and service-level checks
+preserve workspace boundaries.
 
-```
-workspaces     id PK, name, created_at, updated_at
+| Area                           | Tables                                                                                                                                           | Purpose and feature guide                                                                                                                                                                                                         |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Workspace content              | `workspaces`, `folders`, `requests`, `environments`, `variables`                                                                                 | Collection roots are folders with no parent; child resources stay in their workspace. [Management API](docs/management-api.md)                                                                                                    |
+| Saved iteration data           | `datasets`, `dataset_versions`                                                                                                                   | Versioned tables and secret-column metadata. [Datasets](docs/saved-datasets.md)                                                                                                                                                   |
+| Execution and history          | `runs`, `run_results`, `load_runs`, `history`, `cookies`, `schedules`                                                                            | Collection/load results, retained request/response details, cookie state and schedules. [Load testing](docs/load-testing.md), [history and backup](docs/backup-and-data.md)                                                       |
+| Visual workflows               | `workflows`, `workflow_versions`, `workflow_deployments`, `workflow_runs`                                                                        | Drafts, encrypted immutable execution artifacts, deployment owners/triggers and redacted run traces. [Workflows](docs/workflows.md)                                                                                               |
+| Accounts and access            | `users`, `api_tokens`, `workspace_members`, `user_settings`, `invites`, `server_secrets`, `revoked_sessions`                                     | Accounts/service accounts, hashed keys, roles, preferences, invitations, signing material and sign-out revocations. [Accounts and security](docs/mcp-and-security.md), [service accounts/keys](docs/service-accounts-and-keys.md) |
+| Federated identity             | `sso_providers`, `sso_identities`, `sso_states`, `sso_replay_cache`, `sso_role_grants`, `scim_groups`                                            | OIDC/SAML settings and login/replay state, identity links, provisioned groups and role grants. [SSO](docs/sso.md), [SCIM](docs/scim.md)                                                                                           |
+| Vault and outbound credentials | `vault_secrets`, `broker_apis`, `broker_grants`, `outbound_proxy`, `tls_profiles`                                                                | Encrypted scoped secrets, credential-broker grants, proxy and TLS profiles; vault keyring remains outside SQLite. [Vault](docs/secrets-vault.md), [broker](docs/credential-broker.md), [network](docs/outbound-network.md)        |
+| Script libraries               | `script_packages`, `script_package_versions`                                                                                                     | Workspace packages and immutable approved versions. [Script packages](docs/script-packages.md)                                                                                                                                    |
+| Mocks and protocol definitions | `mock_servers`, `mock_logs`, `grpc_definitions`                                                                                                  | Mock configuration/logs and reusable gRPC definitions. [Mocks](docs/mock-servers.md), [gRPC](docs/grpc.md)                                                                                                                        |
+| Outbound integrations          | `webhooks`, `webhook_deliveries`, `webhook_attempts`                                                                                             | Webhook configuration, signed delivery queue and retry history. [Outbound webhooks](docs/outbound-webhooks.md)                                                                                                                    |
+| Inbound hooks and capture      | `hook_listeners`, `hook_events`, `capture_sessions`, `capture_entries`                                                                           | Incoming listener configuration/events and captured network traffic. [Incoming hooks](docs/incoming-webhooks.md), [capture](docs/traffic-capture.md)                                                                              |
+| Outbound MCP                   | `mcp_calls`                                                                                                                                      | Saved MCP connection/tool-call configuration; live sessions are process-local. [MCP client](docs/mcp-client.md)                                                                                                                   |
+| Monitors and private runners   | `monitors`, `monitor_samples`, `monitor_incidents`, `monitor_emails`, `runners`, `runner_jobs`                                                   | Monitor configuration/results/incidents, notification outbox and leased private-runner jobs. [Monitoring](docs/monitoring.md), [runners](docs/private-runners.md)                                                                 |
+| API design and synchronization | `specifications`, `specification_versions`, `specification_links`                                                                                | Specification bundles/versions and request-generation/sync baselines. [Specifications](docs/specifications.md), [sync](docs/specification-sync.md)                                                                                |
+| Governance                     | `governance_rule_sets`, `governance_rule_versions`, `governance_bindings`, `governance_reports`                                                  | Versioned policies, assignments, exclusions/overrides and reports. [Governance](docs/governance.md)                                                                                                                               |
+| Dependency graph               | `graph_sources`, `graph_nodes`, `graph_edges`                                                                                                    | Rebuildable dependency indexes for workspace resources. [Dependency graph](docs/dependency-graph.md)                                                                                                                              |
+| Quality scorecards             | `quality_scorecards`, `quality_scorecard_versions`, `quality_bindings`, `quality_reports`                                                        | Versioned scorecards, catalog assignments and evaluation reports. [Scorecards](docs/scorecards.md)                                                                                                                                |
+| Publishing and discovery       | `documentation_publications`, `catalog_entries`, `catalog_versions`                                                                              | Published documentation and catalog metadata/version snapshots. [Documentation](docs/collection-documentation.md), [catalog](docs/api-catalog.md)                                                                                 |
+| Collaboration and reuse        | `comments`, `comment_notifications`, `dependency_releases`, `dependency_installs`, `collection_forks`, `merge_requests`, `merge_request_reviews` | Resource comments, shared dependency snapshots, collection forks and reviewed merges. [Comments](docs/comments.md), [dependencies](docs/shared-dependencies.md), [forks](docs/forks-and-merge-requests.md)                        |
+| Telemetry                      | `telemetry_sources`, `telemetry_observations`                                                                                                    | Intake configuration and retained observations for metrics/reproduction. [Telemetry](docs/telemetry.md)                                                                                                                           |
+| Managed gateway                | `gateway_routes`, `gateway_traces`, `gateway_sessions`                                                                                           | Gateway policies, usage/session state and redacted traces; providers use the credential broker. [Gateway](docs/gateway.md)                                                                                                        |
+| Administration and quotas      | `app_settings`, `audit_events`, `usage_events`, `usage_limits`, `usage_alerts`                                                                   | Instance settings, audit history and usage/admission accounting. [Audit](docs/audit-log.md), [usage](docs/usage-and-quotas.md)                                                                                                    |
 
-folders        id PK, workspace_id FK→workspaces, parent_id FK→folders NULL,
-               name, sort, description,
-               auth JSON, headers JSON, pre_request_script, test_script,
-               created_at, updated_at
-               -- a folder with parent_id NULL is a *collection*
-
-requests       id PK, workspace_id FK, folder_id FK→folders, name, sort,
-               method, url, params JSON, headers JSON, body JSON, auth JSON,
-               pre_request_script, test_script, settings JSON, examples JSON,
-               description, created_at, updated_at
-
-environments   id PK, workspace_id FK, name, sort, created_at, updated_at
-
-variables      id PK, workspace_id FK,
-               scope ('global' | 'collection' | 'environment'),
-               owner_id (environment id | collection folder id | NULL for global),
-               key, value, type ('default' | 'secret'), enabled, sort
-               INDEX (workspace_id, scope, owner_id)
-
-runs           id PK, workspace_id FK, folder_id, name, status
-               ('running'|'passed'|'failed'|'cancelled'|'error'),
-               options JSON, environment_id, iterations,
-               total_requests, total_tests, passed_tests, failed_tests,
-               duration_ms, started_at, finished_at
-
-run_results    id PK, run_id FK→runs (cascade), iteration, sequence,
-               request_id, name, method, url, status, status_text,
-               time_ms, size, tests JSON, error, passed, created_at
-
-history        id PK, workspace_id FK, request_id NULL, method, url,
-               status, time_ms, size, request JSON, response JSON, created_at
-
-cookies        id PK, workspace_id FK, domain, path, name, value,
-               expires NULL, http_only, secure, same_site, host_only,
-               created_at  UNIQUE (workspace_id, domain, path, name)
-
-schedules      id PK, workspace_id FK, folder_id, environment_id, cron,
-               options JSON, enabled, last_run_at, last_run_id
-
-users          id PK, username UNIQUE, display_name, password_hash, is_admin,
-               disabled, session_version, created_at, updated_at
-
-api_tokens     id PK, user_id FK→users, name, token_hash UNIQUE, prefix,
-               last_used_at, expires_at, revoked_at, created_at
-
-server_secrets key PK, value, created_at   -- e.g. the account session key
-```
-
-Migrations are generated by `drizzle-kit` into `drizzle/` and applied at
-server start (`src/server/db/index.ts`). The database file location comes from
-`DATABASE_PATH` (default `/data/postbox.db`; `./data/postbox.db` in dev).
+`src/server/db/index.ts` lazily opens the configured SQLite file, enables WAL and
+foreign keys, and applies generated migrations from `drizzle/`.
+`DATABASE_PATH` defaults to `/data/postbox.db` in production and
+`./data/postbox.db` in development; `MIGRATIONS_PATH` can override migration lookup.
+Edit the schema and run `npm run db:generate` for changes; never edit applied migrations.
+[Backup and data maintenance](docs/backup-and-data.md) distinguishes configuration
+exports from a full database/volume backup. Preserve the external vault keyring
+separately for encrypted secrets and workflow artifacts.
 
 ## 4. Variables
 
@@ -200,8 +186,8 @@ filesystem, `require`, or the host's globals.
 - Iteration data: CSV, JSON (array of objects) and XLSX are parsed into
   `{ columns, rows }`. The browser shows an editable data grid (edit cells,
   delete rows/columns, trim whitespace, dedupe, filter) and sends the final
-  rows to `POST /api/runs`. Row *n* becomes the `data` scope for iteration
-  *n*, keyed by column header (`asn_id` → `{{asn_id}}`). When data is
+  rows to `POST /api/runs`. Row _n_ becomes the `data` scope for iteration
+  _n_, keyed by column header (`asn_id` → `{{asn_id}}`). When data is
   provided the iteration count defaults to the number of rows.
 - Progress is streamed to the browser as newline-delimited JSON events;
   results are persisted to `runs` / `run_results`.
@@ -215,30 +201,86 @@ filesystem, `require`, or the host's globals.
 - Reporters: JSON, JUnit XML, standalone HTML. The CLI uses the same
   reporters plus a console reporter.
 
-## 7. Security
+## 7. Request gate and authorization
 
-- **Authentication**: user accounts (scrypt password hashes, `v2` session
-  cookies carrying the user id and a per-user session version, personal API
-  tokens stored as SHA-256 hashes) or, until the first account exists, the
-  single-user `POSTBOX_PASSWORD` / `POSTBOX_TOKEN` (`v1` cookies).
-  `POSTBOX_TOKEN` stays valid as a recovery admin. `server/caller.ts` resolves
-  every request to a caller (`open`, `env` or `user`); the Next.js `proxy`
-  enforces it for every route except `/login`, `/api/auth/*` and `/api/health`.
-- **Host policy**: `PROXY_ALLOW_HOSTS` and `PROXY_DENY_HOSTS` (comma
-  separated, `*.example.com` wildcards and CIDR ranges supported). Deny wins.
-  Checked for every hop of a redirect chain and for `pm.sendRequest`.
-- **Sandbox** limits as in §5.
-- **Workspace ownership**: any operation that combines a workspace with a
-  folder, request, environment or variable owner checks that they belong
-  together (`require*In` helpers in `server/repo.ts`, also used by
-  `loadScopes`, `runSingleRequest` and `startRun`). A foreign ID is reported as
-  `404`, exactly like a missing one, so other workspaces cannot be probed.
-- **Input validation**: REST and MCP bodies are parsed with the shared schemas
-  in `core/schemas.ts` (unknown keys are dropped, wrong shapes get `400`) and
-  are capped at `API_BODY_LIMIT_MB` (`413` beyond it).
-- **Logging**: the server logs request method/host/status only; resolved
-  values of secret variables are redacted from console output, history and
-  run results.
+There are two HTTP layers before a workspace service is called:
+
+1. **Request gate (`src/proxy.ts`).** Next.js runs it before route handlers.
+   `src/server/auth.ts` contains database-free credential/session primitives and
+   `isPublicPath()`; `caller.ts` resolves open mode, environment recovery credentials,
+   account sessions and personal API keys. The gate checks cross-origin writes,
+   authentication, failed bearer attempts and per-key request limits. It also
+   attaches the app's nonce-based Content-Security-Policy via `server/csp.ts`.
+   Protected API requests without identity return 401; pages redirect to sign-in.
+2. **Route authorization (`src/server/http.ts`, `access-policy.ts`).** `route()`
+   matches method/path against `REST_POLICIES`. Public handlers take their own
+   authentication/validation path; other handlers resolve a caller and enter
+   `withCaller()` context after `authorizeRest()`. Policies distinguish admin/account
+   actions, workspace IDs in query/body, and resource IDs resolved through
+   `resources.ts`. `authorize()` intersects API-key scope with workspace role.
+   Service/repository checks also reject foreign resource combinations, using 404
+   where revealing another workspace's resource would leak information.
+
+For a new REST handler, use `route()` and register every exported method in
+`REST_POLICIES`. Register a new resource kind in `resources.ts` when required.
+For a public API path, update `isPublicPath()` too: the gate must allow it before
+its public handler can run. `tests/workspace-access.test.ts` checks route/tool
+inventory and workspace isolation; `tests/public-api-policy.test.ts` compares
+registered API paths to both public classifications, including protected child
+routes and representative dynamic/catch-all paths. The gate classifies paths;
+method-specific policy and receiver credentials remain handler responsibilities.
+
+The MCP endpoint is authenticated at the gate. Its tool-registration wrapper in
+`src/server/mcp.ts` calls `authorizeTool()` against `MCP_POLICIES` before invoking
+services. That check resolves every referenced workspace/resource and applies the
+required action, rather than trusting a client-supplied workspace alone. New tools
+must be classified there too. See [MCP and workspace security](docs/mcp-and-security.md)
+and [service accounts/API keys](docs/service-accounts-and-keys.md).
+
+### Public entry points and receivers
+
+Public at the gate means reachable before a normal account session; it does not
+mean every receiver accepts unauthenticated data:
+
+- `/api/health` and `/api/openapi.json` are anonymous status/contract endpoints.
+  The OpenAPI response describes the management API, never instance workspace data.
+- `/login`, `/invite` and `/api/auth/*` serve account/bootstrap/invitation and SSO
+  flows. Login, callback and invitation handlers enforce their own credentials,
+  one-use state, replay/origin rules and throttles.
+- `/api/catalog` and `/api/documentation/[id]` expose enabled publications.
+  Their import/configuration child routes remain protected.
+- `/mock/[id]/...`, `/hook/[token]/...` and `/capture/[token]/...` route to
+  `server/mocks.ts`, `hook-listeners.ts` and `capture.ts`, enforcing their receiver
+  configuration, keys/signatures/tokens and bounds.
+- `/api/telemetry/ingest/[id]/v1/traces` validates the source intake token and
+  telemetry limits. `/api/runner-agent/lease` and its job heartbeat/result routes
+  authenticate a private-runner token and job lease in `server/runners.ts`.
+- `/api/workflow-triggers/[id]` and its run-status child validate a deployment
+  bearer capability, current owner/key authority and invocation limits.
+
+### Other boundaries
+
+Accounts use scrypt password hashes and signed session cookies. Account sessions
+carry a per-user version; sign-out revokes the current session on the server.
+`POSTBOX_TOKEN` remains a recovery administrator credential. Vault ciphertext lives
+in SQLite while keys live outside it; collection/user scopes and allowed domains
+control decryption and outbound use. Host allow/deny policy applies to every HTTP
+redirect and nested `pm.sendRequest`; the sandbox has its own execution limits (§5).
+Shared schemas and bounded body readers validate REST/MCP input. Audit wrappers
+record relevant mutations/denials, and retained execution data uses credential and
+sensitive-field redaction. Each feature guide describes its additional limits.
+
+### Process startup and background work
+
+`src/instrumentation.ts` installs the client-address hook for Node requests. Outside
+production build, it starts collection/monitor scheduling (`server/scheduler.ts`),
+workflow scheduling (`server/workflows/scheduler.ts`), telemetry retention,
+outbound webhook delivery and the monitor email outbox worker. These services own
+their timers, queues, retry/lease state and current-authority checks; they must not
+start during a build. Workflow restart recovery marks unfinished runs interrupted
+rather than replaying side effects. The runtime assumes one persistent Node server
+and SQLite database; distributed workers require their documented private-runner
+protocol, not duplicate in-process schedulers sharing a file.
 
 ## 8. Deployment
 
@@ -249,18 +291,17 @@ filesystem, `require`, or the host's globals.
   a non-root user. `/data` is a volume. Healthcheck hits `/api/health`.
 - `docker-compose.yml` with a named volume, env vars and restart policy.
 
-## 9. Roadmap
+## 9. Development and validation
 
-| Phase | Scope |
-|-------|-------|
-| 0 | Architecture document |
-| 1 | Scaffold: Next.js, TypeScript, Tailwind, shadcn/ui, ESLint/Prettier, Vitest, Drizzle schema + migrations, `/api/health`, licence |
-| 2 | Core engine: variable resolver, HTTP engine (timing, redirects, TLS toggle, cookies, auth incl. Digest/OAuth2), host policy, `/api/proxy`; tests |
-| 3 | Script sandbox and `pm.*` API, console capture, executor pipeline with inheritance; tests |
-| 4 | UI: workspaces, collection tree (nested folders, drag/drop, rename, duplicate, search), multi-tab request builder, response viewer, environments and variable editor, console panel |
-| 5 | Collection runner: engine, iteration data grid, run UI, results, exports (JSON/JUnit/HTML); tests |
-| 6 | Import/export (Postman v2.1, environments, cURL, OpenAPI) and code generation (cURL, fetch, Python, PowerShell) |
-| 7 | History, command palette, keyboard shortcuts, optional auth, CLI runner |
-| 8 | Docker, docker-compose, GitHub Actions (build, test, GHCR publish), README |
-| 9 | Scheduled runs |
-| Later | Desktop wrapper (Tauri/Electron), WebSocket/gRPC requests, OAuth2 authorization-code flow with PKCE, team sync |
+Start with [AGENTS.md](AGENTS.md), the
+[shared lifecycle](tools/development-workflow/WORKFLOW.md) and
+[repository workflow configuration](.github/development-workflow.json).
+Jira is the delivery backlog; the feature guides linked above describe implemented
+behavior and limitations. Keep changes within their layer and use current installed
+Next.js documentation under `node_modules/next/dist/docs/` for framework APIs.
+
+Run the configured unit/integration, type, lint and production-build checks, plus
+production browser tests for UI behavior. Add an authorization inventory entry and
+boundary regression with a new route/tool; exercise migrations on existing data
+when changing persistence. [Application tests](docs/application-tests.md) documents
+user-facing network capture/assertion testing separately from the repository tests.
