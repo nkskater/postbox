@@ -72,12 +72,51 @@ describe("Windows desktop package", () => {
     expect(main).toContain('url.as_str() == "about:blank" || is_app_url(&app, &url)');
     expect(main).toContain("main.origin() == url.origin()");
 
-    // No plugin that would give pages file system, shell or dialog access.
+    // No plugin that would give pages file system, shell or dialog access. The updater is driven
+    // from Rust only; the capability grants pages none of its commands.
     const cargo = fs.readFileSync(path.join(TAURI, "Cargo.toml"), "utf8");
     expect(cargo.match(/tauri-plugin-[\w-]+/g)?.sort()).toEqual([
       "tauri-plugin-single-instance",
+      "tauri-plugin-updater",
       "tauri-plugin-window-state",
     ]);
+  });
+
+  it("checks for signed updates from GitHub Releases in the shell only (LAB-292)", () => {
+    const conf = readJson(path.join(TAURI, "tauri.conf.json"));
+    const updater = conf.plugins.updater;
+    expect(updater.endpoints).toEqual([
+      "https://github.com/nkskater/postbox/releases/latest/download/latest.json",
+    ]);
+    for (const endpoint of updater.endpoints) expect(new URL(endpoint).protocol).toBe("https:");
+    expect(Buffer.from(updater.pubkey, "base64").toString("utf8")).toMatch(
+      /^untrusted comment: minisign public key/,
+    );
+    expect(updater.requireSignedVersion).toBe(true);
+    expect(updater).not.toHaveProperty("dangerousInsecureTransportProtocol");
+    expect(updater.windows.installMode).toBe("passive");
+    // Updater artifacts need the private key, so only CI turns them on (tags: project key).
+    expect(conf.bundle.createUpdaterArtifacts ?? false).toBe(false);
+
+    const capability = readJson(path.join(TAURI, "capabilities", "default.json"));
+    expect(JSON.stringify(capability)).not.toContain("updater");
+
+    // Every Rust source stays free of commands for pages.
+    for (const file of fs.readdirSync(path.join(TAURI, "src"))) {
+      const source = fs.readFileSync(path.join(TAURI, "src", file), "utf8");
+      expect(source, file).not.toContain("tauri::command");
+      expect(source, file).not.toContain("invoke_handler");
+    }
+
+    const update = fs.readFileSync(path.join(TAURI, "src", "update.rs"), "utf8");
+    expect(update).toContain('env("POSTBOX_NO_UPDATE_CHECK").as_deref() == Some("1")');
+    expect(update).toContain("Duration::from_secs(30)");
+    expect(update).toContain("Duration::from_secs(24 * 60 * 60)");
+    // Test overrides exist only in debug builds and the CI-only `update-test` feature.
+    expect(update).toContain('if cfg!(any(debug_assertions, feature = "update-test"))');
+    const cargo = fs.readFileSync(path.join(TAURI, "Cargo.toml"), "utf8");
+    expect(cargo).toMatch(/\[features\]\s*(#.*\n)*update-test = \[\]/);
+    expect(cargo).not.toMatch(/default\s*=\s*\[[^\]]*update-test/);
   });
 
   it("keeps the installer hooks free of machine-wide changes", () => {

@@ -5,6 +5,11 @@ description = "Postbox desktop shell"
 edition = "2021"
 publish = false
 
+[features]
+# Lets the CI smoke test point the update check at a local manifest and accept
+# the update without a dialog. Never enabled for release builds.
+update-test = []
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -12,6 +17,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-single-instance = "2"
 tauri-plugin-window-state = "2"
+tauri-plugin-updater = { version = "2", default-features = false, features = ["native-tls", "system-proxy"] }
 dunce = "1"
 serde_json = "1"
 
