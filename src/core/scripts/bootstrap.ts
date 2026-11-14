@@ -87,20 +87,19 @@ globalThis.atob = function (value) {
   return __libraries.Buffer.from(text, "base64").toString("latin1");
 };
 var __libraries = __sandboxLibraries;
-var __sdk = __libraries.sdk;
+var __sdk = new Proxy({}, { get: function (_, key) { return __libraries.sdk[key]; } });
 var Assertion = __libraries.chai.Assertion;
 var __expect = __libraries.chai.expect;
-globalThis.Buffer = __libraries.Buffer;
+Object.defineProperty(globalThis, "Buffer", { configurable: true, enumerable: true, get: function () { return __libraries.Buffer; }, set: function (value) { Object.defineProperty(globalThis, "Buffer", { configurable: true, enumerable: true, writable: true, value: value }); } });
 globalThis.require = function (name) {
-  if (name === "chai") return __libraries.chai;
-  if (name === "postman-collection") return __sdk;
-  if (name === "buffer") return { Buffer: __libraries.Buffer };
+  if (__approvedPackageCatalog.some(function (item) { return item.name === name; })) return name === "chai" ? __libraries.chai : __loadApproved(name);
   throw new Error("Module '" + name + "' is not available in the Postbox sandbox");
 };
 // Module factories and exports live only inside this fresh guest runtime.
 var __moduleCache=Object.create(null),__moduleLoading=Object.create(null);
 var __packageSnapshot=__ctx.scriptModules||{modules:{},aliases:{}};
-var __builtins={chai:__libraries.chai,"postman-collection":__sdk,buffer:{Buffer:__libraries.Buffer},lodash:__libraries.lodash,ajv:__libraries.Ajv};
+var __builtins={};
+__approvedPackageCatalog.forEach(function (item) { Object.defineProperty(__builtins, item.name, { get: function () { return require(item.name); } }); });
 var __approved=Object.create(null);
 __approvedPackageCatalog.forEach(function(item){__approved[item.specifier]=item.name;});
 function __packageRequire(specifier){
@@ -217,7 +216,7 @@ function __makeResponse(r) {
     responseTime: r.responseTime, cookie: r.cookies || []
   });
   response.responseSize = r.responseSize;
-  Object.defineProperty(response, "to", { get: function () { return new Assertion(response).to; } });
+  Object.defineProperty(response, "to", { get: function () { return new Assertion(this).to; } });
   return response;
 }
 function __serializeRequest(r) {
@@ -231,6 +230,41 @@ function __serializeRequest(r) {
     headers: r.headers.toJSON().map(function (header) { return { key: header.key, value: header.value, disabled: !!header.disabled }; }),
     body: body, auth: __coreAuth(r.auth, __ctx.request.auth)
   };
+}
+// Request construction and response methods retain the upstream SDK, but scalar
+// response reads and scripts that never touch the request need no SDK at all.
+var __request, __requestLoaded = false;
+function __getRequest() {
+  if (!__requestLoaded) { __request = __makeRequest(__ctx.request); __requestLoaded = true; }
+  return __request;
+}
+function __lazyResponse(raw) {
+  if (!raw) return undefined;
+  var target = {}, loaded = false;
+  function value() {
+    if (!loaded) {
+      var response = __makeResponse(raw);
+      Object.defineProperties(target, Object.getOwnPropertyDescriptors(response));
+      Object.setPrototypeOf(target, Object.getPrototypeOf(response));
+      loaded = true;
+    }
+    return target;
+  }
+  return new Proxy(target, {
+    get: function (_, key, receiver) {
+      if (!loaded && ["code", "status", "responseTime", "responseSize"].indexOf(key) >= 0) return raw[key];
+      return Reflect.get(value(), key, receiver);
+    },
+    set: function (_, key, item, receiver) { return Reflect.set(value(), key, item, receiver); },
+    has: function (_, key) { return key in value(); },
+    ownKeys: function () { return Reflect.ownKeys(value()); },
+    getOwnPropertyDescriptor: function (_, key) { return Object.getOwnPropertyDescriptor(value(), key); },
+    defineProperty: function (_, key, descriptor) { return Reflect.defineProperty(value(), key, descriptor); },
+    deleteProperty: function (_, key) { return Reflect.deleteProperty(value(), key); },
+    getPrototypeOf: function () { return Object.getPrototypeOf(value()); },
+    setPrototypeOf: function (_, prototype) { return Reflect.setPrototypeOf(value(), prototype); },
+    preventExtensions: function () { return Reflect.preventExtensions(value()); }
+  });
 }
 // ---------------------------------------------------------------- pm
 function __recordTest(name, passed, error, skipped) { __state.tests.push({ name: String(name), passed: passed, error: error, skipped: !!skipped }); }
@@ -270,8 +304,9 @@ var pm = {
       return Object.assign(o, __ctx.variableOverrides || {});
     }
   },
-  request: __makeRequest(__ctx.request),
-  response: __makeResponse(__ctx.response),
+  get request() { return __getRequest(); },
+  set request(value) { __request = value; __requestLoaded = true; },
+  response: __lazyResponse(__ctx.response),
   cookies: (function () {
     var list = __ctx.cookies || [];
     return { get: function (name) { var cookie = list.find(function (item) { return item.name === String(name); }); return cookie ? cookie.value : undefined; },
@@ -419,11 +454,21 @@ var tests = {};
 var environment = pm.environment.toObject();
 var globals = pm.globals.toObject();
 var data = pm.iterationData.toObject();
-var responseCode = pm.response ? { code: pm.response.code, name: pm.response.status } : undefined;
-var responseBody = pm.response ? pm.response.text() : undefined;
-var responseTime = pm.response ? pm.response.responseTime : undefined;
-var responseHeaders = pm.response ? pm.response.headers.toObject() : undefined;
-var request = { url: String(pm.request.url), method: pm.request.method, headers: pm.request.headers.toObject(), data: pm.request.body && pm.request.body.raw };
+function __legacy(name, make) {
+  var loaded = false, value;
+  Object.defineProperty(globalThis, name, { configurable: true, enumerable: true,
+    get: function () { if (!loaded) { value = make(); loaded = true; } return value; },
+    set: function (item) { value = item; loaded = true; }
+  });
+}
+__legacy("responseCode", function () { return __ctx.response ? { code: __ctx.response.code, name: __ctx.response.status } : undefined; });
+__legacy("responseBody", function () { return __ctx.response ? __makeResponse(__ctx.response).text() : undefined; });
+__legacy("responseTime", function () { return __ctx.response && __ctx.response.responseTime; });
+__legacy("responseHeaders", function () { return __ctx.response ? __makeResponse(__ctx.response).headers.toObject() : undefined; });
+__legacy("request", function () {
+  var original = __makeRequest(__ctx.request);
+  return { url: String(original.url), method: original.method, headers: original.headers.toObject(), data: original.body && original.body.raw };
+});
 globalThis.pm = pm;
 globalThis.postman = postman;
 globalThis.tests = tests;
@@ -437,7 +482,10 @@ function __drain() {
 
 function __finalize() {
   Object.keys(tests).forEach(function (k) { __recordTest(k, !!tests[k], tests[k] ? undefined : "tests[\"" + k + "\"] was falsy"); });
-  var r = pm.request;
+  var unchanged = Object.assign({}, __ctx.request, {
+    headers: __ctx.request.headers.map(function (header) { return Object.assign({}, header, { disabled: !!header.disabled }); }),
+    body: __ctx.request.body || { mode: "none" }, auth: __ctx.request.auth || { type: "inherit" }
+  });
   return JSON.stringify({
     scopes: __scopes,
     visualization: __state.visualization,
@@ -447,7 +495,7 @@ function __finalize() {
     nextRequestSet: __state.nextRequestSet,
     skip: __state.skip,
     vaultSet: __state.vaultSet,
-    request: __serializeRequest(r)
+    request: __requestLoaded ? __serializeRequest(__request) : unchanged
   });
 }
 `;

@@ -74,12 +74,28 @@ HTTP. Timers and intervals share a bounded scheduling quota. Scripts have no Nod
 APIs, filesystem, `fetch`, or arbitrary host object references. Host limits still
 apply if scripts replace their guest helpers.
 
-`npm run build:sandbox` bundles the pinned browser libraries as JavaScript source
-for execution inside QuickJS. The normal dev/test/typecheck/lint/build commands
+`npm run build:sandbox` builds separate pinned browser-library units with their
+complete dependency notices. The normal dev/test/typecheck/lint/build commands
 regenerate this ignored artifact; the standalone CLI builder does the same.
-Trusted library initialization has its own five-second guard and runs within the
-script memory limit, before the user script's timeout starts. The production web
-and CLI bundles include this source, so runtime installations need no bundler.
+The production web and CLI bundles include all approved source, so runtime
+installations need no bundler or network package resolution.
+
+Every script still receives a fresh QuickJS runtime. Only Chai and the small
+bootstrap load initially. `require("name")` and pinned `pm.require` calls evaluate
+the approved package on first use and share its exports within that runtime.
+`Buffer` is now a lazy global; base64 helpers load it when called. SDK request
+construction, response methods, and the legacy `request`, `responseBody` and
+`responseHeaders` globals are deferred until needed. Scalar response fields
+(`code`, `status`, `responseTime`, `responseSize`) remain available without loading
+the SDK; mutations, methods, type checks and reflection use the real SDK object.
+Legacy globals retain their original snapshots. JSON-schema validators load only
+when a schema assertion is used. Package state never survives between scripts.
+
+Trusted library initialization shares a five-second cumulative guard and the
+script memory limit. Its time is excluded from the user-script timeout, including
+units first requested while the script runs. QuickJS 0.32 exposes compile-only
+evaluation but no bytecode read/write API for sharing compiled code across fresh
+runtimes; this build therefore retains source evaluation.
 
 ## Conformance
 

@@ -11,6 +11,7 @@ import {
   type QuickJSContext,
   type QuickJSDeferredPromise,
   type QuickJSHandle,
+  type VmCallResult,
 } from "quickjs-emscripten";
 import type { AuthConfig, ConsoleEntry, CookieInfo, TestResult } from "../types";
 import type { VariableScopes } from "../variables/resolver";
@@ -18,15 +19,11 @@ import { redactSecrets } from "../variables/resolver";
 import { generateDynamic } from "../variables/dynamic";
 import { CONSOLE_LEVELS, describeIssues, sandboxStateSchema, sendRequestSpecSchema } from "../schemas";
 import { BOOTSTRAP_SOURCE } from "./bootstrap";
+import { LIBRARY_LOADER_SOURCE } from "./library-loader";
 
-/**
- * The bundled sandbox libraries are about 1.7 MB of source. Imported statically, the bundler copied
- * them into every route chunk that reaches the executor and the server loaded every copy at startup;
- * a dynamic import keeps one shared chunk that is read only when a script first runs.
- */
-let librariesSource: Promise<string> | undefined;
-const loadLibraries = () =>
-  (librariesSource ??= import("./libraries.generated").then((m) => m.LIBRARIES_SOURCE));
+// One shared host chunk; only requested units cross into each fresh guest runtime.
+let librariesSource: Promise<typeof import("./libraries.generated")> | undefined;
+const loadLibraries = () => (librariesSource ??= import("./libraries.generated"));
 
 export type ScriptEvent = "prerequest" | "test";
 
@@ -228,7 +225,10 @@ export async function runScript(
     }
   };
 
-  const define = (name: string, fn: (...args: QuickJSHandle[]) => QuickJSHandle | void) => {
+  const define = (
+    name: string,
+    fn: (...args: QuickJSHandle[]) => QuickJSHandle | VmCallResult<QuickJSHandle> | void,
+  ) => {
     const h = vm.newFunction(name, fn);
     vm.setProp(vm.global, name, h);
     h.dispose();
@@ -268,7 +268,33 @@ export async function runScript(
         throw new Error("Invalid random byte count");
       return vm.newString(randomBytes(length).toString("hex"));
     });
-    const libraries = vm.evalCode(await loadLibraries(), "postbox-libraries.js");
+    const { LIBRARY_UNITS, APPROVED_CATALOG } = await loadLibraries();
+    let libraryBudgetMs = 5000;
+    let libraryDepth = 0;
+    define("__host_load_library", (nameH) => {
+      const name = vm.getString(nameH);
+      if (!Object.hasOwn(LIBRARY_UNITS, name)) throw new Error("Unavailable bundled library: " + name);
+      if (libraryDepth === 0 && libraryBudgetMs <= 0)
+        throw new Error("Sandbox library initialization exceeded the time limit");
+      const outermost = libraryDepth++ === 0;
+      const started = Date.now();
+      const scriptDeadline = deadline;
+      if (outermost) deadline = started + libraryBudgetMs;
+      try {
+        return vm.evalCode(LIBRARY_UNITS[name], "postbox-library-" + name + ".js", { strip: true });
+      } finally {
+        libraryDepth--;
+        if (outermost) {
+          const elapsed = Date.now() - started;
+          libraryBudgetMs = Math.max(0, libraryBudgetMs - elapsed);
+          deadline = scriptDeadline + elapsed;
+        }
+      }
+    });
+    const libraries = vm.evalCode(
+      "var __approvedPackageCatalog=" + JSON.stringify(APPROVED_CATALOG) + ";\n" + LIBRARY_LOADER_SOURCE,
+      "postbox-libraries.js",
+    );
     if (libraries.error) {
       const message = describeError(vm, libraries.error);
       libraries.error.dispose();
