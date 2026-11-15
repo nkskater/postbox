@@ -15,6 +15,8 @@ const backupRoute = await import("@/app/api/backup/route");
 const infoRoute = await import("@/app/api/backup/info/route");
 const compactRoute = await import("@/app/api/backup/compact/route");
 const clearRoute = await import("@/app/api/backup/clear/route");
+const snapshotRoute = await import("@/app/api/backup/snapshot/route");
+const { openDatabase } = await import("@/server/db");
 
 let admin: UserRow;
 let member: UserRow;
@@ -72,8 +74,47 @@ describe("backup API", () => {
       ["info", () => withRequest(infoRoute.GET, request("GET", "/api/backup/info"))],
       ["compact", () => withRequest(compactRoute.POST, request("POST", "/api/backup/compact"))],
       ["clear", () => clearRoute.POST(request("POST", "/api/backup/clear", { target: "history" }))],
+      ["snapshot", () => withRequest(snapshotRoute.GET, request("GET", "/api/backup/snapshot"))],
     ];
     for (const [name, call] of attempts) expect((await run(member, call)).status, name).toBe(403);
+  });
+
+  it("downloads a complete database snapshot that opens and holds accounts, keys and workspaces (LAB-272)", async () => {
+    const temps = () =>
+      fs
+        .readdirSync(os.tmpdir())
+        .filter((n) => n.startsWith("postbox-db-snapshot-"))
+        .sort();
+    const before = temps();
+    const res = await run(admin, () =>
+      withRequest(snapshotRoute.GET, request("GET", "/api/backup/snapshot")),
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("application/vnd.sqlite3");
+    expect(res.headers.get("content-disposition")).toMatch(
+      /^attachment; filename="postbox-snapshot-\d{8}T\d{6}Z\.db"$/,
+    );
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    const bytes = Buffer.from(await res.arrayBuffer());
+    expect(bytes.subarray(0, 15).toString()).toBe("SQLite format 3");
+    expect(Number(res.headers.get("content-length"))).toBe(bytes.length);
+    const file = path.join(dir, "downloaded-snapshot.db");
+    fs.writeFileSync(file, bytes);
+    const copy = openDatabase(file);
+    try {
+      const names = (
+        copy.sqlite.prepare("SELECT username FROM users ORDER BY username").all() as { username: string }[]
+      ).map((u) => u.username);
+      expect(names).toEqual(["member", "root"]);
+      expect(copy.sqlite.prepare("SELECT COUNT(*) AS n FROM api_tokens").get()).toEqual({ n: 2 });
+      expect(copy.sqlite.prepare("SELECT name FROM workspaces WHERE id = ?").get(workspaceId)).toEqual({
+        name: "Original",
+      });
+    } finally {
+      copy.sqlite.close();
+    }
+    // The temporary copy on the server is removed once the download has been read.
+    await expect.poll(temps).toEqual(before);
   });
 
   it("downloads a backup, optionally without secrets", async () => {

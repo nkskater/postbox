@@ -6,6 +6,10 @@ export interface RequestOptions {
   body?: unknown;
   /** Return the response text untouched (exports). */
   raw?: boolean;
+  /** Return the response body as bytes (files such as database snapshots). */
+  binary?: boolean;
+  /** Overrides the client's timeout, for large downloads. */
+  timeoutMs?: number;
 }
 
 /** Minimal client for the Postbox REST API; it talks to a running server, never the database. */
@@ -31,12 +35,13 @@ export class ApiClient {
         headers,
         body: options.body === undefined ? undefined : JSON.stringify(options.body),
         redirect: "error",
-        signal: AbortSignal.timeout(this.timeoutMs),
+        signal: AbortSignal.timeout(options.timeoutMs ?? this.timeoutMs),
       });
     } catch (error) {
       const reason = (error as Error).name === "TimeoutError" ? "timed out" : (error as Error).message;
       throw new CliError(`Cannot reach ${this.base}: ${reason}`, EXIT.network);
     }
+    if (options.binary && response.ok) return Buffer.from(await response.arrayBuffer()) as T;
     const text = await response.text();
     if (!response.ok)
       throw new CliError(describeFailure(response.status, text), exitCodeForStatus(response.status));

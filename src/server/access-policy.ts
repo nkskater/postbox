@@ -222,6 +222,7 @@ export const REST_POLICIES: Record<string, Policy> = {
   "GET /api/admin/security": p("admin"),
   "POST /api/admin/sessions/revoke": p("admin"),
   "GET /api/backup": p("admin"),
+  "GET /api/backup/snapshot": p("admin"),
   "POST /api/backup": p("admin"),
   "GET /api/backup/info": p("admin"),
   "POST /api/backup/compact": p("admin"),

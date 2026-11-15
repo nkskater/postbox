@@ -55,6 +55,11 @@ function handler(req: http.IncomingMessage, res: http.ServerResponse) {
         });
       case "POST /api/folders":
         return reply(201, { id: "c2", ...JSON.parse(body) });
+      case "GET /api/backup/snapshot": {
+        // Bytes that are not valid UTF-8, to prove the download is written unchanged.
+        res.writeHead(200, { "Content-Type": "application/vnd.sqlite3" });
+        return res.end(Buffer.from([0x53, 0x51, 0x4c, 0x69, 0x74, 0x65, 0x00, 0xff, 0xfe, 0x80]));
+      }
       case "GET /api/export/collection/c1":
         return url.searchParams.get("format") === "v3"
           ? reply(200, {
@@ -484,6 +489,18 @@ describe("postbox management commands", () => {
 
     const bad = await invoke(["env", "update", "e1", "-f", "-"], authed(), "not json");
     expect(bad.code).toBe(2);
+  });
+
+  it("downloads a database snapshot byte for byte (LAB-272)", async () => {
+    const target = path.join(directory, "snapshot.db");
+    const result = await invoke(["backup", "snapshot", "--out", target], authed());
+    expect(result.code).toBe(0);
+    expect(result.stderr).toContain("contains credentials");
+    expect([...(await readFile(target))]).toEqual([
+      0x53, 0x51, 0x4c, 0x69, 0x74, 0x65, 0x00, 0xff, 0xfe, 0x80,
+    ]);
+    expect(((await stat(target)).mode & 0o777).toString(8)).toBe("600");
+    expect((await invoke(["backup", "snapshot"], authed())).code).toBe(2);
   });
 
   it("exports to a file or standard output and imports a file", async () => {

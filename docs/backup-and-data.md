@@ -70,6 +70,50 @@ as they are, so review the file before sharing it.
 - A backup restores into any Postbox database, including a fresh one, because it contains no
   instance-specific keys.
 
+## Database snapshots
+
+The JSON backup is for moving configuration between instances; it leaves out accounts, API keys,
+history and runs. A **snapshot** is a complete copy of the SQLite database instead, taken with
+`VACUUM INTO` while Postbox keeps running:
+
+- `GET /api/backup/snapshot` (administrators only) downloads it as `postbox-snapshot-<time>.db`.
+- From a terminal: `postbox backup snapshot --out postbox-snapshot.db` (written readable by you only).
+
+A snapshot contains every credential and secret Postbox stores, in plain text. Keep it like the
+database file itself.
+
+### Before upgrades
+
+When a new version starts and finds database migrations it has not applied yet, it first saves a
+snapshot of the database as it was, next to the database file:
+
+```
+postbox.db.pre-migration-20261114T120000Z-0046_fluffy_winter_soldier.db
+```
+
+The name holds the time and the last migration the old version had applied. The server log has one
+line saying where it went. The newest three are kept. Settings:
+
+| Variable                           | Default               | Meaning                                                               |
+| ---------------------------------- | --------------------- | --------------------------------------------------------------------- |
+| `POSTBOX_SNAPSHOT_DIR`             | the database's folder | Where pre-migration snapshots are written                             |
+| `POSTBOX_SNAPSHOT_KEEP`            | `3`                   | How many pre-migration snapshots to keep                              |
+| `POSTBOX_SKIP_MIGRATION_SNAPSHOT`  | _(unset)_             | `1` skips the snapshot, for very large databases you back up yourself |
+| `POSTBOX_MIGRATE_WITHOUT_SNAPSHOT` | _(unset)_             | `1` lets the upgrade continue when the snapshot cannot be written     |
+
+If the snapshot cannot be written (disk full, read-only folder), Postbox does not start and says
+why, rather than migrate without a way back. Free space, point `POSTBOX_SNAPSHOT_DIR` elsewhere, or
+set `POSTBOX_MIGRATE_WITHOUT_SNAPSHOT=1`.
+
+### Rolling back an upgrade
+
+1. Stop Postbox (`docker compose down`, or close the app).
+2. Move `postbox.db`, `postbox.db-wal` and `postbox.db-shm` out of the way.
+3. Copy the snapshot to `postbox.db` (no `-wal`/`-shm` files are needed).
+4. Start the previous version (for Docker, the previous image tag).
+
+To restore a downloaded snapshot, follow the same steps with that file.
+
 ## Database maintenance
 
 - **Database** shows the file path, size, write-ahead log size, space that can be reclaimed, and
