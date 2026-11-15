@@ -9,6 +9,8 @@ const SECURITY_HEADERS = [
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // Load compiled route modules on first use instead of retaining every feature at startup.
+  experimental: { preloadEntriesOnStart: false },
   // Native / WASM packages must be loaded from node_modules at runtime rather than bundled.
   // linkedom (and its CSS parser) is 1.3 MB of source. Bundled, the compiler copies it into every route
   // chunk that reaches the executor and the server loads every copy at startup; external, it loads once.

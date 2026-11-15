@@ -508,6 +508,19 @@ and the host policy for requests carrying sensitive bodies.
 
 ### Container resource limits
 
+The production server loads compiled route modules on first use instead of preloading
+all features at startup (`experimental.preloadEntriesOnStart: false`). This reduces
+idle resident memory. The first request to a route can take a little longer while
+its modules load; later requests reuse them. Modules remain resident once used, so
+memory grows with the features you access.
+
+After a production build, `npm run check:memory` on Linux enforces resident memory
+below 180 MB before any HTTP request and below 300 MB after health, the home page,
+ten workspace list routes and a request with a test script. It uses a fresh database
+and a 320 MB JavaScript heap cap; RSS includes native and WASM allocations too.
+Container CI separately checks that the first workspace-tree request completes in
+less than 500 ms. These are smoke-test budgets, not limits on a busy instance.
+
 Docker Compose limits the entire running app, including the web server, request execution,
 script sandboxes and collection runs. Set these Compose variables in `.env`:
 
