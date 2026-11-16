@@ -48,7 +48,7 @@ beforeAll(async () => {
   const mcp = await import("@/app/api/mcp/route");
   client = new Client({ name: "openapi-reference-test", version: "1.0.0" });
   await client.connect(
-    new StreamableHTTPClientTransport(new URL("http://localhost/api/mcp"), {
+    new StreamableHTTPClientTransport(new URL("http://localhost/api/mcp?toolsets=specs"), {
       fetch: async (input, init) => {
         const request = new Request(input, init);
         return request.method === "POST"
