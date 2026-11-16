@@ -200,3 +200,20 @@ describe("MCP authorization coverage", () => {
         for (const key of keys) expect(schemas.get(name), `${name}.${key}`).toContain(key);
   });
 });
+
+describe("cached MCP registry caller isolation", () => {
+  it("keeps concurrent callers and their workspace lists separate", async () => {
+    const victimToken = token(victim, "read"),
+      outsiderToken = token(outsider, "read");
+    const results = await Promise.all(
+      Array.from({ length: 20 }, (_, index) => call(index % 2 ? outsiderToken : victimToken, "whoami", {})),
+    );
+    for (const [index, result] of results.entries()) {
+      expect(result.isError).toBe(false);
+      expect(result.body.user.id).toBe(index % 2 ? outsider.id : victim.id);
+      const ids = result.body.workspaces.map((workspace: { id: string }) => workspace.id);
+      expect(ids).toContain(index % 2 ? outsiderWorkspaceId : workspaceId);
+      expect(ids).not.toContain(index % 2 ? workspaceId : outsiderWorkspaceId);
+    }
+  });
+});

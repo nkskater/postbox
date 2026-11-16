@@ -8,6 +8,7 @@ import { readSavedSettings } from "./settings";
 export interface McpSettings {
   enabled: boolean;
   readOnly: boolean;
+  toolsets: string;
   /** Normalised extra origins (no trailing slash). */
   allowedOrigins: string[];
 }
@@ -23,6 +24,7 @@ export function mcpSettings(env: NodeJS.ProcessEnv = process.env): McpSettings {
   return {
     enabled: values["mcp.enabled"] as boolean,
     readOnly: values["mcp.readOnly"] as boolean,
+    toolsets: values["mcp.toolsets"] as string,
     allowedOrigins: parseOrigins(values["mcp.allowedOrigins"] as string),
   };
 }

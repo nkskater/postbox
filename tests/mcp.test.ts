@@ -38,7 +38,7 @@ beforeAll(async () => {
     return new Response("Method Not Allowed", { status: 405 });
   };
 
-  transport = new StreamableHTTPClientTransport(new URL("http://localhost:3000/api/mcp"), {
+  transport = new StreamableHTTPClientTransport(new URL("http://localhost:3000/api/mcp?toolsets=all"), {
     fetch: customFetch,
   });
   client = new Client({ name: "postbox-test-client", version: "1.0.0" });

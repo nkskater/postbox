@@ -12,7 +12,8 @@ import { audit } from "@/server/audit";
 import { authorizeTool, isReadOnlyTool, resourceWorkspace } from "@/server/access-policy";
 import { mcpSettings } from "@/server/integration-settings";
 import { authorize } from "@/server/authorize";
-import { createPostboxMcpServer } from "@/server/mcp";
+import { createPostboxMcpConnection } from "@/server/mcp-registry";
+import { parseMcpToolsets, type McpToolset } from "@/lib/mcp-toolsets";
 
 export const dynamic = "force-dynamic";
 
@@ -93,6 +94,14 @@ export async function POST(req: Request): Promise<Response> {
   if (!(req.headers.get("content-type") ?? "").toLowerCase().includes("application/json")) {
     return jsonRpcError(415, "Unsupported Media Type: MCP requests must use Content-Type: application/json");
   }
+  let toolsets: McpToolset[];
+  try {
+    const selection = new URL(req.url).searchParams.getAll("toolsets");
+    if (selection.length > 1) throw new Error("Use one comma-separated toolsets query parameter");
+    toolsets = parseMcpToolsets(selection[0] ?? settings.toolsets);
+  } catch (error) {
+    return jsonRpcError(400, (error as Error).message);
+  }
   let body: string;
   try {
     body = await readBodyText(req);
@@ -143,7 +152,7 @@ export async function POST(req: Request): Promise<Response> {
     return jsonRpcError(400, "Invalid MCP request");
   }
   return withCaller(caller, async () => {
-    const server = createPostboxMcpServer({ readOnly: settings.readOnly });
+    const server = await createPostboxMcpConnection({ readOnly: settings.readOnly, toolsets });
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,
