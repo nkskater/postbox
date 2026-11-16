@@ -6,6 +6,7 @@
  * To add a setting: add an entry here, then read it where it is used.
  */
 import { isValidAccent, DEFAULT_ACCENT } from "./accent";
+import { parseMcpToolsets, MCP_TOOLSETS } from "../mcp-toolsets";
 
 export type SettingCategory =
   | "appearance"
@@ -1193,6 +1194,19 @@ export const SETTINGS: SettingDef[] = [
     keywords: ["mcp", "readonly", "safe", "agent"],
   },
   {
+    key: "mcp.toolsets",
+    category: "integrations",
+    label: "Default MCP toolsets",
+    description: `Tools advertised to clients without a toolsets query. Choose all or comma-separated groups: ${MCP_TOOLSETS.join(", ")}. Calls to other tools still require normal permission.`,
+    type: "text",
+    scope: "server",
+    env: "MCP_TOOLSETS",
+    default: "core",
+    maxLength: 400,
+    placeholder: "core,mocks",
+    keywords: ["mcp", "toolsets", "tools", "discovery"],
+  },
+  {
     key: "mcp.allowedOrigins",
     category: "integrations",
     label: "Extra allowed origins",
@@ -1258,6 +1272,10 @@ export function validateSetting(def: SettingDef, value: unknown): SettingValue {
         throw new Error(`${def.label} must be at most ${def.maxLength} characters`);
       // Header values cannot carry line breaks or other control characters.
       if (/[\u0000-\u001f\u007f]/.test(value)) throw new Error(`${def.label} contains control characters`);
+      if (def.key === "mcp.toolsets") {
+        const selected = parseMcpToolsets(value);
+        return value.trim() === "all" ? "all" : selected.join(",");
+      }
       return value.trim();
     case "keyvalue": {
       if (!Array.isArray(value)) throw new Error(`${def.label} must be a list`);

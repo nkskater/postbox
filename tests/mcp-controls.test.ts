@@ -21,7 +21,7 @@ const { getSqlite } = await import("@/server/db");
 
 const rpc = (method: string, params?: unknown, headers: Record<string, string> = {}) =>
   mcpRoute.POST(
-    new Request("http://localhost:3000/api/mcp", {
+    new Request("http://localhost:3000/api/mcp?toolsets=all", {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json", ...headers },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),

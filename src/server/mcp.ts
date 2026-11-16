@@ -162,19 +162,30 @@ const variableInputSchema = variableSchema.extend({ key: z.string().min(1) });
 
 // ------------------------------------------------------------------ server factory
 
-export function createPostboxMcpServer(options: { readOnly?: boolean } = {}): McpServer {
+export function createPostboxMcpServer(
+  options: {
+    readOnly?: boolean;
+    onHandler?: (...registration: Parameters<McpServer["server"]["setRequestHandler"]>) => void;
+  } = {},
+): McpServer {
   const server = new McpServer(
     {
       name: "postbox",
       version: "0.1.0",
     },
     {
-      capabilities: {
-        tools: {},
-        resources: {},
-      },
+      capabilities: {},
     },
   );
+  // Capture SDK handlers through its public API before the first resource/tool initializes them.
+  // A registry template is never connected: each HTTP call gets an independent protocol instance.
+  if (options.onHandler) {
+    const setHandler = server.server.setRequestHandler.bind(server.server);
+    server.server.setRequestHandler = ((...registration: Parameters<typeof setHandler>) => {
+      options.onHandler!(...registration);
+      setHandler(...registration);
+    }) as typeof server.server.setRequestHandler;
+  }
   // Remember each tool so read-only mode can hide the ones that change data.
   const registered = new Map<string, { disable(): void }>();
   const registerTool = server.registerTool.bind(server) as (

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
-import type { Browser } from "playwright-core";
+import type { Browser, Page } from "playwright-core";
 import { launch, openApp } from "./helpers";
 
 const baseUrl = inject("baseUrl");
@@ -11,9 +11,20 @@ afterAll(async () => {
   await browser?.close();
 });
 
+// Workspace initialization clears early tabs; use its visible selection as the readiness signal.
+async function waitForWorkspace(page: Page) {
+  await expect
+    .poll(async () => {
+      const label = (await page.getByRole("combobox").first().innerText()).trim();
+      return label.length > 0 && label !== "Workspace";
+    })
+    .toBe(true);
+}
+
 describe("settings", () => {
   it("opens every settings section without errors", async () => {
     const { page, context, errors } = await openApp(browser, baseUrl);
+    await waitForWorkspace(page);
     await page.getByTitle(/^Settings \(/).click();
     const nav = page.locator("nav", { hasText: "Server (environment)" });
     await nav.waitFor();
@@ -32,8 +43,56 @@ describe("settings", () => {
     await context.close();
   });
 
+  it("changes the default advertised MCP toolsets and keeps query overrides available", async () => {
+    const saved = (await (await fetch(`${baseUrl}/api/settings`)).json()) as {
+      saved: Record<string, unknown>;
+    };
+    const { page, context, errors } = await openApp(browser, baseUrl);
+    await waitForWorkspace(page);
+    const names = async (query = "") => {
+      const response = await fetch(`${baseUrl}/api/mcp${query}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+      });
+      expect(response.status).toBe(200);
+      return ((await response.json()) as { result: { tools: { name: string }[] } }).result.tools.map(
+        (tool) => tool.name,
+      );
+    };
+    try {
+      await page.getByTitle(/^Settings \(/).click();
+      await page.locator("nav").getByRole("button", { name: "MCP & integrations" }).click();
+      const input = page.getByRole("textbox", { name: "Default MCP toolsets" });
+      await input.fill("mocks");
+      await input.press("Enter");
+      await expect.poll(() => names()).toContain("create_mock");
+      expect(await names()).not.toContain("send_request");
+      expect(await names("?toolsets=core,mocks")).toEqual(
+        expect.arrayContaining(["send_request", "create_mock"]),
+      );
+      await page.reload();
+      await page.getByRole("button", { name: "Console" }).waitFor();
+      await page.getByTitle(/^Settings \(/).click();
+      await page.locator("nav").getByRole("button", { name: "MCP & integrations" }).click();
+      await expect
+        .poll(() => page.getByRole("textbox", { name: "Default MCP toolsets" }).inputValue())
+        .toBe("mocks");
+      expect(errors).toEqual([]);
+    } finally {
+      const reset = await fetch(`${baseUrl}/api/settings`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ values: { "mcp.toolsets": saved.saved["mcp.toolsets"] ?? null } }),
+      });
+      expect(reset.status).toBe(200);
+      await context.close();
+    }
+  });
+
   it("finds a setting by search and keeps a changed value after a reload", async () => {
     const { page, context, errors } = await openApp(browser, baseUrl);
+    await waitForWorkspace(page);
     await page.getByTitle(/^Settings \(/).click();
     await page.getByPlaceholder(/Search settings/).fill("restore");
     const toggles = page.getByRole("switch");
@@ -64,6 +123,7 @@ describe("settings", () => {
 describe("data management", () => {
   it("shows the database summary and produces a backup", async () => {
     const { page, context, errors } = await openApp(browser, baseUrl);
+    await waitForWorkspace(page);
     await page.getByTitle(/^Settings \(/).click();
     await page.locator("nav").getByRole("button", { name: "History & data" }).click();
     const database = page.getByRole("region", { name: "Database" });
