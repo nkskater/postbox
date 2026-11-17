@@ -104,6 +104,14 @@ Vault key file paths are inside the container: add a separate persistent directo
 `POSTBOX_VAULT_KEY_FILE` if the key should live outside `postbox-data`. Do not commit `.env` or share
 `docker compose config` output containing credentials. Configuration forwarding is checked by `npm test`.
 
+CI builds the image on every pull request and runs `scripts/container-smoke.sh` against it: the container must
+become healthy by its own `HEALTHCHECK` on a fresh volume with `POSTBOX_TOKEN` set, reject unauthenticated API
+calls, execute a request with a test script, run `postbox-cli`, run as UID 1001 with its database in `/data`, and
+keep its data across a restart. `docker compose config` is validated in the same job. Pushes to `main` and version
+tags publish a multi-platform image (`linux/amd64`, `linux/arm64`) to `ghcr.io/nkskater/postbox`. You can run the
+same smoke test locally with `docker build -t postbox:smoke . && scripts/container-smoke.sh` (needs `curl`, `jq`
+and Node.js).
+
 ## Windows desktop app
 
 Postbox Desktop installs Postbox as a regular Windows app with its own window, Start menu entry and uninstaller.
