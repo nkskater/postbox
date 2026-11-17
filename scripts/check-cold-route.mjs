@@ -3,8 +3,10 @@ import { performance } from "node:perf_hooks";
 
 const base = process.argv[2];
 if (!base) throw new Error("Usage: node scripts/check-cold-route.mjs http://127.0.0.1:3000");
+// Sends POSTBOX_TOKEN as a bearer token when set (the container smoke test runs with authentication on).
+const headers = process.env.POSTBOX_TOKEN ? { Authorization: `Bearer ${process.env.POSTBOX_TOKEN}` } : {};
 const get = async (route) => {
-  const response = await fetch(new URL(route, base), { signal: AbortSignal.timeout(10_000) });
+  const response = await fetch(new URL(route, base), { headers, signal: AbortSignal.timeout(10_000) });
   if (!response.ok) throw new Error(`${route}: HTTP ${response.status}`);
   return response.json();
 };
