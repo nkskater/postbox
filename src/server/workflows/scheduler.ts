@@ -4,6 +4,7 @@ import { getDb, schema } from "../db";
 import { deploymentRow, triggerDeployment, validWorkflowCron } from "./deployments";
 import { initializeWorkflowRuns } from "./runner";
 import { flowState } from "./state";
+import { featureEnabled } from "../features";
 const globalScheduler = globalThis as typeof globalThis & {
   __postboxFlowScheduler?: { started: boolean; jobs: Map<string, Cron> };
 };
@@ -27,6 +28,12 @@ export function syncWorkflowSchedules() {
       continue;
     }
     const job = new Cron(deployment.cron, { timezone: "UTC", unref: true }, () => {
+      // Skipped (not failed, so the deployment stays enabled) while workflows are switched off.
+      try {
+        if (!featureEnabled("workflows")) return;
+      } catch {
+        return;
+      }
       try {
         const live = deploymentRow(deployment.id);
         triggerDeployment(live, "schedule", live.input, `schedule:${Math.floor(Date.now() / 60000)}`);

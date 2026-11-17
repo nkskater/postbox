@@ -1,5 +1,6 @@
 import { HttpError } from "@/server/errors";
 import { ingest, readIncomingBody } from "@/server/hook-listeners";
+import { requireFeature } from "@/server/features";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -18,6 +19,7 @@ async function handle(request: Request, { params }: Context): Promise<Response> 
     "Referrer-Policy": "no-referrer",
   };
   try {
+    requireFeature("hooks");
     const url = new URL(request.url);
     const body = await readIncomingBody(request);
     const prefix = `/hook/${token}`;

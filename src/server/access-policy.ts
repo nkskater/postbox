@@ -1,4 +1,7 @@
 import { getSqlite } from "./db";
+import { featureOfTool } from "@/core/features";
+import { requireFeature } from "./features";
+import { toolsetOf } from "./mcp-toolsets";
 import { authorize, requireAdmin, requireScope, type WorkspaceAction } from "./authorize";
 import type { Caller } from "./caller";
 import { HttpError } from "./errors";
@@ -827,6 +830,9 @@ function toolWorkspaces(name: string, input: Record<string, unknown>): Set<strin
 export function authorizeTool(caller: Caller, name: string, input: Record<string, unknown>) {
   const action = MCP_POLICIES[name];
   if (!action) throw new HttpError(403, "Tool has no access policy");
+  // Tools of a switched-off area are refused as if they did not exist.
+  const feature = featureOfTool(name, toolsetOf(name));
+  if (feature) requireFeature(feature);
   if (action === "create") requireScope(caller, "write");
   if (action === "list" || action === "create" || action === "identity") return;
   const ids = toolWorkspaces(name, input);

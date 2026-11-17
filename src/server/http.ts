@@ -10,6 +10,7 @@ import { withCaller } from "./access-context";
 import { authorizeRest, restPolicy } from "./access-policy";
 import { auditDenied, auditedCall, shouldAudit } from "./audit";
 import { pruneAuditIfDue } from "./audit-settings";
+import { requireFeatureForPath } from "./features";
 
 export { HttpError, notFound } from "./errors";
 
@@ -33,6 +34,8 @@ export function route<A extends unknown[]>(fn: (...args: A) => Promise<Response>
       const req = args[0];
       if (!(req instanceof Request)) return await fn(...args);
       const pathname = new URL(req.url).pathname;
+      // Areas switched off under Settings → Features answer as if the route did not exist.
+      requireFeatureForPath(pathname);
       const policy = restPolicy(req.method, pathname);
       if (policy?.source === "public") return await fn(...args);
       const caller = callerOf(req);

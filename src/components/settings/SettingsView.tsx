@@ -52,6 +52,8 @@ import { CapturePanel } from "./CapturePanel";
 import { useIdentity } from "./useIdentity";
 import { WorkspaceSharing } from "./WorkspaceSharing";
 import { AppearancePreview } from "./AppearancePreview";
+import { featureSettingKey, type FeatureId } from "@/core/features";
+import { FeatureGate } from "@/components/app/FeatureGate";
 
 type Section = SettingCategory | "environment" | "elsewhere" | "sharing" | "users" | "audit" | "usage";
 
@@ -70,7 +72,14 @@ export function SettingsView() {
 
   const modified = (key: string) => key in saved && !(key in envLocked);
   const searching = query.trim().length > 0;
-  const matches = useMemo(() => SETTINGS.filter((d) => matchesQuery(d, query)), [query]);
+  // Settings of a feature area that is switched off are hidden with the area.
+  const shown = (d: (typeof SETTINGS)[number]) =>
+    !d.feature || values[featureSettingKey(d.feature as FeatureId)] !== false;
+  const matches = useMemo(
+    () => SETTINGS.filter((d) => shown(d) && matchesQuery(d, query)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [query, values],
+  );
 
   const onImport = async (file: File) => {
     try {
@@ -129,7 +138,7 @@ export function SettingsView() {
   );
 
   const category = CATEGORIES.find((c) => c.id === section);
-  const sectionDefs = SETTINGS.filter((d) => d.category === section);
+  const sectionDefs = SETTINGS.filter((d) => d.category === section && shown(d));
 
   return (
     <div className="flex h-full min-h-0">
@@ -271,9 +280,17 @@ export function SettingsView() {
               {section === "notifications" && <NotificationsPanel />}
               {section === "appearance" && <ColorSettings />}
               {section === "variables" && <VaultPanel isAdmin={!!identity?.isAdmin} />}
-              {section === "variables" && <BrokerPanel />}
+              {section === "variables" && (
+                <FeatureGate feature="broker">
+                  <BrokerPanel />
+                </FeatureGate>
+              )}
               {section === "execution" && <OutboundPanel isAdmin={!!identity?.isAdmin} />}
-              {section === "execution" && <CapturePanel />}
+              {section === "execution" && (
+                <FeatureGate feature="capture">
+                  <CapturePanel />
+                </FeatureGate>
+              )}
               {section === "data" && <DataManagement isAdmin={!!identity?.isAdmin} />}
               {section === "integrations" && <IntegrationsPanel isAdmin={!!identity?.isAdmin} />}
               {section === "security" && <SecurityPanel isAdmin={!!identity?.isAdmin} />}

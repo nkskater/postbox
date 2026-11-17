@@ -167,6 +167,10 @@ export function patchSettings(patch: Record<string, unknown>): SettingsPayload {
     }
   });
   auditInstanceSettings(valid, savedBefore);
+  if (Object.keys(valid).some((key) => key.startsWith("features.")))
+    void import("./feature-workers")
+      .then((m) => m.startFeatureWorkers())
+      .catch((error: unknown) => console.error("[postbox] feature workers:", (error as Error).message));
   return getSettings();
 }
 

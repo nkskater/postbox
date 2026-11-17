@@ -23,6 +23,7 @@ import { SharedPanel } from "./SharedPanel";
 import { CollectionSpecificationPanel } from "@/components/specifications/SpecificationSyncPanel";
 import { DocumentationEditor } from "./DocumentationEditor";
 import { VariablesEditor } from "@/components/env/VariablesEditor";
+import { useFeature } from "@/components/app/FeatureGate";
 
 type Editable = FolderDef & { parentId: string | null; variables: Variable[] };
 
@@ -30,6 +31,10 @@ export function FolderEditor({ folderId }: { folderId: string }) {
   const refreshTree = useApp((s) => s.refreshTree);
   const refreshVariables = useApp((s) => s.refreshVariables);
   const openTab = useApp((s) => s.openTab);
+  const specs = useFeature("specifications");
+  const catalog = useFeature("catalog");
+  const collab = useFeature("collaboration");
+  const releases = useFeature("releases");
   const [data, setData] = useState<Editable | null>(null);
   const [saved, setSaved] = useState("");
   const [syncBusy, setSyncBusy] = useState(false);
@@ -113,22 +118,22 @@ export function FolderEditor({ folderId }: { folderId: string }) {
           <TabsTrigger value="test" className="text-xs">
             Post-response Script
           </TabsTrigger>
-          {isCollection && (
+          {isCollection && specs && (
             <TabsTrigger value="specification" className="text-xs">
               Specification
             </TabsTrigger>
           )}
-          {isCollection && (
+          {isCollection && catalog && (
             <TabsTrigger value="catalog" className="text-xs">
               Catalog publishing
             </TabsTrigger>
           )}
-          {isCollection && (
+          {isCollection && releases && (
             <TabsTrigger value="sharing" className="text-xs">
               Sharing
             </TabsTrigger>
           )}
-          {isCollection && (
+          {isCollection && collab && (
             <TabsTrigger value="forks" className="text-xs">
               Forks
             </TabsTrigger>
@@ -138,7 +143,7 @@ export function FolderEditor({ folderId }: { folderId: string }) {
               Repository
             </TabsTrigger>
           )}
-          {isCollection && (
+          {isCollection && catalog && (
             <TabsTrigger value="documentation" className="text-xs">
               Documentation
             </TabsTrigger>
@@ -148,12 +153,14 @@ export function FolderEditor({ folderId }: { folderId: string }) {
               Variables
             </TabsTrigger>
           )}
-          <TabsTrigger value="comments" className="text-xs">
-            Comments
-          </TabsTrigger>
+          {collab && (
+            <TabsTrigger value="comments" className="text-xs">
+              Comments
+            </TabsTrigger>
+          )}
         </TabsList>
         <div className="min-h-0 flex-1 overflow-auto px-4 py-3">
-          {isCollection && (
+          {isCollection && specs && (
             <TabsContent value="specification" className="mt-0">
               <CollectionSpecificationPanel
                 key={folderId}
@@ -171,7 +178,7 @@ export function FolderEditor({ folderId }: { folderId: string }) {
               />
             </TabsContent>
           )}
-          {isCollection && (
+          {isCollection && catalog && (
             <TabsContent value="documentation" className="mt-0">
               <DocumentationEditor key={folderId} folderId={folderId} />
             </TabsContent>
@@ -181,24 +188,26 @@ export function FolderEditor({ folderId }: { folderId: string }) {
               <RepositoryPanel key={folderId} kind="collection" id={folderId} name={data.name} />
             </TabsContent>
           )}
-          {isCollection && (
+          {isCollection && collab && (
             <TabsContent value="forks" className="mt-0">
               <ForkPanel key={folderId} folderId={folderId} name={data.name} />
             </TabsContent>
           )}
-          {isCollection && (
+          {isCollection && releases && (
             <TabsContent value="sharing" className="mt-0">
               <SharedPanel key={folderId} folderId={folderId} />
             </TabsContent>
           )}
-          {isCollection && (
+          {isCollection && catalog && (
             <TabsContent value="catalog" className="mt-0">
               <CatalogPublisher key={folderId} folderId={folderId} name={data.name} />
             </TabsContent>
           )}
-          <TabsContent value="comments" className="mt-0">
-            <CommentsPanel key={folderId} kind="folder" targetId={folderId} />
-          </TabsContent>
+          {collab && (
+            <TabsContent value="comments" className="mt-0">
+              <CommentsPanel key={folderId} kind="folder" targetId={folderId} />
+            </TabsContent>
+          )}
           <TabsContent value="overview" className="mt-0 max-w-3xl">
             <Textarea
               className="min-h-40"

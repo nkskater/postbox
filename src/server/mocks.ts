@@ -31,6 +31,7 @@ import { workspaceRole } from "./authorize";
 import { currentCaller } from "./access-context";
 import { HttpError, notFound } from "./errors";
 import { newId } from "./defaults";
+import { featureEnabled } from "./features";
 import { readBodyText } from "./http";
 const { mockServers, mockLogs, variables } = schema;
 /** Scenario counters live in memory (they are test-session state, not data) and survive hot reloads. */
@@ -367,6 +368,8 @@ export async function serveMock(request: Request, id: string) {
   };
   const error = (status: number, message: string) =>
     Response.json({ error: message }, { status, headers: secure });
+  // A switched-off area looks like a mock that does not exist.
+  if (!featureEnabled("mocks")) return error(404, "Mock server not found");
   let record: ReturnType<typeof row>;
   try {
     record = row(id);

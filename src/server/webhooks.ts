@@ -47,6 +47,7 @@ import type { WebhookDeliveryRow, WebhookRow } from "./db/schema";
 import { newId } from "./defaults";
 import { actorId } from "./authorize";
 import { HttpError, notFound } from "./errors";
+import { featureEnabled } from "./features";
 
 const { webhooks, webhookDeliveries, webhookAttempts } = schema;
 
@@ -368,6 +369,8 @@ export function emitEvent(
   at = Date.now(),
 ): number {
   try {
+    // Nothing is queued while outgoing webhooks are switched off.
+    if (!featureEnabled("webhooks")) return 0;
     const hooks = getDb()
       .select()
       .from(webhooks)
@@ -530,6 +533,12 @@ function wake(delayMs: number) {
   worker.timer = setTimeout(
     () => {
       worker.timer = null;
+      try {
+        // Pending deliveries wait while the area is off; switching it on starts the worker again.
+        if (!featureEnabled("webhooks")) return;
+      } catch {
+        return;
+      }
       // A pass must never throw into the event loop (for example while the database is closing).
       processDue()
         .then(reschedule)

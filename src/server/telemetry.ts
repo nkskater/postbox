@@ -15,6 +15,7 @@ import { currentCaller } from "./access-context";
 import { HttpError } from "./errors";
 import { newId } from "./defaults";
 import { assertStorage } from "./usage";
+import { featureEnabled } from "./features";
 const { telemetrySources: sources, telemetryObservations: observations } = schema;
 const digest = (token: string) => createHash("sha256").update(token).digest("hex");
 const secret = () => randomBytes(32).toString("base64url");
@@ -241,6 +242,7 @@ export function startTelemetryRetention() {
   if (worker.__postboxTelemetryRetention) return;
   const prune = () => {
     try {
+      if (!featureEnabled("telemetry")) return;
       pruneTelemetry();
     } catch {
       console.error("[postbox] telemetry retention failed");

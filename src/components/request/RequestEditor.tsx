@@ -47,6 +47,7 @@ import {
   sensitiveFieldValues,
 } from "@/core/retention";
 import { exampleFromResponse } from "@/core/examples";
+import { useFeature } from "@/components/app/FeatureGate";
 
 type RequestTab = Extract<Tab, { type: "request" }>;
 
@@ -66,6 +67,7 @@ function TabLabel({ label, n, dot }: { label: string; n?: number; dot?: boolean 
 }
 
 export function RequestEditor({ tab }: { tab: RequestTab }) {
+  const comments = useFeature("collaboration");
   const sendKey = useShortcutLabel("send");
   const saveKey = useShortcutLabel("save");
   const updateDraft = useApp((s) => s.updateDraft);
@@ -336,7 +338,7 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
               <TabsTrigger value="settings" className="text-xs">
                 Settings
               </TabsTrigger>
-              {tab.requestId && (
+              {tab.requestId && comments && (
                 <TabsTrigger value="comments" className="text-xs">
                   Comments
                 </TabsTrigger>
@@ -356,7 +358,7 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
               )}
             </TabsList>
             <div className="min-h-0 flex-1 overflow-auto px-3 py-2">
-              {tab.requestId && (
+              {tab.requestId && comments && (
                 <TabsContent value="comments" className="mt-0">
                   <CommentsPanel key={tab.requestId} kind="request" targetId={tab.requestId} />
                 </TabsContent>

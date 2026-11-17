@@ -42,6 +42,8 @@ import { SettingsView } from "@/components/settings/SettingsView";
 import { useSettings, useSetting } from "@/stores/settings";
 import { actionForEvent, comboFromEvent } from "@/lib/shortcuts";
 import { currentBindings } from "@/lib/use-shortcuts";
+import { featureOfView } from "@/core/features";
+import { FeatureGate } from "./FeatureGate";
 
 function MainArea() {
   const tabs = useApp((s) => s.tabs);
@@ -79,6 +81,21 @@ function MainArea() {
 }
 
 function renderTab(tab: Exclude<ReturnType<typeof useApp.getState>["tabs"][number], { type: "request" }>) {
+  // A tab of a feature area that was switched off while open explains itself instead of failing.
+  const feature = featureOfView(tab.type);
+  const content = renderTabContent(tab);
+  return feature ? (
+    <FeatureGate feature={feature} notice>
+      {content}
+    </FeatureGate>
+  ) : (
+    content
+  );
+}
+
+function renderTabContent(
+  tab: Exclude<ReturnType<typeof useApp.getState>["tabs"][number], { type: "request" }>,
+) {
   switch (tab.type) {
     case "runner":
       return <RunnerTabs folderId={tab.folderId} />;

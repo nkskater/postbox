@@ -4,6 +4,7 @@ import type { McpToolset } from "@/lib/mcp-toolsets";
 import { createPostboxMcpServer } from "./mcp";
 import { compactMcpSchema } from "./mcp-schema";
 import { toolsetOf } from "./mcp-toolsets";
+import { featureOfTool, type FeatureId } from "@/core/features";
 
 type Registration = Parameters<Server["setRequestHandler"]>;
 interface Registry {
@@ -50,12 +51,19 @@ function registry(readOnly: boolean): Promise<Registry> {
 export async function createPostboxMcpConnection(options: {
   readOnly: boolean;
   toolsets: McpToolset[];
+  /** Feature areas switched off under Settings → Features; their tools are not listed. */
+  disabled?: ReadonlySet<FeatureId>;
 }): Promise<Server> {
   const compiled = await registry(options.readOnly);
-  const key = options.toolsets.join(",");
+  const disabled = options.disabled ?? new Set<FeatureId>();
+  const key = `${options.toolsets.join(",")}|${[...disabled].sort().join(",")}`;
   let tools = compiled.listings.get(key);
   if (!tools) {
-    tools = compiled.tools.filter((tool) => options.toolsets.includes(toolsetOf(tool.name)));
+    tools = compiled.tools.filter((tool) => {
+      const toolset = toolsetOf(tool.name);
+      const feature = featureOfTool(tool.name, toolset);
+      return options.toolsets.includes(toolset) && !(feature && disabled.has(feature));
+    });
     // Bound client-selected combinations; the two compiled registries themselves never grow.
     if (compiled.listings.size >= 32) compiled.listings.delete(compiled.listings.keys().next().value!);
     compiled.listings.set(key, tools);
