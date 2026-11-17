@@ -411,6 +411,10 @@ Chromium binary (otherwise run `npx playwright-core install chromium` once).
 | `POSTBOX_TOKEN` | _(none)_ | Enables `Authorization: Bearer` access (API, MCP, automation) |
 | `POSTBOX_SESSION_SECRET` | _(generated)_ | Optional explicit key for signing session cookies (otherwise derived from the env credentials, or generated and stored for accounts) |
 | `POSTBOX_SESSION_DAYS` | `30` | Session lifetime |
+| `POSTBOX_SNAPSHOT_DIR` | _(database folder)_ | Where the database snapshot taken before migrations is saved ([details](docs/backup-and-data.md#database-snapshots)) |
+| `POSTBOX_SNAPSHOT_KEEP` | `3` | How many pre-migration snapshots to keep |
+| `POSTBOX_SKIP_MIGRATION_SNAPSHOT` | _(unset)_ | `1` skips the pre-migration snapshot |
+| `POSTBOX_MIGRATE_WITHOUT_SNAPSHOT` | _(unset)_ | `1` upgrades even when the pre-migration snapshot cannot be written |
 | `PROXY_ALLOW_HOSTS` | _(all)_ | Comma list of hosts, `*.wildcards` or CIDRs requests may target |
 | `PROXY_DENY_HOSTS` | _(none)_ | Comma list that is always blocked (wins over allow) |
 | `PROXY_ALLOW_SOCKETS` | _(none)_ | Unix sockets / named pipes requests may connect to; everything else is denied |

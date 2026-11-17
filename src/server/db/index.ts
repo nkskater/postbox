@@ -2,7 +2,8 @@
  * Database connection singleton.
  *
  * Opens the SQLite file at DATABASE_PATH (default /data/postbox.db in production,
- * ./data/postbox.db in development), enables WAL, and applies pending migrations.
+ * ./data/postbox.db in development), enables WAL, and applies pending migrations, after
+ * saving a snapshot of a database that has pending migrations (see snapshot.ts).
  */
 import Database from "better-sqlite3";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
@@ -10,6 +11,7 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import fs from "node:fs";
 import path from "node:path";
 import * as schema from "./schema";
+import { snapshotBeforeMigrations } from "./snapshot";
 
 export type DB = BetterSQLite3Database<typeof schema>;
 
@@ -46,7 +48,14 @@ export function openDatabase(file: string): DbHolder {
   sqlite.pragma("foreign_keys = ON");
   sqlite.pragma("busy_timeout = 5000");
   const db = drizzle(sqlite, { schema });
-  migrate(db, { migrationsFolder: resolveMigrationsFolder() });
+  const migrationsFolder = resolveMigrationsFolder();
+  try {
+    snapshotBeforeMigrations(sqlite, file, migrationsFolder);
+  } catch (error) {
+    sqlite.close();
+    throw error;
+  }
+  migrate(db, { migrationsFolder });
   return { db, sqlite };
 }
 

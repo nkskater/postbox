@@ -252,6 +252,27 @@ export function registerManagement(program: Command) {
     });
 
   // ------------------------------------------------------------ workspaces
+  const backup = group(program, "backup", "Back up a server");
+  backup
+    .command("snapshot")
+    .description(
+      "Download a complete copy of the server's database (accounts, API keys, history and all workspace data; administrators only)",
+    )
+    .requiredOption("--out <file>", "File to write, for example postbox-snapshot.db")
+    .action(
+      act(async (ctx, _args, command) => {
+        const { out: file } = command.opts<{ out: string }>();
+        const bytes = await ctx.api.request<Buffer>("GET", "/api/backup/snapshot", {
+          binary: true,
+          timeoutMs: 15 * 60_000,
+        });
+        await writeFile(file, bytes, { mode: 0o600 });
+        console.error(
+          `Wrote ${file} (${bytes.length} bytes). It contains credentials and secrets: keep it safe.`,
+        );
+      }),
+    );
+
   const workspace = group(program, "workspace", "Manage workspaces");
   withList(workspace.command("list").description("List workspaces")).action(
     act(async (ctx) => ctx.list(await ctx.api.request<Row[]>("GET", "/api/workspaces"), [id, name])),
