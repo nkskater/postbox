@@ -57,6 +57,9 @@ services:
       SCRIPT_MEMORY_MB: ${SCRIPT_MEMORY_MB:-}
       RUNS_MAX_ACTIVE: ${RUNS_MAX_ACTIVE:-}
       RUNS_MAX_QUEUED: ${RUNS_MAX_QUEUED:-}
+      # Empty = configurable under Settings → History & data; a value pins it.
+      RUNS_RETENTION_DAYS: ${RUNS_RETENTION_DAYS:-}
+      RUNS_MAX_PER_COLLECTION: ${RUNS_MAX_PER_COLLECTION:-}
 
 volumes:
   postbox-data:

@@ -5,6 +5,7 @@ import { pruneCaptures } from "./capture";
 import { pruneHookEvents } from "./hook-listeners";
 import { pruneMonitorHistory } from "./monitors";
 import { pruneWebhooks } from "./webhooks";
+import { pruneRuns } from "./run-retention";
 import { readSavedSettings } from "./settings";
 
 /** Days to keep audit events; 0 keeps them forever. Read on use, so changes apply at once. */
@@ -23,5 +24,12 @@ export function pruneAuditIfDue(at = Date.now()): number {
   pruneWebhooks(values["webhooks.retentionDays"] as number, at);
   pruneHookEvents(values["hooks.retentionDays"] as number, at);
   pruneCaptures(values["capture.retentionDays"] as number, at);
+  pruneRuns(
+    {
+      retentionDays: values["runs.retentionDays"] as number,
+      maxPerCollection: values["runs.maxPerCollection"] as number,
+    },
+    at,
+  );
   return pruneAudit(values["audit.retentionDays"] as number, at);
 }

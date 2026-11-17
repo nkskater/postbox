@@ -22,6 +22,7 @@ import { assertHeadroom, assertStorage, reserveUsage } from "./usage";
 import { emitEvent } from "./webhooks";
 import { isActive, recordRunUsage, reserveRun, trackActive, untrackActive } from "./runs";
 import type { RunTicket } from "./run-queue";
+import { pruneRunsAfterFinish } from "./run-retention";
 
 const { loadRuns } = schema;
 
@@ -248,6 +249,7 @@ export async function startLoadTest(
     opts.signal?.removeEventListener("abort", onAbort);
     untrackActive(runId);
     ticket.release();
+    if (inserted) pruneRunsAfterFinish({ workspaceId: input.workspaceId, folderId: input.folderId });
   }
 }
 

@@ -10,6 +10,22 @@ Open **Settings → History & data** (administrators only; in a single-user inst
 | Keep history for                           | 0 days  | Entries older than this are removed (0 keeps them until the entry limit is reached). Applied when a request is recorded and when history is listed. |
 | Skip history for requests that use secrets | off     | A request whose sent URL, headers or body used a secret variable or credential is not recorded.                                                     |
 
+## Run retention
+
+| Setting                                 | Default | Meaning                                                                                                                                          |
+| --------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Keep collection runs and load tests for | 30 days | Finished runs and load tests older than this are removed, with their results and stored responses (0 keeps them). `RUNS_RETENTION_DAYS` pins it. |
+| Runs kept per collection                | 200     | Only the newest finished runs, and as many load tests, are kept per collection or folder (0 sets no limit). `RUNS_MAX_PER_COLLECTION` pins it.   |
+
+Both limits are applied to a collection when one of its runs or load tests finishes, and to every
+collection by the hourly maintenance sweep. Runs that are waiting or in progress are never removed,
+and neither is the run a schedule (or the monitor built on it) shows as its last run. Monitor samples
+keep their run ID after the run itself is gone; comparing with a removed run reports that it no longer
+exists.
+
+Deleting rows frees space inside the database file but does not shrink it; use **Compact database**
+(below) to give the space back to the disk.
+
 ## Backup
 
 **Download backup** (`GET /api/backup`) saves one JSON file with the configuration of every

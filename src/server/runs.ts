@@ -28,6 +28,7 @@ import { requireDatasetRef, resolveDataset } from "./datasets";
 import { maskDataset } from "@/core/runner/datasets";
 import { RunQueue, type RunTicket } from "./run-queue";
 import { assertHeadroom, assertStorage, reserveUsage } from "./usage";
+import { pruneRunsAfterFinish } from "./run-retention";
 import { emitEvent } from "./webhooks";
 
 const { runs, runResults } = schema;
@@ -356,6 +357,7 @@ export async function startRun(input: StartRunInput): Promise<{ runId: string; s
     if (onAbort) input.signal?.removeEventListener("abort", onAbort);
     if (persistedRunId) active.delete(persistedRunId);
     ticket?.release();
+    if (persistedRunId) pruneRunsAfterFinish({ workspaceId: input.workspaceId, folderId: input.folderId });
   }
 }
 
