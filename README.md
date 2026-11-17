@@ -438,6 +438,8 @@ Chromium binary (otherwise run `npx playwright-core install chromium` once).
 | `MCP_ENABLED` | `true` | Serve `/api/mcp`; `false` makes it refuse every request. Also a setting |
 | `MCP_READ_ONLY` | `false` | Hide and block MCP tools that change data. Also a setting |
 | `HISTORY_LIMIT` | `500` | History entries kept per workspace |
+| `RUNS_RETENTION_DAYS` | _(setting)_ | Pins how many days finished collection runs and load tests are kept (0–3650, default 30; 0 keeps them) |
+| `RUNS_MAX_PER_COLLECTION` | _(setting)_ | Pins how many finished runs, and load tests, are kept per collection or folder (0–100000, default 200; 0 sets no limit) |
 | `GATEWAY_ENABLED` | `false` | Enable the managed API/LLM/MCP gateway; requires account or recovery authentication |
 | `POSTBOX_VAULT_KEY` | _(none)_ | Vault encryption key: 32 bytes as base64 or 64 hex digits; takes precedence over the key file |
 | `POSTBOX_VAULT_KEY_FILE` | _(next to database)_ | Vault key file path; mount its directory separately in Docker to keep it outside the data volume |
