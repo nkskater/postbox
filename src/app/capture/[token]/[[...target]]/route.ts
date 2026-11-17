@@ -1,6 +1,7 @@
 import { parseRelayTarget } from "@/core/capture";
 import { readRelayBody, relay } from "@/server/capture";
 import { HttpError } from "@/server/errors";
+import { requireFeature } from "@/server/features";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -20,6 +21,7 @@ async function handle(request: Request, { params }: Context): Promise<Response> 
     "Referrer-Policy": "no-referrer",
   };
   try {
+    requireFeature("capture");
     if (request.headers.get("sec-fetch-mode")?.trim().toLowerCase() === "navigate")
       return Response.json(
         { error: "Browser navigation is disabled for the capture relay" },

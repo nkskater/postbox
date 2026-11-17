@@ -13,6 +13,7 @@ import { authorizeTool, isReadOnlyTool, resourceWorkspace } from "@/server/acces
 import { mcpSettings } from "@/server/integration-settings";
 import { authorize } from "@/server/authorize";
 import { createPostboxMcpConnection } from "@/server/mcp-registry";
+import { disabledFeatures } from "@/server/features";
 import { parseMcpToolsets, type McpToolset } from "@/lib/mcp-toolsets";
 
 export const dynamic = "force-dynamic";
@@ -152,7 +153,11 @@ export async function POST(req: Request): Promise<Response> {
     return jsonRpcError(400, "Invalid MCP request");
   }
   return withCaller(caller, async () => {
-    const server = await createPostboxMcpConnection({ readOnly: settings.readOnly, toolsets });
+    const server = await createPostboxMcpConnection({
+      readOnly: settings.readOnly,
+      toolsets,
+      disabled: disabledFeatures(),
+    });
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,

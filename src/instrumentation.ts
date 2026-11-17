@@ -7,13 +7,9 @@ export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs" && process.env.NEXT_PHASE !== "phase-production-build") {
     const { startScheduler } = await import("./server/scheduler");
     startScheduler();
-    const { startWorkflowScheduler } = await import("./server/workflows/scheduler");
-    startWorkflowScheduler();
-    const { startTelemetryRetention } = await import("./server/telemetry");
-    startTelemetryRetention();
-    const { startWebhookWorker } = await import("./server/webhooks");
-    startWebhookWorker();
-    const { startMonitorEmailWorker } = await import("./server/monitor-email");
-    startMonitorEmailWorker();
+    // Workflows, telemetry retention, webhook delivery and monitor email belong to optional
+    // feature areas and start only when their area is switched on (Settings → Features).
+    const { startFeatureWorkers } = await import("./server/feature-workers");
+    await startFeatureWorkers();
   }
 }

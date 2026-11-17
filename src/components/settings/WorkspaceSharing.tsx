@@ -8,6 +8,7 @@ import { UsagePanel } from "./UsagePanel";
 import { HookListenersPanel } from "./HookListenersPanel";
 import { WebhooksPanel } from "./WebhooksPanel";
 import { Input } from "@/components/ui/input";
+import { FeatureGate } from "@/components/app/FeatureGate";
 
 type Role = "owner" | "editor" | "viewer";
 interface Member {
@@ -131,8 +132,12 @@ function Sharing({ workspaceId }: { workspaceId: string }) {
             </div>
           ))}
           <UsagePanel workspaceId={workspaceId} />
-          <WebhooksPanel workspaceId={workspaceId} />
-          <HookListenersPanel workspaceId={workspaceId} />
+          <FeatureGate feature="webhooks">
+            <WebhooksPanel workspaceId={workspaceId} />
+          </FeatureGate>
+          <FeatureGate feature="hooks">
+            <HookListenersPanel workspaceId={workspaceId} />
+          </FeatureGate>
           <AuditLog workspaceId={workspaceId} />
         </>
       )}

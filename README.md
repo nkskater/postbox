@@ -354,6 +354,9 @@ individually, per section, or all at once. You can also export your settings to 
   how many days to keep them, and whether to skip history for requests that use secrets. This section also shows the database
   file and size, compacts it, clears history, cookies or run results, and makes or restores a full backup. See
   [docs/backup-and-data.md](docs/backup-and-data.md).
+- **Features** (administrators): switch off optional areas this server does not need (mocks, monitors, telemetry,
+  governance, workflows and more). Their tabs, API routes, MCP tools and background work go away and their data is kept. See
+  [docs/features.md](docs/features.md).
 - **MCP & integrations** (administrators): turn the MCP endpoint on or off, make it read-only, allow extra browser origins, and
   copy ready-made setup commands for Claude Code, Cursor and Open WebUI. See [docs/mcp-and-security.md](docs/mcp-and-security.md).
 - **Security & about** (administrators): sign-in status, session length, **Sign out all sessions**, version and build.
@@ -440,6 +443,7 @@ Chromium binary (otherwise run `npx playwright-core install chromium` once).
 | `HISTORY_LIMIT` | `500` | History entries kept per workspace |
 | `RUNS_RETENTION_DAYS` | _(setting)_ | Pins how many days finished collection runs and load tests are kept (0–3650, default 30; 0 keeps them) |
 | `RUNS_MAX_PER_COLLECTION` | _(setting)_ | Pins how many finished runs, and load tests, are kept per collection or folder (0–100000, default 200; 0 sets no limit) |
+| `POSTBOX_FEATURE_<AREA>` | _(setting)_ | Pins an optional feature area on or off, for example `POSTBOX_FEATURE_MOCKS=false`; see [Switching feature areas off](docs/features.md) |
 | `GATEWAY_ENABLED` | `false` | Enable the managed API/LLM/MCP gateway; requires account or recovery authentication |
 | `POSTBOX_VAULT_KEY` | _(none)_ | Vault encryption key: 32 bytes as base64 or 64 hex digits; takes precedence over the key file |
 | `POSTBOX_VAULT_KEY_FILE` | _(next to database)_ | Vault key file path; mount its directory separately in Docker to keep it outside the data volume |

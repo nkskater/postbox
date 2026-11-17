@@ -2,7 +2,8 @@
 import Link from "next/link";
 import { Database, GitBranch, History, Layers, Library, Server } from "lucide-react";
 import { useApp } from "@/stores/app";
-import { useSetting } from "@/stores/settings";
+import { useSetting, useSettings } from "@/stores/settings";
+import { featureOfView, featureSettingKey } from "@/core/features";
 import { cn } from "@/lib/utils";
 import { CollectionTree } from "./CollectionTree";
 import { EnvironmentList } from "./EnvironmentList";
@@ -30,7 +31,16 @@ const VIEWS = [
 
 /** Icon rail + the active sidebar panel. */
 export function Sidebar() {
-  const view = useApp((s) => s.sidebarView);
+  const selected = useApp((s) => s.sidebarView);
+  const settings = useSettings((s) => s.values);
+  // Tabs of feature areas switched off under Settings → Features are not shown.
+  const on = (id: string) => {
+    const feature = featureOfView(id);
+    return !feature || settings[featureSettingKey(feature)] !== false;
+  };
+  const views = VIEWS.filter((v) => on(v.id));
+  const view = views.some((v) => v.id === selected) ? selected : "collections";
+  const workflows = settings[featureSettingKey("workflows")] !== false;
   const setView = useApp((s) => s.setSidebarView);
   const labels = useSetting<boolean>("layout.sidebarLabels");
   const right = useSetting<string>("layout.sidebarPosition") === "right";
@@ -43,7 +53,7 @@ export function Sidebar() {
           right ? "border-l" : "border-r",
         )}
       >
-        {VIEWS.map((v) => (
+        {views.map((v) => (
           <button
             key={v.id}
             title={v.label}
@@ -82,16 +92,18 @@ export function Sidebar() {
             {labels && v.label}
           </button>
         ))}
-        <Link
-          href="/flows"
-          target="_blank"
-          rel="noopener noreferrer"
-          title="API workflows"
-          className="flex flex-col items-center gap-1 rounded p-2 text-[10px] text-muted-foreground hover:bg-accent/50"
-        >
-          <GitBranch className="size-4" />
-          {labels && "Workflows"}
-        </Link>
+        {workflows && (
+          <Link
+            href="/flows"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="API workflows"
+            className="flex flex-col items-center gap-1 rounded p-2 text-[10px] text-muted-foreground hover:bg-accent/50"
+          >
+            <GitBranch className="size-4" />
+            {labels && "Workflows"}
+          </Link>
+        )}
         <Link
           href="/gateway"
           target="_blank"

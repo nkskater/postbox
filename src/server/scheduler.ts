@@ -15,6 +15,7 @@ import { actorId, authorize } from "./authorize";
 import { withCaller } from "./access-context";
 import { countUsers, getUser } from "./users";
 import type { Caller } from "./caller";
+import { featureEnabled, featureOffError } from "./features";
 
 const { schedules, runs } = schema;
 interface SchedulerState {
@@ -129,7 +130,10 @@ function register(schedule: ScheduleRow) {
     schedule.id,
     new Cron(schedule.cron, { timezone: "UTC", unref: true }, () => {
       void runSchedule(schedule.id).catch((error: unknown) => {
-        if (!isRunQueueFullError(error) && !(error instanceof HttpError && error.status === 409)) {
+        if (
+          !isRunQueueFullError(error) &&
+          !(error instanceof HttpError && (error.status === 409 || error.status === 404))
+        ) {
           console.error(`[postbox] schedule ${schedule.id}: ${(error as Error).message}`);
         }
       });
@@ -260,6 +264,8 @@ export async function runSchedule(id: string): Promise<{ runId: string }> {
     throw error;
   }
   if (state.active.has(id)) throw new HttpError(409, "This schedule is already running");
+  // A monitor's checks are monitor work: they pause while monitors are switched off.
+  if (monitoring.monitorExecution(id) && !featureEnabled("monitors")) throw featureOffError("monitors");
   try {
     validateReferences({ ...schedule, enabled: true });
     scheduleCaller(schedule);

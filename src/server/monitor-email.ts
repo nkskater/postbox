@@ -4,6 +4,7 @@ import { sendMonitorEmail, type MonitorSmtp } from "@/core/monitoring/email";
 import { nextDelay } from "@/core/webhooks";
 import { getDb, schema } from "./db";
 import { getPolicy } from "./context";
+import { featureEnabled } from "./features";
 const { monitorEmails } = schema;
 export function smtpConfiguration(env: NodeJS.ProcessEnv = process.env): MonitorSmtp | null {
   const host = env.POSTBOX_SMTP_HOST?.trim(),
@@ -42,6 +43,12 @@ export function setMonitorEmailManual(manual: boolean) {
 export function startMonitorEmailWorker() {
   if (worker.manual || worker.timer) return;
   worker.timer = setInterval(() => {
+    try {
+      // Queued email waits while monitors are switched off and goes out when they are back on.
+      if (!featureEnabled("monitors")) return;
+    } catch {
+      return;
+    }
     void processMonitorEmails().catch(() => {});
   }, 1000);
   worker.timer.unref?.();

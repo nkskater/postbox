@@ -7,6 +7,7 @@
  */
 import { isValidAccent, DEFAULT_ACCENT } from "./accent";
 import { parseMcpToolsets, MCP_TOOLSETS } from "../mcp-toolsets";
+import { FEATURES, featureEnvName, featureSettingKey } from "@/core/features";
 
 export type SettingCategory =
   | "appearance"
@@ -24,7 +25,8 @@ export type SettingCategory =
   | "security"
   | "keyboard"
   | "notifications"
-  | "locale";
+  | "locale"
+  | "features";
 
 export const CATEGORIES: { id: SettingCategory; label: string; description: string }[] = [
   { id: "appearance", label: "Appearance", description: "Theme, colors, typography and density." },
@@ -71,6 +73,12 @@ export const CATEGORIES: { id: SettingCategory; label: string; description: stri
       "Change the keys for common actions. Saved with your account, so they follow you between browsers.",
   },
   {
+    id: "features",
+    label: "Features",
+    description:
+      "Switch off areas this server does not need. Their tabs, API routes, MCP tools and background work go away; their data is kept. Administrators only.",
+  },
+  {
     id: "integrations",
     label: "MCP & integrations",
     description: "Let AI clients and tools drive Postbox over MCP. Administrators only.",
@@ -95,6 +103,8 @@ interface Base<T> {
   keywords?: string[];
   /** Edited by a custom panel, so the generic settings list and search skip it. */
   hidden?: boolean;
+  /** Hidden while this feature area is switched off (see src/core/features.ts). */
+  feature?: string;
 }
 
 export type SettingDef =
@@ -936,6 +946,7 @@ export const SETTINGS: SettingDef[] = [
   },
   {
     key: "webhooks.retentionDays",
+    feature: "webhooks",
     category: "data",
     label: "Keep webhook delivery logs for",
     description:
@@ -950,6 +961,7 @@ export const SETTINGS: SettingDef[] = [
   },
   {
     key: "monitors.retentionDays",
+    feature: "monitors",
     category: "data",
     label: "Keep monitor history for",
     description:
@@ -964,6 +976,7 @@ export const SETTINGS: SettingDef[] = [
   },
   {
     key: "hooks.retentionDays",
+    feature: "hooks",
     category: "data",
     label: "Keep received webhook requests for",
     description:
@@ -978,6 +991,7 @@ export const SETTINGS: SettingDef[] = [
   },
   {
     key: "capture.retentionDays",
+    feature: "capture",
     category: "data",
     label: "Keep recorded traffic for",
     description:
@@ -1268,6 +1282,20 @@ export const SETTINGS: SettingDef[] = [
     keywords: ["session", "login", "expire", "cookie"],
   },
 ];
+
+/** One switch per optional feature area, all on by default. */
+export const FEATURE_SETTINGS: SettingDef[] = FEATURES.map((f) => ({
+  key: featureSettingKey(f.id),
+  category: "features",
+  label: f.label,
+  description: f.description,
+  type: "boolean",
+  scope: "server",
+  env: featureEnvName(f.id),
+  default: true,
+  keywords: ["feature", "enable", "disable", "switch off", "hide", f.id],
+}));
+SETTINGS.push(...FEATURE_SETTINGS);
 
 export const SETTINGS_BY_KEY = new Map(SETTINGS.map((s) => [s.key, s]));
 
