@@ -21,6 +21,7 @@ interface SettingsState {
   query: string;
   init(): Promise<void>;
   set(key: string, value: SettingValue): Promise<void>;
+  setMany(changes: Record<string, SettingValue>): Promise<void>;
   reset(keys: string[]): Promise<void>;
   importFile(data: Record<string, unknown>): Promise<void>;
   setQuery(q: string): void;
@@ -100,6 +101,21 @@ export const useSettings = create<SettingsState>()((set, get) => ({
       set({ values: prev.values, saved: prev.saved });
       apply(prev.values);
       toast.error(`Could not save setting: ${(err as Error).message}`);
+    }
+  },
+
+  async setMany(changes) {
+    const prev = get();
+    const values = { ...prev.values, ...changes };
+    set({ values, saved: { ...prev.saved, ...changes } });
+    apply(values);
+    try {
+      const data = await request("PATCH", "/api/settings", { values: changes });
+      set({ values: data.values, saved: data.saved });
+    } catch (err) {
+      set({ values: prev.values, saved: prev.saved });
+      apply(prev.values);
+      toast.error(`Could not save settings: ${(err as Error).message}`);
     }
   },
 

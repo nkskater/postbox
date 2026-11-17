@@ -443,6 +443,7 @@ Chromium binary (otherwise run `npx playwright-core install chromium` once).
 | `HISTORY_LIMIT` | `500` | History entries kept per workspace |
 | `RUNS_RETENTION_DAYS` | _(setting)_ | Pins how many days finished collection runs and load tests are kept (0–3650, default 30; 0 keeps them) |
 | `RUNS_MAX_PER_COLLECTION` | _(setting)_ | Pins how many finished runs, and load tests, are kept per collection or folder (0–100000, default 200; 0 sets no limit) |
+| `POSTBOX_FEATURE_PRESET` | `full` | Starting feature switches: `minimal`, `team`, `api-design` or `full`; saved switches and `POSTBOX_FEATURE_<AREA>` win; see [presets](docs/features.md#presets) |
 | `POSTBOX_FEATURE_<AREA>` | _(setting)_ | Pins an optional feature area on or off, for example `POSTBOX_FEATURE_MOCKS=false`; see [Switching feature areas off](docs/features.md) |
 | `GATEWAY_ENABLED` | `false` | Enable the managed API/LLM/MCP gateway; requires account or recovery authentication |
 | `POSTBOX_VAULT_KEY` | _(none)_ | Vault encryption key: 32 bytes as base64 or 64 hex digits; takes precedence over the key file |

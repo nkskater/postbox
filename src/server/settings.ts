@@ -53,6 +53,11 @@ const ENV_SETTINGS: { name: string; description: string; secret?: boolean; fallb
   { name: "API_BODY_LIMIT_MB", description: "Largest API/MCP request body", fallback: "25" },
   { name: "RESPONSE_MAX_BYTES", description: "Maximum response size", fallback: "52428800" },
   { name: "HISTORY_LIMIT", description: "History entries kept per workspace", fallback: "500" },
+  {
+    name: "POSTBOX_FEATURE_PRESET",
+    description: "Starting feature switches: minimal, team, api-design or full (saved choices win)",
+    fallback: "full",
+  },
 ];
 
 export function listEnvSettings(env: NodeJS.ProcessEnv = process.env): EnvSetting[] {

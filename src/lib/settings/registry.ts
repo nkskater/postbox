@@ -7,7 +7,13 @@
  */
 import { isValidAccent, DEFAULT_ACCENT } from "./accent";
 import { parseMcpToolsets, MCP_TOOLSETS } from "../mcp-toolsets";
-import { FEATURES, featureEnvName, featureSettingKey } from "@/core/features";
+import {
+  FEATURES,
+  FEATURE_PRESET_ENV,
+  featureEnvName,
+  featurePreset,
+  featureSettingKey,
+} from "@/core/features";
 
 export type SettingCategory =
   | "appearance"
@@ -105,6 +111,8 @@ interface Base<T> {
   hidden?: boolean;
   /** Hidden while this feature area is switched off (see src/core/features.ts). */
   feature?: string;
+  /** A default chosen by the environment (below a saved value and the setting's own variable). */
+  envDefault?: (env: Record<string, string | undefined>) => T | undefined;
 }
 
 export type SettingDef =
@@ -1293,6 +1301,11 @@ export const FEATURE_SETTINGS: SettingDef[] = FEATURES.map((f) => ({
   scope: "server",
   env: featureEnvName(f.id),
   default: true,
+  // POSTBOX_FEATURE_PRESET picks the starting switches; saved choices and per-area variables win.
+  envDefault: (env: Record<string, string | undefined>) => {
+    const preset = featurePreset(env[FEATURE_PRESET_ENV]);
+    return preset ? preset.features.includes(f.id) : undefined;
+  },
   keywords: ["feature", "enable", "disable", "switch off", "hide", f.id],
 }));
 SETTINGS.push(...FEATURE_SETTINGS);
@@ -1363,7 +1376,7 @@ export function resolveSettings(
   const values: Record<string, SettingValue> = {};
   const envLocked: Record<string, string> = {};
   for (const def of defs) {
-    let value: SettingValue = def.default;
+    let value: SettingValue = (def.envDefault?.(env) as SettingValue | undefined) ?? def.default;
     if (def.key in saved) {
       try {
         value = validateSetting(def, saved[def.key]);
