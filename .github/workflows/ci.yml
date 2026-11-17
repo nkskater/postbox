@@ -49,7 +49,8 @@ jobs:
   browser-tests:
     name: Browser smoke tests
     needs: validate
-    runs-on: ubuntu-latest
+    # Playwright cannot install Chromium on ubuntu-latest (Ubuntu 26.04) yet.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7.0.1
@@ -317,14 +318,20 @@ jobs:
             Write-Host ("Install took {0:N1} s" -f $sw.Elapsed.TotalSeconds)
           }
 
-          function Start-Desktop {
+          function Start-Desktop([switch]$AllowUpdateExit) {
             $p = Start-Process -FilePath $exe -PassThru
             for ($i = 0; $i -lt 240; $i++) {
               try {
                 $h = Invoke-RestMethod "$base/api/health" -TimeoutSec 2
                 if ($h.status -eq 'ok' -and $h.app -eq 'postbox') { return $p }
               } catch { }
-              if ($p.HasExited) { throw "postbox-desktop.exe exited early with $($p.ExitCode)" }
+              if ($p.HasExited) {
+                # During the in-app update test the app exits to install the update; that can
+                # happen before the health check here gets an answer.
+                $log = Join-Path $data 'logs\server.log'
+                if ($AllowUpdateExit -and $p.ExitCode -eq 0 -and (Select-String -Path $log -Pattern 'installing version' -Quiet)) { return $p }
+                throw "postbox-desktop.exe exited early with $($p.ExitCode)"
+              }
               Start-Sleep -Milliseconds 500
             }
             throw 'Desktop app server did not become healthy within 120 seconds'
@@ -471,12 +478,9 @@ jobs:
               Stop-Desktop
 
               # 8c. Valid update: installed in place, the app restarts, the data is kept.
-              # Wait long enough that Start-Desktop sees the app healthy before it exits to update.
-              $env:POSTBOX_UPDATE_DELAY_SECS = '20'
               $env:POSTBOX_UPDATE_ENDPOINT = "$updUrl/latest.json"
               $before = @(Get-Process -Name 'postbox-desktop' -ErrorAction SilentlyContinue | ForEach-Object { $_.Id })
-              $null = Start-Desktop
-              $first = @(Get-Process -Name 'postbox-desktop' -ErrorAction SilentlyContinue | ForEach-Object { $_.Id })
+              $first = @((Start-Desktop -AllowUpdateExit).Id)
               for ($i = 0; $i -lt 360; $i++) {
                 if ((Get-InstalledVersion) -like "$newVersion*") { break }
                 Start-Sleep -Milliseconds 500
