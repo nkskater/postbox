@@ -54,6 +54,7 @@ import { WorkspaceSharing } from "./WorkspaceSharing";
 import { AppearancePreview } from "./AppearancePreview";
 import { featureSettingKey, type FeatureId } from "@/core/features";
 import { FeatureGate } from "@/components/app/FeatureGate";
+import { FeaturePresets } from "./FeaturePresets";
 
 type Section = SettingCategory | "environment" | "elsewhere" | "sharing" | "users" | "audit" | "usage";
 
@@ -275,6 +276,7 @@ export function SettingsView() {
                 </Button>
               </header>
               {section === "appearance" && <AppearancePreview />}
+              {section === "features" && <FeaturePresets isAdmin={!!identity?.isAdmin} />}
               {renderSettings(sectionDefs.filter((d) => !d.hidden))}
               {section === "keyboard" && <ShortcutsSettings />}
               {section === "notifications" && <NotificationsPanel />}

@@ -16,6 +16,27 @@ When an area is switched off:
 Its data stays in the database: switching the area back on brings everything back as it was.
 Backups still include it.
 
+## Presets
+
+A preset applies a group of switches in one step. Pick one at the top of **Settings → Features**; the
+page shows which preset the current switches match, or **Custom** after a single change. You can
+still change single switches afterwards. Switches pinned by an environment variable are left as they
+are.
+
+| Preset     | Areas switched on                                                                                                  |
+| ---------- | ------------------------------------------------------------------------------------------------------------------ |
+| Minimal    | None: only the core API client below                                                                               |
+| Team       | Comments, forks and merge requests; collection releases; monitors; mock servers; datasets; outgoing webhooks       |
+| API design | API specifications; governance and scorecards; catalog and documentation; dependency graph; mock servers; comments |
+| Full       | Every area (the default)                                                                                           |
+
+`POSTBOX_FEATURE_PRESET=minimal` (or `team`, `api-design`, `full`) chooses the starting switches for
+a server, for example in `docker-compose.yml`. A switch saved in Settings and a per-area
+`POSTBOX_FEATURE_*` variable both take precedence over it. An unknown name is ignored. New installs
+without the variable start with every area on (Full), and existing installs keep their switches.
+
+## Core
+
 The core API client cannot be switched off: workspaces, collections and requests (all protocols),
 the collection runner and schedules, pre-request and test scripts, variables, secrets and the vault,
 environments, cookies, history, import and export, code snippets, accounts and administration, and

@@ -60,6 +60,8 @@ services:
       # Empty = configurable under Settings → History & data; a value pins it.
       RUNS_RETENTION_DAYS: ${RUNS_RETENTION_DAYS:-}
       RUNS_MAX_PER_COLLECTION: ${RUNS_MAX_PER_COLLECTION:-}
+      # Starting feature switches: minimal, team, api-design or full (Settings → Features).
+      POSTBOX_FEATURE_PRESET: ${POSTBOX_FEATURE_PRESET:-}
 
 volumes:
   postbox-data:

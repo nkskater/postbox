@@ -291,3 +291,61 @@ export function featureOfWorker(worker: string): FeatureId | null {
 export function featureLabel(id: FeatureId): string {
   return FEATURES.find((f) => f.id === id)!.label;
 }
+
+export interface FeaturePreset {
+  id: string;
+  label: string;
+  description: string;
+  /** Areas switched on by this preset; every other area is switched off. */
+  features: readonly FeatureId[];
+}
+
+/** Named groups of switches, applied in one step under Settings → Features or by POSTBOX_FEATURE_PRESET. */
+export const FEATURE_PRESETS: readonly FeaturePreset[] = [
+  {
+    id: "minimal",
+    label: "Minimal",
+    description:
+      "The API client only: workspaces, collections, the runner and schedules, scripts, variables, secrets, environments and history.",
+    features: [],
+  },
+  {
+    id: "team",
+    label: "Team",
+    description:
+      "Minimal plus comments, forks and merge requests, collection releases, monitors, mocks, datasets and outgoing webhooks.",
+    features: ["collaboration", "releases", "monitors", "mocks", "datasets", "webhooks"],
+  },
+  {
+    id: "api-design",
+    label: "API design",
+    description:
+      "Minimal plus specifications, governance, the catalog and documentation, the dependency graph, mocks and comments.",
+    features: ["specifications", "governance", "catalog", "graph", "mocks", "collaboration"],
+  },
+  {
+    id: "full",
+    label: "Full",
+    description: "Every area on.",
+    features: FEATURE_IDS,
+  },
+];
+
+export const FEATURE_PRESET_ENV = "POSTBOX_FEATURE_PRESET";
+
+export function featurePreset(id: string | undefined): FeaturePreset | undefined {
+  const key = id?.trim().toLowerCase();
+  return key ? FEATURE_PRESETS.find((p) => p.id === key) : undefined;
+}
+
+/** The switch values a preset applies, keyed by setting key. */
+export function presetSwitches(preset: FeaturePreset): Record<string, boolean> {
+  return Object.fromEntries(FEATURE_IDS.map((id) => [featureSettingKey(id), preset.features.includes(id)]));
+}
+
+/** The preset whose switches match exactly, or undefined ("Custom"). */
+export function matchingPreset(enabled: ReadonlySet<string>): FeaturePreset | undefined {
+  return FEATURE_PRESETS.find(
+    (p) => p.features.length === enabled.size && p.features.every((id) => enabled.has(id)),
+  );
+}
