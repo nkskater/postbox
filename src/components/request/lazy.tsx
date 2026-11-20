@@ -50,3 +50,7 @@ export const GraphqlBodyEditor = dynamic(
   () => import("@/components/request/GraphqlBodyEditor").then((m) => m.GraphqlBodyEditor),
   { ssr: false, loading: Loading },
 );
+export const RequestAssistant = dynamic(
+  () => import("@/components/request/RequestAssistant").then((m) => m.RequestAssistant),
+  { ssr: false, loading: Loading },
+);
