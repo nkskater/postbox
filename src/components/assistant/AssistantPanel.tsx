@@ -15,6 +15,7 @@ import {
 } from "@/core/assistant/model";
 import { readNdjson } from "@/lib/ndjson";
 import { api } from "@/lib/api";
+import { useAssistantSettings, type AssistantProvider } from "@/stores/assistant";
 function request(proposal: AssistantProposal): RequestDef {
   return {
     id: crypto.randomUUID(),
@@ -40,10 +41,12 @@ export function AssistantPanel() {
   );
 }
 function Chat({ workspaceId }: { workspaceId: string }) {
-  const [server, setServer] = useState(""),
-    [model, setModel] = useState(""),
-    [token, setToken] = useState(""),
-    [provider, setProvider] = useState<"strata" | "ollama" | "openai">("strata");
+  // Shared with the request-tab assistant for this session (memory only).
+  const { server, model, token, provider, set: setSettings } = useAssistantSettings();
+  const setServer = (server: string) => setSettings({ server });
+  const setModel = (model: string) => setSettings({ model });
+  const setToken = (token: string) => setSettings({ token });
+  const setProvider = (provider: AssistantProvider) => setSettings({ provider });
   const [prompt, setPrompt] = useState(""),
     [messages, setMessages] = useState<AiMessage[]>([]),
     [answer, setAnswer] = useState(""),
@@ -163,7 +166,7 @@ function Chat({ workspaceId }: { workspaceId: string }) {
               className="block border rounded p-2 bg-background"
               value={provider}
               disabled={busy}
-              onChange={(e) => setProvider(e.target.value as typeof provider)}
+              onChange={(e) => setProvider(e.target.value as AssistantProvider)}
             >
               <option value="strata">Strata</option>
               <option value="ollama">Ollama</option>

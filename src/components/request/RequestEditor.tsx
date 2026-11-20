@@ -6,7 +6,7 @@
 import { useShortcutLabel } from "@/lib/use-shortcuts";
 import { useCallback, useState } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
-import { ChevronRight, Code2, Loader2, Save } from "lucide-react";
+import { ChevronRight, Code2, Loader2, Save, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { HTTP_METHODS, type KeyValue, type RequestDef } from "@/core/types";
 import { Button } from "@/components/ui/button";
@@ -39,6 +39,7 @@ import {
   GrpcPanel,
   GrpcEditor,
   CommentsPanel,
+  RequestAssistant,
 } from "./lazy";
 import {
   authCredentialValues,
@@ -50,6 +51,7 @@ import {
 } from "@/core/retention";
 import { exampleFromResponse } from "@/core/examples";
 import { useFeature } from "@/components/app/FeatureGate";
+import { useRequestAssistants } from "@/stores/assistant";
 
 type RequestTab = Extract<Tab, { type: "request" }>;
 
@@ -70,6 +72,10 @@ function TabLabel({ label, n, dot }: { label: string; n?: number; dot?: boolean 
 
 export function RequestEditor({ tab }: { tab: RequestTab }) {
   const comments = useFeature("collaboration");
+  const assistantOn = useFeature("assistant");
+  const assistantOpen = useRequestAssistants((s) => s.get(tab.id).open);
+  const setAssistantOpen = (open: boolean) =>
+    useRequestAssistants.getState().update(tab.id, (c) => ({ ...c, open }));
   const sendKey = useShortcutLabel("send");
   const saveKey = useShortcutLabel("save");
   const updateDraft = useApp((s) => s.updateDraft);
@@ -186,292 +192,312 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
     tab.saved !== null && tab.saved !== JSON.stringify((({ id: _i, examples: _e, ...r }) => r)(d));
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      {containsWithheld(d) && (
-        <div
-          role="alert"
-          className="border-b bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-700 dark:text-amber-400"
-        >
-          Some values in this request were not kept in browser storage and are shown as {WITHHELD}. Re-enter
-          them before sending or saving.
-        </div>
-      )}
-      {(tab.credentialsOmitted || hasMissingUpload(d.body)) && (
-        <div role="status" className="border-b bg-muted/40 px-3 py-1.5 text-[11px] text-muted-foreground">
-          {tab.credentialsOmitted &&
-            (tab.requestId
-              ? "Restoring saved credentials from the workspace database…"
-              : "Unsaved credentials were not retained in browser storage. Re-enter them before saving.")}
-          {tab.credentialsOmitted && hasMissingUpload(d.body) ? " " : ""}
-          {hasMissingUpload(d.body) &&
-            "Restoring saved upload bytes… If this remains, reselect the file before saving or sending."}
-        </div>
-      )}
-      {/* Breadcrumb / name / actions */}
-      <div className="flex items-center gap-2 px-3 pt-2 pb-1 text-xs">
-        <div className="flex min-w-0 items-center gap-1 text-muted-foreground">
-          {crumbs.map((c) => (
-            <span key={c.id} className="flex items-center gap-1">
-              <span className="truncate">{c.name}</span>
-              <ChevronRight className="size-3" />
-            </span>
-          ))}
-          <input
-            className="min-w-24 rounded bg-transparent px-1 py-0.5 text-sm font-medium text-foreground outline-none hover:bg-accent focus:bg-accent"
-            value={d.name}
-            onChange={(e) => set({ name: e.target.value })}
-            size={Math.max(10, d.name.length)}
-          />
-        </div>
-        <div className="ml-auto flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 text-xs"
-            onClick={() => openCode(tab.id)}
-            title="Code snippet"
+    <div className="flex h-full min-h-0">
+      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
+        {containsWithheld(d) && (
+          <div
+            role="alert"
+            className="border-b bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-700 dark:text-amber-400"
           >
-            <Code2 className="size-3.5" /> Code
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className={cn("h-7 text-xs", dirty && "text-primary")}
-            onClick={save}
-            title={`Save (${saveKey})`}
-          >
-            <Save className="size-3.5" /> Save
-          </Button>
-        </div>
-      </div>
-
-      {/* URL bar */}
-      <div className="flex items-center gap-2 px-3 pb-2">
-        <div className="flex min-w-0 flex-1 items-center rounded-md border border-input">
-          <Select
-            value={HTTP_METHODS.includes(d.method) ? d.method : d.method}
-            onValueChange={(method) => set({ method })}
-          >
-            <SelectTrigger
-              className={cn(
-                "h-9 w-28 shrink-0 rounded-r-none border-0 border-r font-mono text-xs font-bold",
-                methodColor(d.method),
-              )}
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {HTTP_METHODS.map((m) => (
-                <SelectItem key={m} value={m} className={cn("font-mono text-xs font-bold", methodColor(m))}>
-                  {m}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <VarInput
-            value={d.url}
-            onChange={onUrlChange}
-            onEnter={send}
-            onPasteText={onPaste}
-            placeholder="Enter URL or paste a cURL command"
-            className="h-9 flex-1 border-0 focus-within:ring-0"
-          />
-        </div>
-        {tab.sending ? (
-          <Button variant="secondary" className="h-9 w-24" onClick={() => cancelSend(tab.id)}>
-            <Loader2 className="size-4 animate-spin" /> Cancel
-          </Button>
-        ) : (
-          <Button
-            className="h-9 w-24"
-            onClick={send}
-            title={`${isGrpc ? "Invoke" : isWebSocket ? "Connect" : "Send"} (${sendKey})`}
-          >
-            {isGrpc ? "Invoke" : isWebSocket ? "Connect" : "Send"}
-          </Button>
+            Some values in this request were not kept in browser storage and are shown as {WITHHELD}. Re-enter
+            them before sending or saving.
+          </div>
         )}
-        <Button
-          hidden={isWebSocket || isAi}
-          variant="outline"
-          className="h-9"
-          title="Open as a server-sent event stream and show events live"
-          onClick={() => setStreamKey(d.url.trim() ? Date.now() : null)}
-        >
-          Stream
-        </Button>
-      </div>
+        {(tab.credentialsOmitted || hasMissingUpload(d.body)) && (
+          <div role="status" className="border-b bg-muted/40 px-3 py-1.5 text-[11px] text-muted-foreground">
+            {tab.credentialsOmitted &&
+              (tab.requestId
+                ? "Restoring saved credentials from the workspace database…"
+                : "Unsaved credentials were not retained in browser storage. Re-enter them before saving.")}
+            {tab.credentialsOmitted && hasMissingUpload(d.body) ? " " : ""}
+            {hasMissingUpload(d.body) &&
+              "Restoring saved upload bytes… If this remains, reselect the file before saving or sending."}
+          </div>
+        )}
+        {/* Breadcrumb / name / actions */}
+        <div className="flex items-center gap-2 px-3 pt-2 pb-1 text-xs">
+          <div className="flex min-w-0 items-center gap-1 text-muted-foreground">
+            {crumbs.map((c) => (
+              <span key={c.id} className="flex items-center gap-1">
+                <span className="truncate">{c.name}</span>
+                <ChevronRight className="size-3" />
+              </span>
+            ))}
+            <input
+              className="min-w-24 rounded bg-transparent px-1 py-0.5 text-sm font-medium text-foreground outline-none hover:bg-accent focus:bg-accent"
+              value={d.name}
+              onChange={(e) => set({ name: e.target.value })}
+              size={Math.max(10, d.name.length)}
+            />
+          </div>
+          <div className="ml-auto flex items-center gap-1">
+            {assistantOn && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className={cn("h-7 text-xs", assistantOpen && "bg-accent")}
+                onClick={() => setAssistantOpen(!assistantOpen)}
+                title="Assistant for this request"
+                aria-label="Assistant for this request"
+                aria-pressed={assistantOpen}
+              >
+                <Sparkles className="size-3.5" /> Assistant
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => openCode(tab.id)}
+              title="Code snippet"
+            >
+              <Code2 className="size-3.5" /> Code
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn("h-7 text-xs", dirty && "text-primary")}
+              onClick={save}
+              title={`Save (${saveKey})`}
+            >
+              <Save className="size-3.5" /> Save
+            </Button>
+          </div>
+        </div>
 
-      {tab.requestId && (
-        <div className="flex justify-end border-b px-3 py-1">
-          <Button size="sm" variant="ghost" onClick={() => openExamples(tab.requestId)}>
-            Examples ({d.examples?.length ?? 0})
+        {/* URL bar */}
+        <div className="flex items-center gap-2 px-3 pb-2">
+          <div className="flex min-w-0 flex-1 items-center rounded-md border border-input">
+            <Select
+              value={HTTP_METHODS.includes(d.method) ? d.method : d.method}
+              onValueChange={(method) => set({ method })}
+            >
+              <SelectTrigger
+                className={cn(
+                  "h-9 w-28 shrink-0 rounded-r-none border-0 border-r font-mono text-xs font-bold",
+                  methodColor(d.method),
+                )}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {HTTP_METHODS.map((m) => (
+                  <SelectItem key={m} value={m} className={cn("font-mono text-xs font-bold", methodColor(m))}>
+                    {m}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <VarInput
+              value={d.url}
+              onChange={onUrlChange}
+              onEnter={send}
+              onPasteText={onPaste}
+              placeholder="Enter URL or paste a cURL command"
+              className="h-9 flex-1 border-0 focus-within:ring-0"
+            />
+          </div>
+          {tab.sending ? (
+            <Button variant="secondary" className="h-9 w-24" onClick={() => cancelSend(tab.id)}>
+              <Loader2 className="size-4 animate-spin" /> Cancel
+            </Button>
+          ) : (
+            <Button
+              className="h-9 w-24"
+              onClick={send}
+              title={`${isGrpc ? "Invoke" : isWebSocket ? "Connect" : "Send"} (${sendKey})`}
+            >
+              {isGrpc ? "Invoke" : isWebSocket ? "Connect" : "Send"}
+            </Button>
+          )}
+          <Button
+            hidden={isWebSocket || isAi}
+            variant="outline"
+            className="h-9"
+            title="Open as a server-sent event stream and show events live"
+            onClick={() => setStreamKey(d.url.trim() ? Date.now() : null)}
+          >
+            Stream
           </Button>
         </div>
-      )}
-      <Group orientation={sideBySide ? "horizontal" : "vertical"} className="min-h-0 flex-1">
-        <Panel defaultSize="45" minSize="15">
-          <Tabs
-            defaultValue={activeSections.get(tab.id) ?? "params"}
-            onValueChange={(v) => activeSections.set(tab.id, v)}
-            className="flex h-full min-h-0 flex-col gap-0"
-          >
-            <TabsList className="mx-3 h-8 shrink-0 justify-start bg-transparent p-0">
-              <TabsTrigger value="params" className="text-xs">
-                <TabLabel label="Params" n={count(d.params)} />
-              </TabsTrigger>
-              <TabsTrigger value="auth" className="text-xs">
-                <TabLabel label="Authorization" dot={d.auth.type !== "inherit" && d.auth.type !== "none"} />
-              </TabsTrigger>
-              <TabsTrigger value="headers" className="text-xs">
-                <TabLabel label="Headers" n={count(d.headers)} />
-              </TabsTrigger>
-              <TabsTrigger value="body" className="text-xs">
-                <TabLabel label="Body" dot={d.body.mode !== "none"} />
-              </TabsTrigger>
-              <TabsTrigger value="pre" className="text-xs">
-                <TabLabel label="Pre-request Script" dot={!!d.preRequestScript.trim()} />
-              </TabsTrigger>
-              <TabsTrigger value="test" className="text-xs">
-                <TabLabel label="Post-response Script" dot={!!d.testScript.trim()} />
-              </TabsTrigger>
-              <TabsTrigger value="contract" className="text-xs">
-                <TabLabel label="Contract" dot={!!d.contract} />
-              </TabsTrigger>
-              <TabsTrigger value="settings" className="text-xs">
-                Settings
-              </TabsTrigger>
-              {tab.requestId && comments && (
-                <TabsTrigger value="comments" className="text-xs">
-                  Comments
+
+        {tab.requestId && (
+          <div className="flex justify-end border-b px-3 py-1">
+            <Button size="sm" variant="ghost" onClick={() => openExamples(tab.requestId)}>
+              Examples ({d.examples?.length ?? 0})
+            </Button>
+          </div>
+        )}
+        <Group orientation={sideBySide ? "horizontal" : "vertical"} className="min-h-0 flex-1">
+          <Panel defaultSize="45" minSize="15">
+            <Tabs
+              defaultValue={activeSections.get(tab.id) ?? "params"}
+              onValueChange={(v) => activeSections.set(tab.id, v)}
+              className="flex h-full min-h-0 flex-col gap-0"
+            >
+              <TabsList className="mx-3 h-8 shrink-0 justify-start bg-transparent p-0">
+                <TabsTrigger value="params" className="text-xs">
+                  <TabLabel label="Params" n={count(d.params)} />
                 </TabsTrigger>
-              )}
-              {isGrpc && (
-                <TabsTrigger value="grpc" className="text-xs">
-                  <TabLabel
-                    label="gRPC"
-                    dot={
-                      !!d.settings.grpc?.method &&
-                      (!!d.settings.grpc.reflection ||
-                        !!d.settings.grpc.definitionId ||
-                        Object.keys(d.settings.grpc.protos).length > 0)
-                    }
-                  />
+                <TabsTrigger value="auth" className="text-xs">
+                  <TabLabel label="Authorization" dot={d.auth.type !== "inherit" && d.auth.type !== "none"} />
                 </TabsTrigger>
-              )}
-            </TabsList>
-            <div className="min-h-0 flex-1 overflow-auto px-3 py-2">
-              {tab.requestId && comments && (
-                <TabsContent value="comments" className="mt-0">
-                  <CommentsPanel key={tab.requestId} kind="request" targetId={tab.requestId} />
+                <TabsTrigger value="headers" className="text-xs">
+                  <TabLabel label="Headers" n={count(d.headers)} />
+                </TabsTrigger>
+                <TabsTrigger value="body" className="text-xs">
+                  <TabLabel label="Body" dot={d.body.mode !== "none"} />
+                </TabsTrigger>
+                <TabsTrigger value="pre" className="text-xs">
+                  <TabLabel label="Pre-request Script" dot={!!d.preRequestScript.trim()} />
+                </TabsTrigger>
+                <TabsTrigger value="test" className="text-xs">
+                  <TabLabel label="Post-response Script" dot={!!d.testScript.trim()} />
+                </TabsTrigger>
+                <TabsTrigger value="contract" className="text-xs">
+                  <TabLabel label="Contract" dot={!!d.contract} />
+                </TabsTrigger>
+                <TabsTrigger value="settings" className="text-xs">
+                  Settings
+                </TabsTrigger>
+                {tab.requestId && comments && (
+                  <TabsTrigger value="comments" className="text-xs">
+                    Comments
+                  </TabsTrigger>
+                )}
+                {isGrpc && (
+                  <TabsTrigger value="grpc" className="text-xs">
+                    <TabLabel
+                      label="gRPC"
+                      dot={
+                        !!d.settings.grpc?.method &&
+                        (!!d.settings.grpc.reflection ||
+                          !!d.settings.grpc.definitionId ||
+                          Object.keys(d.settings.grpc.protos).length > 0)
+                      }
+                    />
+                  </TabsTrigger>
+                )}
+              </TabsList>
+              <div className="min-h-0 flex-1 overflow-auto px-3 py-2">
+                {tab.requestId && comments && (
+                  <TabsContent value="comments" className="mt-0">
+                    <CommentsPanel key={tab.requestId} kind="request" targetId={tab.requestId} />
+                  </TabsContent>
+                )}
+                <TabsContent value="params" className="mt-0">
+                  <div className="mb-1 text-[11px] font-medium text-muted-foreground">QUERY PARAMS</div>
+                  <KeyValueEditor rows={d.params} onChange={onParamsChange} showDescription />
                 </TabsContent>
-              )}
-              <TabsContent value="params" className="mt-0">
-                <div className="mb-1 text-[11px] font-medium text-muted-foreground">QUERY PARAMS</div>
-                <KeyValueEditor rows={d.params} onChange={onParamsChange} showDescription />
-              </TabsContent>
-              <TabsContent value="auth" className="mt-0">
-                <AuthEditor auth={d.auth} onChange={(auth) => set({ auth })} folderId={d.folderId} />
-              </TabsContent>
-              <TabsContent value="headers" className="mt-0">
-                <KeyValueEditor rows={d.headers} onChange={(headers) => set({ headers })} showDescription />
-                <p className="mt-2 text-[11px] text-muted-foreground">
-                  Headers from parent folders/collection are merged in when sending. User-Agent, Accept and
-                  Accept-Encoding are added automatically unless set here.
-                </p>
-              </TabsContent>
-              <TabsContent value="body" className="mt-0 h-full">
-                <BodyEditor
-                  body={d.body}
-                  onChange={(body) => set({ body })}
-                  onModeChange={(body) => changeBodyMode(tab.id, body)}
-                  draft={d as RequestDef}
-                />
-              </TabsContent>
-              <TabsContent value="pre" className="mt-0 h-full">
-                <ScriptEditor
-                  kind="pre"
-                  value={d.preRequestScript}
-                  onChange={(preRequestScript) => set({ preRequestScript })}
-                />
-              </TabsContent>
-              <TabsContent value="test" className="mt-0 h-full">
-                <ScriptEditor
-                  kind="test"
-                  value={d.testScript}
-                  onChange={(testScript) => set({ testScript })}
-                />
-              </TabsContent>
-              <TabsContent value="contract" className="mt-0">
-                <ContractEditor
-                  key={tab.id}
-                  request={d}
-                  onChange={(contract) => set({ contract })}
-                  actual={tab.result?.contractDiagnostics}
-                />
-              </TabsContent>
-              <TabsContent value="settings" className="mt-0">
-                <SettingsEditor settings={d.settings} onChange={(settings) => set({ settings })} />
-              </TabsContent>
-              {isGrpc && (
-                <TabsContent value="grpc" className="mt-0">
-                  <GrpcEditor
+                <TabsContent value="auth" className="mt-0">
+                  <AuthEditor auth={d.auth} onChange={(auth) => set({ auth })} folderId={d.folderId} />
+                </TabsContent>
+                <TabsContent value="headers" className="mt-0">
+                  <KeyValueEditor rows={d.headers} onChange={(headers) => set({ headers })} showDescription />
+                  <p className="mt-2 text-[11px] text-muted-foreground">
+                    Headers from parent folders/collection are merged in when sending. User-Agent, Accept and
+                    Accept-Encoding are added automatically unless set here.
+                  </p>
+                </TabsContent>
+                <TabsContent value="body" className="mt-0 h-full">
+                  <BodyEditor
+                    body={d.body}
+                    onChange={(body) => set({ body })}
+                    onModeChange={(body) => changeBodyMode(tab.id, body)}
                     draft={d as RequestDef}
-                    onSettings={(grpc) => set({ settings: { ...d.settings, grpc } })}
                   />
                 </TabsContent>
-              )}
-            </div>
-          </Tabs>
-        </Panel>
-        <Separator
-          className={cn(
-            "bg-transparent transition-colors hover:bg-primary/40 data-[separator=active]:bg-primary/60",
-            sideBySide ? "w-1 border-l" : "h-1 border-t",
-          )}
-        />
-        <Panel defaultSize="55" minSize="10">
-          {wsKey !== null && isGrpc ? (
-            <GrpcPanel key={wsKey} draft={d as RequestDef} onClose={() => setWsKey(null)} />
-          ) : wsKey !== null && isMqtt ? (
-            <MqttPanel
-              key={wsKey}
-              draft={d as RequestDef}
-              onSettings={(mqtt) => set({ settings: { ...d.settings, mqtt } })}
-              onClose={() => setWsKey(null)}
-            />
-          ) : wsKey !== null && isSocketIo ? (
-            <SocketIoPanel
-              key={wsKey}
-              draft={d as RequestDef}
-              onSettings={(socketio) => set({ settings: { ...d.settings, socketio } })}
-              onClose={() => setWsKey(null)}
-            />
-          ) : wsKey !== null && isWebSocket ? (
-            <WebSocketPanel key={wsKey} draft={d as RequestDef} onClose={() => setWsKey(null)} />
-          ) : aiKey !== null && isAi ? (
-            <AiPanel
-              key={aiKey}
-              draft={d as RequestDef}
-              onClose={() => setAiKey(null)}
-              onAppend={(added) =>
-                d.body.mode === "ai" &&
-                set({
-                  body: { ...d.body, ai: { ...d.body.ai, messages: [...d.body.ai.messages, ...added] } },
-                })
-              }
-            />
-          ) : streamKey !== null ? (
-            <EventStreamPanel key={streamKey} draft={d as RequestDef} onClose={() => setStreamKey(null)} />
-          ) : (
-            <ResponseViewer
-              result={tab.result}
-              sending={tab.sending}
-              onCancel={() => cancelSend(tab.id)}
-              onSaveExample={tab.requestId ? saveExample : undefined}
-            />
-          )}
-        </Panel>
-      </Group>
+                <TabsContent value="pre" className="mt-0 h-full">
+                  <ScriptEditor
+                    kind="pre"
+                    value={d.preRequestScript}
+                    onChange={(preRequestScript) => set({ preRequestScript })}
+                  />
+                </TabsContent>
+                <TabsContent value="test" className="mt-0 h-full">
+                  <ScriptEditor
+                    kind="test"
+                    value={d.testScript}
+                    onChange={(testScript) => set({ testScript })}
+                  />
+                </TabsContent>
+                <TabsContent value="contract" className="mt-0">
+                  <ContractEditor
+                    key={tab.id}
+                    request={d}
+                    onChange={(contract) => set({ contract })}
+                    actual={tab.result?.contractDiagnostics}
+                  />
+                </TabsContent>
+                <TabsContent value="settings" className="mt-0">
+                  <SettingsEditor settings={d.settings} onChange={(settings) => set({ settings })} />
+                </TabsContent>
+                {isGrpc && (
+                  <TabsContent value="grpc" className="mt-0">
+                    <GrpcEditor
+                      draft={d as RequestDef}
+                      onSettings={(grpc) => set({ settings: { ...d.settings, grpc } })}
+                    />
+                  </TabsContent>
+                )}
+              </div>
+            </Tabs>
+          </Panel>
+          <Separator
+            className={cn(
+              "bg-transparent transition-colors hover:bg-primary/40 data-[separator=active]:bg-primary/60",
+              sideBySide ? "w-1 border-l" : "h-1 border-t",
+            )}
+          />
+          <Panel defaultSize="55" minSize="10">
+            {wsKey !== null && isGrpc ? (
+              <GrpcPanel key={wsKey} draft={d as RequestDef} onClose={() => setWsKey(null)} />
+            ) : wsKey !== null && isMqtt ? (
+              <MqttPanel
+                key={wsKey}
+                draft={d as RequestDef}
+                onSettings={(mqtt) => set({ settings: { ...d.settings, mqtt } })}
+                onClose={() => setWsKey(null)}
+              />
+            ) : wsKey !== null && isSocketIo ? (
+              <SocketIoPanel
+                key={wsKey}
+                draft={d as RequestDef}
+                onSettings={(socketio) => set({ settings: { ...d.settings, socketio } })}
+                onClose={() => setWsKey(null)}
+              />
+            ) : wsKey !== null && isWebSocket ? (
+              <WebSocketPanel key={wsKey} draft={d as RequestDef} onClose={() => setWsKey(null)} />
+            ) : aiKey !== null && isAi ? (
+              <AiPanel
+                key={aiKey}
+                draft={d as RequestDef}
+                onClose={() => setAiKey(null)}
+                onAppend={(added) =>
+                  d.body.mode === "ai" &&
+                  set({
+                    body: { ...d.body, ai: { ...d.body.ai, messages: [...d.body.ai.messages, ...added] } },
+                  })
+                }
+              />
+            ) : streamKey !== null ? (
+              <EventStreamPanel key={streamKey} draft={d as RequestDef} onClose={() => setStreamKey(null)} />
+            ) : (
+              <ResponseViewer
+                result={tab.result}
+                sending={tab.sending}
+                onCancel={() => cancelSend(tab.id)}
+                onSaveExample={tab.requestId ? saveExample : undefined}
+              />
+            )}
+          </Panel>
+        </Group>
+      </div>
+      {assistantOn && assistantOpen && (
+        <div className="h-full w-[400px] max-w-[45%] shrink-0">
+          <RequestAssistant tab={tab} onClose={() => setAssistantOpen(false)} />
+        </div>
+      )}
     </div>
   );
 }

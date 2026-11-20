@@ -440,6 +440,7 @@ async function run(
   ai: Partial<AiConfig>,
   extra: Record<string, unknown> = {},
   assistant = false,
+  includeSecrets = false,
 ) {
   const response = await aiRoute.POST(
     new Request("http://localhost/api/ai", {
@@ -448,6 +449,7 @@ async function run(
       body: JSON.stringify({
         workspaceId,
         assistant,
+        includeSecrets,
         request: {
           name: "AI",
           method: "POST",
@@ -492,6 +494,36 @@ describe("the model request route", () => {
     expect(payload).toContain("{{token}}");
     expect(payload).not.toContain("sk-live-SECRET-123");
     expect(seen[0].headers.authorization).toBe("Bearer sk-live-SECRET-123");
+  });
+  it("redacts workspace secrets for the assistant unless Send secret values is on, and always hides the model key", async () => {
+    withCaller(caller(owner), () =>
+      repo.replaceVariables(workspaceId, "global", null, [
+        { key: "apiToken", value: "global-secret-777", type: "secret", enabled: true },
+      ]),
+    );
+    try {
+      const ai = {
+        stream: false,
+        messages: [
+          {
+            role: "user" as const,
+            content: "Header is Bearer global-secret-777; model key sk-live-SECRET-123",
+          },
+        ],
+      };
+      seen = [];
+      expect((await run("/json", ai, {}, true)).status).toBe(200);
+      expect(JSON.stringify(seen[0].body)).not.toContain("global-secret-777");
+      seen = [];
+      expect((await run("/json", ai, {}, true, true)).status).toBe(200);
+      const payload = JSON.stringify(seen[0].body);
+      expect(payload).toContain("global-secret-777");
+      expect(payload).not.toContain("sk-live-SECRET-123");
+      // The switch only exists for the assistant.
+      expect((await run("/json", ai, {}, false, true)).status).toBe(400);
+    } finally {
+      withCaller(caller(owner), () => repo.replaceVariables(workspaceId, "global", null, []));
+    }
   });
   it("streams an OpenAI-compatible answer with tool calls and usage, and sends credentials upstream", async () => {
     seen = [];

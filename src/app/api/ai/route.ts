@@ -33,6 +33,12 @@ const schema = z.object({
   folderId: z.string().nullish(),
   request: requestInputSchema,
   assistant: z.boolean().default(false),
+  /**
+   * Assistant only: send workspace secret values to the model unredacted (the request-tab
+   * assistant's "Send secret values" switch, meant for local models). The model's own API key is
+   * always redacted.
+   */
+  includeSecrets: z.boolean().default(false),
 });
 
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
@@ -53,13 +59,15 @@ export const POST = route(async (req: Request) => {
   if (input.environmentId) repo.requireEnvironmentIn(input.workspaceId, input.environmentId);
   const chain: FolderDef[] = input.folderId ? repo.getFolderChain(input.folderId) : [];
   const ctx = loadScopes(input.workspaceId, input.environmentId ?? null, chain[0]?.id ?? null);
+  if (input.includeSecrets && !input.assistant)
+    throw new HttpError(400, "includeSecrets only applies to assistant requests");
   if (input.assistant) {
     if (input.folderId || input.environmentId)
       throw new HttpError(400, "Assistant model calls cannot inherit collection or environment context");
     body.ai = redactStoredValue(
       body.ai,
       credentialRedactionValues([
-        ...ctx.secrets,
+        ...(input.includeSecrets ? [] : ctx.secrets),
         ...authCredentialValues(input.request.auth ?? { type: "none" }),
       ]),
     );
@@ -86,7 +94,7 @@ export const POST = route(async (req: Request) => {
       : [k, v],
   );
   const secrets = credentialRedactionValues([
-    ...ctx.secrets,
+    ...(input.includeSecrets ? [] : ctx.secrets),
     ...authCredentialValues(effectiveAuth),
     oauth2Token?.accessToken ?? "",
   ]);
