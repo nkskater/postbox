@@ -57,6 +57,9 @@ export type Tab =
       preview?: boolean;
       /** Secrets were removed from browser storage; restored from the saved request after hydration. */
       credentialsOmitted?: boolean;
+      /** Selected request sub-tab (Params, Headers, Body…) and response sub-tab (Body, Headers, Tests…). */
+      requestSection?: string;
+      responseSection?: string;
     }
   | { id: string; type: "folder"; folderId: string; name: string }
   | { id: string; type: "environment"; environmentId: string; name: string }
@@ -267,6 +270,8 @@ interface AppState {
   moveTab(id: string, toIndex: number): void;
   setActiveTab(id: string): void;
   updateDraft(tabId: string, patch: Partial<RequestDraft>): void;
+  /** Remember which request or response sub-tab a request tab shows; kept with the tab, not the draft. */
+  setTabSection(tabId: string, side: "request" | "response", section: string): void;
   changeBodyMode(tabId: string, initialBody: BodyConfig): void;
   saveTab(tabId: string, target?: { folderId: string; name: string }): Promise<boolean>;
   sendTab(tabId: string): Promise<void>;
@@ -585,6 +590,14 @@ export const useApp = create<AppState>()(
         void get().refreshVariables();
       },
 
+      setTabSection(tabId, side, section) {
+        const key = side === "request" ? "requestSection" : "responseSection";
+        set((s) => ({
+          tabs: s.tabs.map((t) =>
+            t.id === tabId && t.type === "request" && t[key] !== section ? { ...t, [key]: section } : t,
+          ),
+        }));
+      },
       updateDraft(tabId, patch) {
         set((s) => ({
           tabs: s.tabs.map((t) =>

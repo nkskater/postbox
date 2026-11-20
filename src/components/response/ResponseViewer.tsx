@@ -6,7 +6,7 @@
  */
 import { ShortcutHint } from "@/components/app/ShortcutHint";
 import { copyText } from "@/lib/clipboard";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Check, Copy, Download, Save, Send, X, WrapText } from "lucide-react";
 import { toast } from "sonner";
 import type { ProxyResult } from "@/lib/api";
@@ -18,6 +18,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { formatBytes, formatDateTime, formatMs, formatXml, statusColor } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useSetting } from "@/stores/settings";
+
+/** Response sub-tabs, in display order. */
+export const RESPONSE_SECTIONS = ["body", "cookies", "headers", "tests", "visualization", "sent"] as const;
 
 function detectLanguage(contentType: string, body: string): EditorLanguage {
   const ct = contentType.toLowerCase();
@@ -83,11 +86,16 @@ export function ResponseViewer({
   sending,
   onCancel,
   onSaveExample,
+  section,
+  onSectionChange,
 }: {
   result: ProxyResult | null | undefined;
   sending?: boolean;
   onCancel?: () => void;
   onSaveExample?: () => void;
+  /** Selected sub-tab, kept by the owner so it survives remounts (switching request tabs). */
+  section?: string;
+  onSectionChange?: (section: string) => void;
 }) {
   const defaultView = useSetting<"pretty" | "raw" | "preview">("responses.defaultView");
   const wrapDefault = useSetting<boolean>("responses.wrap");
@@ -95,15 +103,30 @@ export function ResponseViewer({
   const openTestsOnFailure = useSetting<boolean>("responses.openTestsOnFailure");
   const [view, setView] = useState<"pretty" | "raw" | "preview">(defaultView);
   const [wrap, setWrap] = useState(wrapDefault);
-  const [tab, setTab] = useState("body");
+  const [local, setLocal] = useState("body");
+  // A jump to Test Results after a failed run, shown at once and handed to the owner after render.
+  const [forced, setForced] = useState<string | null>(null);
+  const known = (v: string | undefined) => !!v && (RESPONSE_SECTIONS as readonly string[]).includes(v);
+  const tab = forced ?? (known(section) ? section! : section === undefined ? local : "body");
+  const setTab = (v: string) => {
+    setLocal(v);
+    setForced(null);
+    onSectionChange?.(v);
+  };
+  // Report the jump to the owner after render; it stays shown until the next result or click.
+  useEffect(() => {
+    if (forced !== null) onSectionChange?.(forced);
+  }, [forced, onSectionChange]);
   const [renderFull, setRenderFull] = useState(false);
   // React to a new result during render (not in an effect): reset the large-body view and
-  // jump to Test Results when a test failed.
+  // jump to Test Results when a test failed. A remount with the same result keeps the sub-tab.
   const [seenResult, setSeenResult] = useState(result);
   if (result !== seenResult) {
     setSeenResult(result);
     setRenderFull(false);
-    if (openTestsOnFailure && result?.tests.some((t) => !t.passed && !t.skipped)) setTab("tests");
+    const jump = !!openTestsOnFailure && !!result?.tests.some((t) => !t.passed && !t.skipped);
+    if (jump) setLocal("tests");
+    setForced(jump ? "tests" : null);
   }
   const res = result?.response;
   const tooLarge = !!res && !renderFull && res.bodyText.length > maxRenderBytes;
