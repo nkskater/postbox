@@ -11,17 +11,9 @@ import { toast } from "sonner";
 import { HTTP_METHODS, type KeyValue, type RequestDef } from "@/core/types";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { CommentsPanel } from "@/components/comments/CommentsPanel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { VarInput } from "@/components/editor/VarInput";
 import { ResponseViewer } from "@/components/response/ResponseViewer";
-import { AiPanel } from "@/components/response/AiPanel";
-import { EventStreamPanel } from "@/components/response/EventStreamPanel";
-import { WebSocketPanel } from "@/components/response/WebSocketPanel";
-import { SocketIoPanel } from "@/components/response/SocketIoPanel";
-import { MqttPanel } from "@/components/response/MqttPanel";
-import { GrpcPanel } from "@/components/response/GrpcPanel";
-import { GrpcEditor } from "@/components/request/GrpcEditor";
 import { isGrpcUrl } from "@/lib/grpc";
 import { folderPath, useApp, type RequestDraft, type Tab } from "@/stores/app";
 import { useDialogs } from "@/stores/dialogs";
@@ -35,9 +27,19 @@ import { KeyValueEditor } from "./KeyValueEditor";
 import { BodyEditor } from "./BodyEditor";
 import { AuthEditor } from "./AuthEditor";
 import { ScriptEditor } from "./ScriptEditor";
-import { ContractEditor } from "./ContractEditor";
 import { SettingsEditor } from "./SettingsEditor";
 import { cn } from "@/lib/utils";
+import {
+  ContractEditor,
+  AiPanel,
+  EventStreamPanel,
+  WebSocketPanel,
+  SocketIoPanel,
+  MqttPanel,
+  GrpcPanel,
+  GrpcEditor,
+  CommentsPanel,
+} from "./lazy";
 import {
   authCredentialValues,
   credentialRedactionValues,

@@ -7,10 +7,8 @@ import { featureOfView, featureSettingKey } from "@/core/features";
 import { cn } from "@/lib/utils";
 import { CollectionTree } from "./CollectionTree";
 import { EnvironmentList } from "./EnvironmentList";
-import { PackageList } from "./PackageList";
-import { MockList } from "./MockList";
-import { DatasetList } from "./DatasetList";
 import { HistoryList } from "./HistoryList";
+import { DatasetList, MockList, PackageList } from "@/components/app/lazy";
 
 const VIEWS = [
   { id: "assistant", label: "Assistant", icon: Server },

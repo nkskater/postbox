@@ -305,3 +305,15 @@ production browser tests for UI behavior. Add an authorization inventory entry a
 boundary regression with a new route/tool; exercise migrations on existing data
 when changing persistence. [Application tests](docs/application-tests.md) documents
 user-facing network capture/assertion testing separately from the repository tests.
+
+### Browser bundle
+
+The home page's first load carries only the shell, collection tree, environment and history
+lists, request editor and response viewer. Feature tabs, editors opened from the tree, settings,
+dialogs (mounted the first time they open), protocol panels and CodeMirror language packs load
+on demand through `src/components/app/lazy.tsx`, `src/components/request/lazy.tsx` and dynamic
+`import()`. Client components must not value-import modules that pull server-oriented libraries
+(for example `@/core/schemas`, `@/core/contracts/validate`, `@/core/variables/resolver` or
+`@/core/runner/data`); use `import type`, or the browser-safe modules beside them
+(`@/core/variables/redact`, `@/core/runner/table`). `npm run check:bundle` runs in CI after the
+build and fails when the first load exceeds 1.5 MB raw or 500 kB gzipped.

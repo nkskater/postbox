@@ -1,8 +1,4 @@
 "use client";
-import { AssistantPanel } from "@/components/assistant/AssistantPanel";
-import { TelemetryPanel } from "@/components/telemetry/TelemetryPanel";
-import { GovernancePanel } from "@/components/governance/GovernancePanel";
-import { SpecificationsPanel } from "@/components/specifications/SpecificationsPanel";
 /**
  * Application shell: header, resizable sidebar / main area / console layout,
  * global dialogs and keyboard shortcuts.
@@ -18,32 +14,38 @@ import { useApp } from "@/stores/app";
 import { useDialogs } from "@/stores/dialogs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Sidebar } from "@/components/sidebar/Sidebar";
-import { GraphPanel } from "@/components/graph/GraphPanel";
-import { MonitorsPanel } from "@/components/monitors/MonitorsPanel";
-import { McpClientPanel } from "@/components/mcp-client/McpClientPanel";
-import { CatalogBrowser } from "@/components/catalog/CatalogBrowser";
 import { RequestEditor } from "@/components/request/RequestEditor";
-import { FolderEditor } from "@/components/folder/FolderEditor";
-import { EnvironmentEditor } from "@/components/env/EnvironmentEditor";
-import { ConsolePanel } from "@/components/console/ConsolePanel";
-import { RunnerTabs } from "@/components/runner/RunnerTabs";
 import { SaveRequestDialog } from "@/components/dialogs/SaveRequestDialog";
-import { ShortcutsDialog } from "@/components/dialogs/ShortcutsDialog";
-import { CommandPalette } from "@/components/dialogs/CommandPalette";
-import { ImportDialog } from "@/components/dialogs/ImportDialog";
-import { ScriptPackageDialog } from "@/components/dialogs/ScriptPackageDialog";
-import { DatasetEditorDialog } from "@/components/dialogs/DatasetEditorDialog";
-import { ExamplesDialog } from "@/components/dialogs/ExamplesDialog";
-import { CodeSnippetDialog } from "@/components/dialogs/CodeSnippetDialog";
 import { TopBar } from "./TopBar";
 import { TabBar } from "./TabBar";
-import { CookiesView } from "./CookiesView";
-import { SettingsView } from "@/components/settings/SettingsView";
 import { useSettings, useSetting } from "@/stores/settings";
 import { actionForEvent, comboFromEvent } from "@/lib/shortcuts";
 import { currentBindings } from "@/lib/use-shortcuts";
 import { featureOfView } from "@/core/features";
 import { FeatureGate } from "./FeatureGate";
+import {
+  AssistantPanel,
+  TelemetryPanel,
+  GovernancePanel,
+  SpecificationsPanel,
+  GraphPanel,
+  MonitorsPanel,
+  McpClientPanel,
+  CatalogBrowser,
+  FolderEditor,
+  EnvironmentEditor,
+  ConsolePanel,
+  RunnerTabs,
+  ImportDialog,
+  ScriptPackageDialog,
+  DatasetEditorDialog,
+  ExamplesDialog,
+  CodeSnippetDialog,
+  CookiesView,
+  SettingsView,
+  CommandPalette,
+  ShortcutsDialog,
+} from "./lazy";
 
 function MainArea() {
   const tabs = useApp((s) => s.tabs);
@@ -327,13 +329,7 @@ export function App({ authEnabled }: { authEnabled: boolean }) {
           if (saveTabId) await saveTab(saveTabId, target);
         }}
       />
-      <ShortcutsDialog />
-      <CommandPalette />
-      <ImportDialog />
-      <ExamplesDialog />
-      <DatasetEditorDialog />
-      <ScriptPackageDialog />
-      <CodeSnippetDialog />
+      <LazyDialogs />
       <Toaster
         theme={theme}
         position={toastPosition as ToasterProps["position"]}
@@ -342,5 +338,37 @@ export function App({ authEnabled }: { authEnabled: boolean }) {
         closeButton
       />
     </TooltipProvider>
+  );
+}
+
+/**
+ * Dialogs whose code loads on first use: each mounts the first time it is opened and stays mounted
+ * afterwards, so closing animations and later openings behave as before.
+ */
+/** True from the first time `open` is true; lets a dialog mount on first use and then stay mounted. */
+function useOpenedOnce(open: boolean): boolean {
+  const [opened, setOpened] = useState(open);
+  if (open && !opened) setOpened(true);
+  return opened || open;
+}
+
+function LazyDialogs() {
+  const importOpen = useOpenedOnce(useDialogs((s) => s.importOpen));
+  const examples = useOpenedOnce(useDialogs((s) => s.exampleRequestId !== null));
+  const dataset = useOpenedOnce(useDialogs((s) => s.datasetEditor !== null));
+  const scriptPackage = useOpenedOnce(useDialogs((s) => s.scriptPackageEditor !== null));
+  const code = useOpenedOnce(useDialogs((s) => s.codeTabId !== null));
+  const palette = useOpenedOnce(useDialogs((s) => s.paletteOpen));
+  const shortcuts = useOpenedOnce(useDialogs((s) => s.shortcutsOpen));
+  return (
+    <>
+      {importOpen && <ImportDialog />}
+      {examples && <ExamplesDialog />}
+      {dataset && <DatasetEditorDialog />}
+      {scriptPackage && <ScriptPackageDialog />}
+      {code && <CodeSnippetDialog />}
+      {palette && <CommandPalette />}
+      {shortcuts && <ShortcutsDialog />}
+    </>
   );
 }

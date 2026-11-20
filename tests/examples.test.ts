@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import { describe, expect, it } from "vitest";
-import { exampleFromResponse, sanitizeExample, validateExamples, requestFromExample } from "@/core/examples";
+import { exampleFromResponse, sanitizeExample, requestFromExample } from "@/core/examples";
+import { validateExamples } from "@/core/examples-validation";
 import { sanitizeRequestDraftForBrowser } from "@/core/retention";
 import { importPostmanCollection, exportPostmanCollection } from "@/core/convert/postman";
 import { DEFAULT_SETTINGS, type RequestNode, type ResponseExample, type RequestDef } from "@/core/types";

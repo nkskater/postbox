@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { z } from "zod";
 import { exampleCommandSchema } from "@/core/schemas";
-import { validateExamples } from "@/core/examples";
+import { validateExamples } from "@/core/examples-validation";
 import type { ResponseExample } from "@/core/types";
 import { getDb } from "./db";
 import { newId } from "./defaults";

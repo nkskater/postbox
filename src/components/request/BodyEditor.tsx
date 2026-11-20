@@ -1,5 +1,5 @@
 "use client";
-import { GraphqlBodyEditor } from "./GraphqlBodyEditor";
+import { GraphqlBodyEditor } from "./lazy";
 /**
  * Request body editor: none / raw (JSON, XML, text, HTML, JS) / form-data /
  * x-www-form-urlencoded / binary / GraphQL.
