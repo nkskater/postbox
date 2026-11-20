@@ -41,6 +41,8 @@ jobs:
           POSTBOX_SANDBOX_BENCHMARK_MS: '40'
         run: npx vitest run tests/sandbox-lazy-libraries.test.ts --maxWorkers=1 --reporter=verbose -t 'keeps warmed core-only startup'
       - run: npm run build
+      - name: Check the home page's first-load JavaScript budget
+        run: npm run check:bundle
       - name: Build the VS Code extension
         run: npm run build:vscode
       - name: Check startup memory

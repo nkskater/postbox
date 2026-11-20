@@ -11,7 +11,7 @@ import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import type { DataTable, DatasetRef } from "@/core/types";
 import type { RunEvent, RunResult } from "@/core/runner/runner";
-import { filterRows } from "@/core/runner/data";
+import { filterRows } from "@/core/runner/table";
 import { useApp } from "@/stores/app";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";

@@ -1,5 +1,5 @@
 import type { AuthConfig, BodyConfig, ResponseExample, KeyValue } from "./types";
-import { redactStoredValue } from "./variables/resolver";
+import { redactStoredValue } from "./variables/redact";
 
 /** Uploaded request files are limited to 5 MiB of decoded bytes per request. */
 export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;

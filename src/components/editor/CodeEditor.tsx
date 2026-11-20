@@ -3,12 +3,9 @@
  * Multi-line code editor (CodeMirror 6) with language support, folding,
  * search (Ctrl+F) and {{variable}} highlighting.
  */
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import CodeMirror, { type ReactCodeMirrorProps } from "@uiw/react-codemirror";
 import { json } from "@codemirror/lang-json";
-import { xml } from "@codemirror/lang-xml";
-import { html } from "@codemirror/lang-html";
-import { javascript } from "@codemirror/lang-javascript";
 import { EditorView } from "@codemirror/view";
 import { EditorState, type Extension } from "@codemirror/state";
 import { indentUnit } from "@codemirror/language";
@@ -19,20 +16,43 @@ import { editorTheme } from "./theme";
 
 export type EditorLanguage = "json" | "xml" | "html" | "javascript" | "text" | "graphql";
 
-const languageExt = (lang: EditorLanguage): Extension[] => {
-  switch (lang) {
-    case "json":
-      return [json()];
-    case "xml":
-      return [xml()];
-    case "html":
-      return [html()];
-    case "javascript":
-      return [javascript()];
-    default:
-      return [];
-  }
+// JSON is highlighted from the first paint; the other language packs load the first time an
+// editor needs them (HTML brings CSS and JavaScript with it), and are then shared by every editor.
+const loaded = new Map<EditorLanguage, Extension[]>([
+  ["json", [json()]],
+  ["text", []],
+  ["graphql", []],
+]);
+const loaders: Partial<Record<EditorLanguage, () => Promise<Extension[]>>> = {
+  xml: () => import("@codemirror/lang-xml").then((m) => [m.xml()]),
+  html: () => import("@codemirror/lang-html").then((m) => [m.html()]),
+  javascript: () => import("@codemirror/lang-javascript").then((m) => [m.javascript()]),
 };
+const pending = new Map<EditorLanguage, Promise<Extension[]>>();
+
+function useLanguage(lang: EditorLanguage): Extension[] {
+  const [, setReady] = useState(0);
+  useEffect(() => {
+    if (loaded.has(lang)) return;
+    let live = true;
+    let load = pending.get(lang);
+    if (!load) {
+      load = (loaders[lang]?.() ?? Promise.resolve([])).then((ext) => {
+        loaded.set(lang, ext);
+        return ext;
+      });
+      pending.set(lang, load);
+    }
+    load.then(
+      () => live && setReady((n) => n + 1),
+      () => pending.delete(lang),
+    );
+    return () => {
+      live = false;
+    };
+  }, [lang]);
+  return loaded.get(lang) ?? [];
+}
 
 export interface CodeEditorProps {
   value: string;
@@ -71,10 +91,11 @@ export function CodeEditor({
   const activeLine = useSetting<boolean>("editor.activeLine");
   const tabSize = Number(useSetting<string>("editor.tabSize")) || 2;
   const highlightVars = variables ?? !readOnly;
+  const languageExt = useLanguage(language);
   const lineWrap = wrap ?? wrapDefault;
   const extensions = useMemo(
     () => [
-      ...languageExt(language),
+      ...languageExt,
       ...(highlightVars
         ? variableExtensions(vars, { ...varOpts, autocomplete: !readOnly && varOpts.autocomplete })
         : []),
@@ -83,7 +104,7 @@ export function CodeEditor({
       indentUnit.of(" ".repeat(tabSize)),
       ...(extra ?? []),
     ],
-    [language, highlightVars, vars, varOpts, readOnly, lineWrap, tabSize, extra],
+    [languageExt, highlightVars, vars, varOpts, readOnly, lineWrap, tabSize, extra],
   );
   return (
     <CodeMirror

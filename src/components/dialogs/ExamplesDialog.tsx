@@ -3,13 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { z } from "zod";
 import type { ExampleRequest, ResponseExample } from "@/core/types";
 import { responseExampleSchema, exampleCommandSchema } from "@/core/schemas";
-import {
-  exampleDraftId,
-  exampleRequest,
-  requestFromExample,
-  sanitizeExample,
-  validateExamples,
-} from "@/core/examples";
+import { exampleDraftId, exampleRequest, requestFromExample, sanitizeExample } from "@/core/examples";
+import { validateExamples } from "@/core/examples-validation";
 import { api, type SavedRequest } from "@/lib/api";
 import { useApp } from "@/stores/app";
 import { useDialogs } from "@/stores/dialogs";

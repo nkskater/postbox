@@ -16,7 +16,8 @@ import type {
 import type { CookieChanges } from "@/core/http/cookies";
 import { currentCaller } from "./access-context";
 import { actorId, workspaceRole } from "./authorize";
-import { sanitizeExample, validateExamples } from "@/core/examples";
+import { sanitizeExample } from "@/core/examples";
+import { validateExamples } from "@/core/examples-validation";
 import { authCredentialValues, sensitiveFieldValues } from "@/core/retention";
 import { DEFAULT_SETTINGS } from "@/core/types";
 import { paramsFromUrl } from "@/lib/url-params";
