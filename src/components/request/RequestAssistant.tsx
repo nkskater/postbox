@@ -39,6 +39,7 @@ import {
   type AssistantProvider,
   type Proposal,
 } from "@/stores/assistant";
+import { Markdown } from "@/components/assistant/Markdown";
 
 type RequestTab = Extract<Tab, { type: "request" }>;
 const SUPPORTED = ["propose_request_edit", "propose_send", "propose_save", "propose_request"];
@@ -200,9 +201,13 @@ export function RequestAssistant({ tab, onClose }: { tab: RequestTab; onClose: (
               <div className="mb-1 font-medium text-muted-foreground">
                 {m.role === "user" ? "You" : "Assistant"}
               </div>
-              <pre className="whitespace-pre-wrap break-words font-sans">
-                {m.role === "user" ? (conversation.shown[i] ?? m.content) : m.content}
-              </pre>
+              {m.role === "user" ? (
+                <pre className="whitespace-pre-wrap break-words font-sans">
+                  {conversation.shown[i] ?? m.content}
+                </pre>
+              ) : (
+                <Markdown text={m.content} />
+              )}
               {m.role === "assistant" &&
                 (m.toolCalls ?? []).map((call) => {
                   const p = conversation.proposals.find((x) => x.callId === call.id);
@@ -220,9 +225,11 @@ export function RequestAssistant({ tab, onClose }: { tab: RequestTab; onClose: (
           ),
         )}
         {busy && (
-          <article className="rounded border p-2">
-            <Loader2 className="inline size-3 animate-spin" />{" "}
-            <pre className="inline whitespace-pre-wrap font-sans">{streamed || "Thinking…"}</pre>
+          <article className="rounded border p-2" aria-busy={!streamed || undefined}>
+            <div className="mb-1 flex items-center gap-1 font-medium text-muted-foreground">
+              <Loader2 className="size-3 animate-spin" /> Assistant
+            </div>
+            {streamed ? <Markdown text={streamed} /> : <p className="text-muted-foreground">Thinking…</p>}
           </article>
         )}
         {!conversation.messages.length && !busy && (

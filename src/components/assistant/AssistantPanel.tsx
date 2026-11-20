@@ -16,6 +16,7 @@ import {
 import { readNdjson } from "@/lib/ndjson";
 import { api } from "@/lib/api";
 import { useAssistantSettings, type AssistantProvider } from "@/stores/assistant";
+import { Markdown } from "./Markdown";
 function request(proposal: AssistantProposal): RequestDef {
   return {
     id: crypto.randomUUID(),
@@ -212,10 +213,19 @@ function Chat({ workspaceId }: { workspaceId: string }) {
         {messages.map((m, i) => (
           <article key={i} className="border rounded p-3">
             <strong>{m.role}</strong>
-            <pre className="whitespace-pre-wrap break-words">{m.content}</pre>
+            {m.role === "assistant" ? (
+              <Markdown text={m.content} />
+            ) : (
+              <pre className="whitespace-pre-wrap break-words">{m.content}</pre>
+            )}
           </article>
         ))}
-        {busy && answer && <pre className="whitespace-pre-wrap">{answer}</pre>}
+        {busy && answer && (
+          <article className="border rounded p-3">
+            <strong>assistant</strong>
+            <Markdown text={answer} />
+          </article>
+        )}
       </section>
       <label className="block">
         Message

@@ -68,3 +68,12 @@ The next message's context is the updated request, and the model is told which p
 applied, rejected or undid. Applying a change never runs a script or sends the request by itself.
 The panel and `/api/ai` are not available while **AI assistant and AI requests** is switched off
 under Settings → Features.
+
+## How replies are shown
+
+Assistant replies in the sidebar Assistant and in a request tab's assistant are rendered as
+Markdown while they stream: headings, emphasis, inline and fenced code (with a copy button and
+horizontal scrolling), nested lists, tables, block quotes, rules and links. Your own messages stay
+plain text. Model output is treated as untrusted: HTML in a reply is shown as text, only `http`,
+`https` and `mailto` links are kept (they open in a new tab), and images are never loaded; their
+alt text is shown instead.
