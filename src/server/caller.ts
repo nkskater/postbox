@@ -19,6 +19,7 @@ import {
 import type { UserRow } from "./db/schema";
 import { callerScope } from "./access-context";
 import { HttpError } from "./errors";
+import { cachedValue } from "./db-cache";
 import { isSessionRevoked, revokeSession, sessionEpoch, sessionTtl } from "./session-settings";
 import { countUsers, getUser, resolveTokenInfo, storedSecret, toPublicUser, type PublicUser } from "./users";
 
@@ -43,10 +44,29 @@ export interface AuthState {
   enabled: boolean;
 }
 
+/** The environment variables the auth state depends on, hashed so the cache key holds no secret. */
+function authEnvKey(env: NodeJS.ProcessEnv): string {
+  const parts = [
+    env.POSTBOX_PASSWORD,
+    env.POSTBOX_TOKEN,
+    env.POSTBOX_SESSION_SECRET,
+    env.POSTBOX_SESSION_DAYS,
+  ];
+  return createHash("sha256")
+    .update(parts.map((p) => p ?? "").join("\0"))
+    .digest("base64url");
+}
+
+/**
+ * Whether sign-in is required and with which credentials. Cached until the database or these
+ * environment variables change.
+ */
 export function getAuthState(): AuthState {
-  const cfg = getAuthConfig(process.env, { epoch: sessionEpoch(), sessionTtlMs: sessionTtl() });
-  const hasUsers = countUsers() > 0;
-  return { cfg, hasUsers, enabled: !!cfg || hasUsers };
+  return cachedValue(`authState:${authEnvKey(process.env)}`, () => {
+    const cfg = getAuthConfig(process.env, { epoch: sessionEpoch(), sessionTtlMs: sessionTtl() });
+    const hasUsers = countUsers() > 0;
+    return { cfg, hasUsers, enabled: !!cfg || hasUsers };
+  });
 }
 
 /**
@@ -62,6 +82,19 @@ export function sessionSecret(): Buffer {
   return storedSecret("session");
 }
 
+/**
+ * How long a resolved caller is reused for the same credentials. Within one request the gate and
+ * the route handler resolve the same caller; any database write (a disabled user, a revoked key
+ * or session) ends the reuse at once, so this only bounds how long expiry checks can lag.
+ */
+const CALLER_REUSE_MS = 1000;
+
+interface ResolvedCaller {
+  state: AuthState;
+  at: number;
+  caller: Caller | null;
+}
+
 /** Resolve the caller from the Authorization header and session cookie; null means unauthenticated. */
 export function getCaller(
   headers: Headers,
@@ -69,6 +102,30 @@ export function getCaller(
   state = getAuthState(),
 ): Caller | null {
   if (!state.enabled) return { kind: "open" };
+  const now = Date.now();
+  const credentials = createHash("sha256")
+    .update(`${headers.get("authorization") ?? ""}\0${cookie ?? ""}`)
+    .digest("base64url");
+  return cachedValue<ResolvedCaller>(
+    `caller:${credentials}`,
+    () => ({ state, at: now, caller: resolveCaller(headers, cookie, state) }),
+    (hit) => sameAuthState(hit.state, state) && now - hit.at >= 0 && now - hit.at < CALLER_REUSE_MS,
+  ).caller;
+}
+
+function sameAuthState(a: AuthState, b: AuthState): boolean {
+  if (a === b) return true;
+  if (a.enabled !== b.enabled || a.hasUsers !== b.hasUsers) return false;
+  if (!a.cfg || !b.cfg) return a.cfg === b.cfg;
+  return (
+    a.cfg.password === b.cfg.password &&
+    a.cfg.token === b.cfg.token &&
+    a.cfg.sessionTtlMs === b.cfg.sessionTtlMs &&
+    a.cfg.secret.equals(b.cfg.secret)
+  );
+}
+
+function resolveCaller(headers: Headers, cookie: string | undefined, state: AuthState): Caller | null {
   const bearer = bearerToken(headers.get("authorization"));
   if (bearer) {
     if (state.cfg?.token && safeEqual(bearer, state.cfg.token)) return { kind: "env" };

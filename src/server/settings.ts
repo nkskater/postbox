@@ -1,13 +1,14 @@
 /**
  * Persistence and resolution for app settings (see src/lib/settings/registry.ts).
  */
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { AuditChange } from "@/core/audit";
 import { audit } from "./audit";
 import { currentCaller } from "./access-context";
 import { requireAdmin } from "./authorize";
 import { isAdmin } from "./caller";
 import { getDb, schema } from "./db";
+import { cachedValue, preparedOnce } from "./db-cache";
 import {
   BROWSER_SETTING_KEYS,
   SETTINGS,
@@ -76,15 +77,32 @@ export function listEnvSettings(env: NodeJS.ProcessEnv = process.env): EnvSettin
 }
 
 const browserKey = (key: string) => BROWSER_SETTING_KEYS.includes(key);
+const allAppSettings = () =>
+  preparedOnce("appSettings.all", () => getDb().select().from(appSettings).prepare());
+const userSettingsOf = () =>
+  preparedOnce("userSettings.byUser", () =>
+    getDb()
+      .select()
+      .from(schema.userSettings)
+      .where(eq(schema.userSettings.userId, sql.placeholder("userId")))
+      .prepare(),
+  );
+
+/**
+ * Saved settings for the current caller: instance values, with personal (browser) values from
+ * the account. Cached until the database next changes, so one request reads them once.
+ */
 export function readSavedSettings(): Record<string, unknown> {
   const caller = currentCaller();
-  const rows = getDb().select().from(appSettings).all();
-  if (caller?.kind !== "user") return Object.fromEntries(rows.map((r) => [r.key, r.value]));
-  const personal = getDb()
-    .select()
-    .from(schema.userSettings)
-    .where(eq(schema.userSettings.userId, caller.user.id))
-    .all();
+  const userId = caller?.kind === "user" ? caller.user.id : null;
+  // A fresh copy each time: callers may add to the object they get.
+  return { ...cachedValue(`savedSettings:${userId ?? ""}`, () => loadSavedSettings(userId)) };
+}
+
+function loadSavedSettings(userId: string | null): Record<string, unknown> {
+  const rows = allAppSettings().all();
+  if (!userId) return Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  const personal = userSettingsOf().all({ userId });
   return Object.fromEntries(
     [...rows.filter((r) => !browserKey(r.key)), ...personal].map((r) => [r.key, r.value]),
   );

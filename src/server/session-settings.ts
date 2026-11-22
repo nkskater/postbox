@@ -6,6 +6,7 @@ import { eq, lte, sql } from "drizzle-orm";
 import { createHash, randomBytes } from "node:crypto";
 import { SETTINGS_BY_KEY, resolveSettings } from "@/lib/settings/registry";
 import { getDb, schema } from "./db";
+import { cachedValue, preparedOnce } from "./db-cache";
 
 const SESSION_DAYS_KEY = "security.sessionDays";
 const EPOCH_KEY = "session-epoch";
@@ -13,23 +14,25 @@ const EPOCH_KEY = "session-epoch";
 /** Length of newly created sessions: the saved setting, pinned by POSTBOX_SESSION_DAYS when set. */
 export function sessionTtl(env: NodeJS.ProcessEnv = process.env): number {
   const def = SETTINGS_BY_KEY.get(SESSION_DAYS_KEY)!;
-  const row = getDb()
-    .select()
-    .from(schema.appSettings)
-    .where(eq(schema.appSettings.key, SESSION_DAYS_KEY))
-    .get();
+  const row = cachedValue(`appSetting:${SESSION_DAYS_KEY}`, () =>
+    preparedOnce("appSettings.sessionDays", () =>
+      getDb().select().from(schema.appSettings).where(eq(schema.appSettings.key, SESSION_DAYS_KEY)).prepare(),
+    ).get(),
+  );
   const { values } = resolveSettings(row ? { [SESSION_DAYS_KEY]: row.value } : {}, env, [def]);
   return Number(values[SESSION_DAYS_KEY]) * 86_400_000;
 }
 
 /** Mixed into the single-user (password) session key; changing it invalidates those cookies. */
 export function sessionEpoch(): string {
+  return cachedValue("sessionEpoch", readOrCreateEpoch);
+}
+
+function readOrCreateEpoch(): string {
   const db = getDb();
-  const existing = db
-    .select()
-    .from(schema.serverSecrets)
-    .where(eq(schema.serverSecrets.key, EPOCH_KEY))
-    .get();
+  const existing = preparedOnce("serverSecrets.epoch", () =>
+    db.select().from(schema.serverSecrets).where(eq(schema.serverSecrets.key, EPOCH_KEY)).prepare(),
+  ).get();
   if (existing) return existing.value;
   db.insert(schema.serverSecrets)
     .values({ key: EPOCH_KEY, value: randomBytes(16).toString("base64url"), createdAt: Date.now() })

@@ -8,7 +8,7 @@
  * workspaces), and the acting identity's own limit. Soft limits raise one alert per period; hard limits
  * refuse with HTTP 429. With no limits configured nothing is ever refused.
  */
-import { and, desc, eq, gte, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import {
   USAGE_METRICS,
   checkLimit,
@@ -22,6 +22,7 @@ import {
 import { audit } from "./audit";
 import { currentCaller } from "./access-context";
 import { getDb, getSqlite, schema } from "./db";
+import { preparedOnce } from "./db-cache";
 import { newId } from "./defaults";
 import { HttpError } from "./errors";
 
@@ -34,40 +35,37 @@ export function actingUserId(): string | null {
   return caller?.kind === "user" ? caller.user.id : null;
 }
 
+/** Every limit that can apply to a metric here: this workspace's, the default and the caller's own. */
+const candidateLimits = () =>
+  preparedOnce("usageLimits.candidates", () =>
+    getDb()
+      .select()
+      .from(usageLimits)
+      .where(
+        and(
+          eq(usageLimits.metric, sql.placeholder("metric")),
+          or(
+            and(eq(usageLimits.workspaceId, sql.placeholder("workspaceId")), isNull(usageLimits.userId)),
+            and(isNull(usageLimits.workspaceId), isNull(usageLimits.userId)),
+            and(eq(usageLimits.userId, sql.placeholder("userId")), isNull(usageLimits.workspaceId)),
+          ),
+        ),
+      )
+      .prepare(),
+  );
+
 function applicableLimits(
   workspaceId: string,
   userId: string | null,
   metric: UsageMetric,
 ): { limit: LimitRow; scope: Scope }[] {
-  const db = getDb();
+  const rows = candidateLimits().all({ metric, workspaceId, userId });
   const out: { limit: LimitRow; scope: Scope }[] = [];
-  const own = db
-    .select()
-    .from(usageLimits)
-    .where(
-      and(
-        eq(usageLimits.workspaceId, workspaceId),
-        isNull(usageLimits.userId),
-        eq(usageLimits.metric, metric),
-      ),
-    )
-    .get();
-  const fallback =
-    own ??
-    db
-      .select()
-      .from(usageLimits)
-      .where(and(isNull(usageLimits.workspaceId), isNull(usageLimits.userId), eq(usageLimits.metric, metric)))
-      .get();
+  const own = rows.find((r) => r.workspaceId === workspaceId && r.userId === null);
+  const fallback = own ?? rows.find((r) => r.workspaceId === null && r.userId === null);
   if (fallback) out.push({ limit: fallback, scope: own ? "workspace" : "default" });
   if (userId) {
-    const mine = db
-      .select()
-      .from(usageLimits)
-      .where(
-        and(eq(usageLimits.userId, userId), isNull(usageLimits.workspaceId), eq(usageLimits.metric, metric)),
-      )
-      .get();
+    const mine = rows.find((r) => r.userId === userId && r.workspaceId === null);
     if (mine) out.push({ limit: mine, scope: "identity" });
   }
   return out;

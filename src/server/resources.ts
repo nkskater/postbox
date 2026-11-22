@@ -1,4 +1,5 @@
 import { getSqlite } from "./db";
+import { preparedOnce } from "./db-cache";
 import { HttpError } from "./errors";
 
 export type ResourceKind =
@@ -75,11 +76,11 @@ export const RESOURCE_TABLES: Record<ResourceKind, string> = {
   telemetrySource: "telemetry_sources",
 };
 export function resourceWorkspace(kind: ResourceKind, id: string): string {
-  const row = getSqlite()
-    .prepare(
+  const row = preparedOnce(`resourceWorkspace:${kind}`, () =>
+    getSqlite().prepare(
       `SELECT ${kind === "workspace" ? "id" : "workspace_id"} AS workspaceId FROM ${RESOURCE_TABLES[kind]} WHERE id = ?`,
-    )
-    .get(id) as { workspaceId: string } | undefined;
+    ),
+  ).get(id) as { workspaceId: string } | undefined;
   if (!row) throw new HttpError(404, "Resource not found");
   return row.workspaceId;
 }

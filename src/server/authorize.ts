@@ -1,8 +1,9 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import type { Caller } from "./caller";
 import { scopeAllows, scopeAtLeast, type KeyScope } from "@/core/scopes";
 import { callerScope, currentCaller } from "./access-context";
 import { getDb, schema } from "./db";
+import { preparedOnce } from "./db-cache";
 import { HttpError } from "./errors";
 import { audit } from "./audit";
 
@@ -31,28 +32,33 @@ export function workspaceRole(caller: Caller | undefined, workspaceId: string): 
   if (!caller || caller.kind !== "user") return "owner";
   if (caller.user.disabled) return null;
   if (caller.user.isAdmin) return "owner";
-  return (
+  return memberRole().get({ workspaceId, userId: caller.user.id })?.role ?? null;
+}
+
+const memberRole = () =>
+  preparedOnce("workspaceMembers.role", () =>
     getDb()
-      .select()
+      .select({ role: schema.workspaceMembers.role })
       .from(schema.workspaceMembers)
       .where(
         and(
-          eq(schema.workspaceMembers.workspaceId, workspaceId),
-          eq(schema.workspaceMembers.userId, caller.user.id),
+          eq(schema.workspaceMembers.workspaceId, sql.placeholder("workspaceId")),
+          eq(schema.workspaceMembers.userId, sql.placeholder("userId")),
         ),
       )
-      .get()?.role ?? null
+      .prepare(),
   );
-}
-export function authorize(caller: Caller | undefined, workspaceId: string, action: WorkspaceAction) {
-  if (
-    !getDb()
+
+const workspaceExists = () =>
+  preparedOnce("workspaces.exists", () =>
+    getDb()
       .select({ id: schema.workspaces.id })
       .from(schema.workspaces)
-      .where(eq(schema.workspaces.id, workspaceId))
-      .get()
-  )
-    throw new HttpError(404, "Workspace not found");
+      .where(eq(schema.workspaces.id, sql.placeholder("id")))
+      .prepare(),
+  );
+export function authorize(caller: Caller | undefined, workspaceId: string, action: WorkspaceAction) {
+  if (!workspaceExists().get({ id: workspaceId })) throw new HttpError(404, "Workspace not found");
   const role = workspaceRole(caller, workspaceId);
   if (!role) throw new HttpError(404, "Workspace not found");
   if (!ROLE_ACTIONS[role].includes(action)) throw new HttpError(403, "Insufficient workspace role");
