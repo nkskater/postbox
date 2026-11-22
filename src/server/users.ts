@@ -15,6 +15,7 @@ import { newId } from "./defaults";
 import { audit } from "./audit";
 import { describeChange } from "@/core/audit";
 import { HttpError } from "./errors";
+import { cachedValue, preparedOnce } from "./db-cache";
 
 const { users, apiTokens, serverSecrets } = schema;
 
@@ -92,17 +93,31 @@ export const toPublicUser = (u: UserRow): PublicUser => ({
 export const normalizeUsername = (name: string) => name.trim().toLowerCase();
 const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{1,63}$/;
 
+/** Number of accounts; cached until the database next changes (see db-cache.ts). */
 export function countUsers(): number {
-  return (
-    getDb()
-      .select({ n: sql<number>`count(*)` })
-      .from(users)
-      .get()?.n ?? 0
+  return cachedValue(
+    "users.count",
+    () =>
+      preparedOnce("users.count", () =>
+        getDb()
+          .select({ n: sql<number>`count(*)` })
+          .from(users)
+          .prepare(),
+      ).get()?.n ?? 0,
   );
 }
 
+const userById = () =>
+  preparedOnce("users.byId", () =>
+    getDb()
+      .select()
+      .from(users)
+      .where(eq(users.id, sql.placeholder("id")))
+      .prepare(),
+  );
+
 export function getUser(id: string) {
-  return getDb().select().from(users).where(eq(users.id, id)).get();
+  return userById().get({ id });
 }
 
 export function getUserByUsername(username: string) {
@@ -524,6 +539,15 @@ export function rotateToken(tokenId: string, graceMinutes = 0, now = Date.now())
   });
 }
 
+const tokenByHash = () =>
+  preparedOnce("apiTokens.byHash", () =>
+    getDb()
+      .select()
+      .from(apiTokens)
+      .where(eq(apiTokens.tokenHash, sql.placeholder("hash")))
+      .prepare(),
+  );
+
 /** A resolved key: its owner plus the key's own scope and limit. */
 export interface ResolvedToken {
   user: UserRow;
@@ -534,11 +558,7 @@ export interface ResolvedToken {
 export function resolveTokenInfo(token: string, now = Date.now()): ResolvedToken | null {
   if (!token.startsWith(TOKEN_PREFIX)) return null;
   const db = getDb();
-  const row = db
-    .select()
-    .from(apiTokens)
-    .where(eq(apiTokens.tokenHash, hashToken(token)))
-    .get();
+  const row = tokenByHash().get({ hash: hashToken(token) });
   if (!row || row.revokedAt || (row.expiresAt && row.expiresAt <= now)) return null;
   const user = getUser(row.userId);
   if (!user || user.disabled) return null;
@@ -556,8 +576,21 @@ export const resolveToken = (token: string, now = Date.now()): UserRow | null =>
 
 /** Random secret generated on first use and kept in the database. */
 export function storedSecret(key: string): Buffer {
+  return Buffer.from(cachedValue(`serverSecret:${key}`, () => readOrCreateSecret(key)));
+}
+
+const secretByKey = () =>
+  preparedOnce("serverSecrets.byKey", () =>
+    getDb()
+      .select()
+      .from(serverSecrets)
+      .where(eq(serverSecrets.key, sql.placeholder("key")))
+      .prepare(),
+  );
+
+function readOrCreateSecret(key: string): Buffer {
   const db = getDb();
-  const existing = db.select().from(serverSecrets).where(eq(serverSecrets.key, key)).get();
+  const existing = secretByKey().get({ key });
   if (existing) return Buffer.from(existing.value, "base64url");
   const value = randomBytes(32).toString("base64url");
   db.insert(serverSecrets).values({ key, value, createdAt: Date.now() }).onConflictDoNothing().run();
