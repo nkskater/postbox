@@ -22,6 +22,7 @@ import { authCredentialValues, sensitiveFieldValues } from "@/core/retention";
 import { DEFAULT_SETTINGS } from "@/core/types";
 import { paramsFromUrl } from "@/lib/url-params";
 import { getDb, schema } from "./db";
+import { preparedOnce } from "./db-cache";
 import type { FolderRow, RequestRow } from "./db/schema";
 import { defaultFolder, defaultRequest, newId } from "./defaults";
 import { HttpError, notFound } from "./errors";
@@ -78,8 +79,17 @@ export function listWorkspaces() {
     .filter((ws) => workspaceRole(currentCaller(), ws.id));
 }
 
+const workspaceById = () =>
+  preparedOnce("workspaces.byId", () =>
+    getDb()
+      .select()
+      .from(workspaces)
+      .where(eq(workspaces.id, sql.placeholder("id")))
+      .prepare(),
+  );
+
 export function getWorkspace(id: string) {
-  return getDb().select().from(workspaces).where(eq(workspaces.id, id)).get();
+  return workspaceById().get({ id });
 }
 
 export function createWorkspace(name: string) {
